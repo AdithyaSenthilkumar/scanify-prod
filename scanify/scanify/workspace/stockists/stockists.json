@@ -10,21 +10,21 @@
    "label": "Stockist trend"
   }
  ],
- "content": "[{\"id\":\"kRwo4mh6W4\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Manage Stockist Masters, Statements &amp; Insights</span>\",\"col\":12}},{\"id\":\"ZbvavioYXv\",\"type\":\"paragraph\",\"data\":{\"text\":\"<i><b>Quick Links</b></i>\",\"col\":12}},{\"id\":\"P_8Mvt761v\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 New Statement\",\"col\":4}},{\"id\":\"ccCRhhsBsb\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\ud83d\udc65View Statements\",\"col\":4}},{\"id\":\"jGO-fDvmFI\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 New Stockist\",\"col\":4}},{\"id\":\"b0p6XHOSee\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Stockist trend\",\"col\":6}},{\"id\":\"ILwqeXIFdz\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Extraction Completion\",\"col\":6}},{\"id\":\"6_UkvB7hWL\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"7vLA8gwcDu\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Stockists\",\"col\":4}},{\"id\":\"T3K2Q-__iB\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Statements\",\"col\":4}},{\"id\":\"xNCSVpH0nP\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Products\",\"col\":4}}]",
- "creation": "2025-11-30 12:27:11.927300",
+ "content": "[{\"id\":\"kRwo4mh6W4\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Manage Stockist Masters, Statements &amp; Insights</span>\",\"col\":12}},{\"id\":\"ZbvavioYXv\",\"type\":\"paragraph\",\"data\":{\"text\":\"<i><b>Quick Links</b></i>\",\"col\":12}},{\"id\":\"P_8Mvt761v\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 New Statement\",\"col\":6}},{\"id\":\"ccCRhhsBsb\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\ud83d\udc65View Statements\",\"col\":6}},{\"id\":\"VGvuCLCVqF\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 New Bulk Upload\",\"col\":6}},{\"id\":\"rIP09T8FMj\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2714\ufe0f View Bulk Uploads\",\"col\":6}},{\"id\":\"b0p6XHOSee\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Stockist trend\",\"col\":6}},{\"id\":\"ILwqeXIFdz\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Extraction Completion\",\"col\":6}},{\"id\":\"6_UkvB7hWL\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"7vLA8gwcDu\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Stockists\",\"col\":4}},{\"id\":\"T3K2Q-__iB\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Statements\",\"col\":4}},{\"id\":\"xNCSVpH0nP\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Products\",\"col\":4}}]",
+ "creation": "2025-12-09 06:43:19.268977",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
  "for_user": "",
  "hide_custom": 0,
  "icon": "calendar-cog",
- "idx": 2,
+ "idx": 0,
  "indicator_color": "green",
  "is_hidden": 0,
  "label": "Stockists",
  "link_type": "DocType",
  "links": [],
- "modified": "2025-12-01 08:34:49.475086",
+ "modified": "2025-12-09 06:53:44.960486",
  "modified_by": "Administrator",
  "module": "Scanify",
  "name": "Stockists",
@@ -61,18 +61,26 @@
    "type": "DocType"
   },
   {
-   "color": "Green",
+   "color": "Grey",
+   "doc_view": "New",
+   "label": "\u2795 New Bulk Upload",
+   "link_to": "Bulk Statement Upload",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
    "doc_view": "List",
-   "label": "\ud83d\udc65View Statements",
-   "link_to": "Stockist Statement",
+   "label": "\u2714\ufe0f View Bulk Uploads",
+   "link_to": "Bulk Statement Upload",
    "stats_filter": "[]",
    "type": "DocType"
   },
   {
    "color": "Green",
-   "doc_view": "New",
-   "label": "\u2795 New Stockist",
-   "link_to": "Stockist Master",
+   "doc_view": "List",
+   "label": "\ud83d\udc65View Statements",
+   "link_to": "Stockist Statement",
    "stats_filter": "[]",
    "type": "DocType"
   }

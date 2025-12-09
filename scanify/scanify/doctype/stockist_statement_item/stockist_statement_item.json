@@ -1,114 +1,122 @@
 {
- "actions": [],
- "creation": "2025-11-29 08:00:00.000000",
- "doctype": "DocType",
- "engine": "InnoDB",
- "field_order": [
-  "product_code",
-  "product_name",
-  "pack",
-  "column_break_zxwe",
-  "opening_qty",
-  "purchase_qty",
-  "column_break_qwer",
-  "sales_qty",
-  "return_qty",
-  "misc_out_qty",
-  "column_break_asdf",
-  "closing_qty",
-  "pts",
-  "closing_value"
- ],
- "fields": [
-  {
-   "fieldname": "product_code",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Product Code",
-   "options": "Product Master",
-   "reqd": 1
-  },
-  {
-   "fetch_from": "product_code.product_name",
-   "fieldname": "product_name",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Product Name",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "product_code.pack",
-   "fieldname": "pack",
-   "fieldtype": "Data",
-   "label": "Pack",
-   "read_only": 1
-  },
-  {
-   "default": "0",
-   "fieldname": "opening_qty",
-   "fieldtype": "Float",
-   "in_list_view": 1,
-   "label": "Opening Qty"
-  },
-  {
-   "default": "0",
-   "fieldname": "purchase_qty",
-   "fieldtype": "Float",
-   "label": "Purchase Qty"
-  },
-  {
-   "default": "0",
-   "fieldname": "sales_qty",
-   "fieldtype": "Float",
-   "in_list_view": 1,
-   "label": "Sales Qty"
-  },
-  {
-   "default": "0",
-   "fieldname": "return_qty",
-   "fieldtype": "Float",
-   "label": "Return Qty"
-  },
-  {
-   "default": "0",
-   "fieldname": "misc_out_qty",
-   "fieldtype": "Float",
-   "label": "Misc Out/Trans Out"
-  },
-  {
-   "default": "0",
-   "fieldname": "closing_qty",
-   "fieldtype": "Float",
-   "in_list_view": 1,
-   "label": "Closing Qty",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "product_code.pts",
-   "fieldname": "pts",
-   "fieldtype": "Currency",
-   "label": "PTS",
-   "read_only": 1
-  },
-  {
-   "fieldname": "closing_value",
-   "fieldtype": "Currency",
-   "label": "Closing Value",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_zxwe",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "column_break_qwer",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "column_break_asdf",
-   "fieldtype": "Column Break"
-  }
- ],
+  "actions": [],
+  "creation": "2025-11-29 08:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "product_code",
+    "product_name",
+    "pack",
+    "column_break_zxwe",
+    "opening_qty",
+    "purchase_qty",
+    "column_break_qwer",
+    "sales_qty",
+    "free_qty",
+    "return_qty",
+    "misc_out_qty",
+    "column_break_asdf",
+    "closing_qty",
+    "pts",
+    "closing_value"
+  ],
+  "fields": [
+    {
+      "fieldname": "product_code",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Product Code",
+      "options": "Product Master",
+      "reqd": 1
+    },
+    {
+      "fetch_from": "product_code.product_name",
+      "fieldname": "product_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Product Name",
+      "read_only": 1
+    },
+    {
+      "fetch_from": "product_code.pack",
+      "fieldname": "pack",
+      "fieldtype": "Data",
+      "label": "Pack",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "opening_qty",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Opening Qty"
+    },
+    {
+      "default": "0",
+      "fieldname": "purchase_qty",
+      "fieldtype": "Float",
+      "label": "Purchase Qty"
+    },
+    {
+      "default": "0",
+      "fieldname": "sales_qty",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Sales Qty"
+    },
+    {
+      "default": "0",
+      "fieldname": "free_qty",
+      "fieldtype": "Float",
+      "label": "Free Qty",
+      "description": "Free quantity given (scheme quantity)"
+    },
+    {
+      "default": "0",
+      "fieldname": "return_qty",
+      "fieldtype": "Float",
+      "label": "Return Qty"
+    },
+    {
+      "default": "0",
+      "fieldname": "misc_out_qty",
+      "fieldtype": "Float",
+      "label": "Misc Out/Trans Out"
+    },
+    {
+      "default": "0",
+      "fieldname": "closing_qty",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Closing Qty",
+      "read_only": 1
+    },
+    {
+      "fetch_from": "product_code.pts",
+      "fieldname": "pts",
+      "fieldtype": "Currency",
+      "label": "PTS",
+      "read_only": 1
+    },
+    {
+      "fieldname": "closing_value",
+      "fieldtype": "Currency",
+      "label": "Closing Value",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_zxwe",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "column_break_qwer",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "column_break_asdf",
+      "fieldtype": "Column Break"
+    }
+  ],
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],

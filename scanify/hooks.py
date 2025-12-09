@@ -16,7 +16,7 @@ website_context = {
 
 # Default home page after login
 website_route_rules = [
-    {"from_route": "/desk", "to_route": "/app/scanify_dashboard"}
+    {"from_route": "/desk", "to_route": "/desk/scanify"}
 ]
 
 # Redirect after login

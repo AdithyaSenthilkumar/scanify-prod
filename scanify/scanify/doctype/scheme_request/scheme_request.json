@@ -4,262 +4,261 @@
  "creation": "2025-11-29 08:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": [
-  "request_details_section",
-  "application_date",
-  "requested_by",
-  "column_break_zxwe",
-  "team",
-  "region",
-  "doctor_details_section",
-  "search_doctor",
-  "doctor_code",
-  "doctor_name",
-  "doctor_place",
-  "column_break_qwer",
-  "specialization",
-  "city_pool",
-  "hospital_clinic",
-  "stockist_section_break",
-  "stockist_code",
-  "stockist_name",
-  "hq",
-  "products_section",
-  "items",
-  "section_break_tyui",
-  "total_scheme_value",
-  "column_break_ghbn",
-  "approval_status",
-  "scheme_notes",
-  "attachments_section",
-  "proof_attachment_1",
-  "proof_attachment_2",
-  "column_break_vbnm",
-  "proof_attachment_3",
-  "proof_attachment_4",
-  "approval_section",
-  "approval_log",
-  "amended_from"
- ],
- "fields": [
-  {
-   "default": "Today",
-   "fieldname": "application_date",
-   "fieldtype": "Date",
-   "label": "Application Date",
-   "reqd": 1
-  },
-  {
-   "default": "user",
-   "fieldname": "requested_by",
-   "fieldtype": "Link",
-   "label": "Requested By",
-   "options": "User",
-   "read_only": 1,
-   "reqd": 1
-  },
-  {
-   "fieldname": "search_doctor",
-   "fieldtype": "Data",
-   "label": "Search Doctor",
-   "description": "Type doctor name or place"
-  },
-  {
-   "fieldname": "doctor_code",
-   "fieldtype": "Link",
-   "label": "Doctor",
-   "options": "Doctor Master",
-   "reqd": 1
-  },
-  {
-   "fetch_from": "doctor_code.doctor_name",
-   "fieldname": "doctor_name",
-   "fieldtype": "Data",
-   "label": "Doctor Name",
-   "read_only": 1,
-   "bold": 1
-  },
-  {
-   "fetch_from": "doctor_code.place",
-   "fieldname": "doctor_place",
-   "fieldtype": "Data",
-   "label": "Place",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "doctor_code.specialization",
-   "fieldname": "specialization",
-   "fieldtype": "Data",
-   "label": "Specialization",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "doctor_code.hospital_clinic",
-   "fieldname": "hospital_clinic",
-   "fieldtype": "Data",
-   "label": "Hospital/Clinic",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "doctor_code.city_pool",
-   "fieldname": "city_pool",
-   "fieldtype": "Data",
-   "label": "City Pool",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "doctor_code.team",
-   "fieldname": "team",
-   "fieldtype": "Link",
-   "label": "Team",
-   "options": "Team Master",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "doctor_code.region",
-   "fieldname": "region",
-   "fieldtype": "Link",
-   "label": "Region",
-   "options": "Region Master",
-   "read_only": 1
-  },
-  {
-   "fieldname": "stockist_code",
-   "fieldtype": "Link",
-   "label": "Stockist (Optional)",
-   "options": "Stockist Master",
-   "description": "Select stockist if known"
-  },
-  {
-   "fetch_from": "stockist_code.stockist_name",
-   "fieldname": "stockist_name",
-   "fieldtype": "Data",
-   "label": "Stockist Name",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "stockist_code.hq",
-   "fieldname": "hq",
-   "fieldtype": "Link",
-   "label": "HQ",
-   "options": "HQ Master",
-   "read_only": 1
-  },
-  {
-   "fieldname": "items",
-   "fieldtype": "Table",
-   "label": "Products",
-   "options": "Scheme Request Item",
-   "reqd": 1
-  },
-  {
-   "fieldname": "total_scheme_value",
-   "fieldtype": "Currency",
-   "label": "Total Scheme Value",
-   "read_only": 1
-  },
-  {
-   "default": "Pending",
-   "fieldname": "approval_status",
-   "fieldtype": "Select",
-   "label": "Status",
-   "options": "Pending\nApproved\nRejected\nRerouted",
-   "read_only": 1
-  },
-  {
-   "fieldname": "scheme_notes",
-   "fieldtype": "Small Text",
-   "label": "Scheme Reason"
-  },
-  {
-   "fieldname": "proof_attachment_1",
-   "fieldtype": "Attach",
-   "label": "Order Copy"
-  },
-  {
-   "fieldname": "proof_attachment_2",
-   "fieldtype": "Attach",
-   "label": "Supply Proof"
-  },
-  {
-   "fieldname": "proof_attachment_3",
-   "fieldtype": "Attach",
-   "label": "Additional Document 1"
-  },
-  {
-   "fieldname": "proof_attachment_4",
-   "fieldtype": "Attach",
-   "label": "Additional Document 2"
-  },
-  {
-   "fieldname": "approval_log",
-   "fieldtype": "Table",
-   "label": "Approval History",
-   "options": "Scheme Approval Log",
-   "read_only": 1
-  },
-  {
-   "fieldname": "amended_from",
-   "fieldtype": "Link",
-   "label": "Amended From",
-   "no_copy": 1,
-   "options": "Scheme Request",
-   "print_hide": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "request_details_section",
-   "fieldtype": "Section Break",
-   "label": "Request Information"
-  },
-  {
-   "fieldname": "column_break_zxwe",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "doctor_details_section",
-   "fieldtype": "Section Break",
-   "label": "Doctor Details"
-  },
-  {
-   "fieldname": "column_break_qwer",
-   "fieldtype": "Column Break"
-  },
-  {
-   "collapsible": 1,
-   "fieldname": "stockist_section_break",
-   "fieldtype": "Section Break",
-   "label": "Stockist (Optional)"
-  },
-  {
-   "fieldname": "products_section",
-   "fieldtype": "Section Break",
-   "label": "Products & Quantities"
-  },
-  {
-   "fieldname": "section_break_tyui",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "column_break_ghbn",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "attachments_section",
-   "fieldtype": "Section Break",
-   "label": "Upload Supporting Documents"
-  },
-  {
-   "fieldname": "column_break_vbnm",
-   "fieldtype": "Column Break"
-  },
-  {
-   "collapsible": 1,
-   "fieldname": "approval_section",
-   "fieldtype": "Section Break",
-   "label": "Approval History"
-  }
- ],
+  "fieldorder": [
+    "request_details_section",
+    "application_date",
+    "requested_by",
+    "column_break_zxwe",
+    "team",
+    "region",
+    "hq_stockist_section",
+    "hq",
+    "stockist_code",
+    "stockist_name",
+    "doctor_details_section",
+    "search_doctor",
+    "doctor_code",
+    "doctor_name",
+    "doctor_place",
+    "column_break_qwer",
+    "specialization",
+    "city_pool",
+    "hospital_clinic",
+    "products_section",
+    "items",
+    "section_break_tyui",
+    "total_scheme_value",
+    "column_break_ghbn",
+    "approval_status",
+    "scheme_notes",
+    "attachments_section",
+    "proof_attachment_1",
+    "proof_attachment_2",
+    "column_break_vbnm",
+    "proof_attachment_3",
+    "proof_attachment_4",
+    "approval_section",
+    "approval_log",
+    "amended_from"
+  ],
+  "fields": [
+    {
+      "default": "Today",
+      "fieldname": "application_date",
+      "fieldtype": "Date",
+      "label": "Application Date",
+      "reqd": 1
+    },
+    {
+      "default": "user",
+      "fieldname": "requested_by",
+      "fieldtype": "Link",
+      "label": "Requested By",
+      "options": "User",
+      "read_only": 1,
+      "reqd": 1
+    },
+    {
+      "fieldname": "team",
+      "fieldtype": "Link",
+      "label": "Team",
+      "options": "Team Master",
+      "read_only": 1
+    },
+    {
+      "fieldname": "region",
+      "fieldtype": "Link",
+      "label": "Region",
+      "options": "Region Master",
+      "read_only": 1
+    },
+    {
+      "fieldname": "search_doctor",
+      "fieldtype": "Data",
+      "label": "Search Doctor",
+      "description": "Type doctor name or place"
+    },
+    {
+      "fieldname": "doctor_code",
+      "fieldtype": "Link",
+      "label": "Doctor",
+      "options": "Doctor Master",
+      "reqd": 1
+    },
+    {
+      "fetch_from": "doctor_code.doctor_name",
+      "fieldname": "doctor_name",
+      "fieldtype": "Data",
+      "label": "Doctor Name",
+      "read_only": 1,
+      "bold": 1
+    },
+    {
+      "fetch_from": "doctor_code.place",
+      "fieldname": "doctor_place",
+      "fieldtype": "Data",
+      "label": "Place",
+      "read_only": 1
+    },
+    {
+      "fetch_from": "doctor_code.specialization",
+      "fieldname": "specialization",
+      "fieldtype": "Data",
+      "label": "Specialization",
+      "read_only": 1
+    },
+    {
+      "fetch_from": "doctor_code.hospital_clinic",
+      "fieldname": "hospital_clinic",
+      "fieldtype": "Data",
+      "label": "Hospital/Clinic",
+      "read_only": 1
+    },
+    {
+      "fetch_from": "doctor_code.city_pool",
+      "fieldname": "city_pool",
+      "fieldtype": "Data",
+      "label": "City Pool",
+      "read_only": 1
+    },
+    {
+      "fieldname": "hq",
+      "fieldtype": "Link",
+      "label": "HQ",
+      "options": "HQ Master",
+      "reqd": 1,
+      "in_list_view": 1,
+      "description": "Select HQ first - Stockists will be filtered accordingly"
+    },
+    {
+      "fieldname": "stockist_code",
+      "fieldtype": "Link",
+      "label": "Stockist",
+      "options": "Stockist Master",
+      "reqd": 1,
+      "description": "Filtered by selected HQ"
+    },
+    {
+      "fetch_from": "stockist_code.stockist_name",
+      "fieldname": "stockist_name",
+      "fieldtype": "Data",
+      "label": "Stockist Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "items",
+      "fieldtype": "Table",
+      "label": "Products",
+      "options": "Scheme Request Item",
+      "reqd": 1
+    },
+    {
+      "fieldname": "total_scheme_value",
+      "fieldtype": "Currency",
+      "label": "Total Scheme Value",
+      "read_only": 1
+    },
+    {
+      "default": "Pending",
+      "fieldname": "approval_status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Pending\nApproved\nRejected\nRerouted",
+      "read_only": 1
+    },
+    {
+      "fieldname": "scheme_notes",
+      "fieldtype": "Small Text",
+      "label": "Scheme Reason"
+    },
+    {
+      "fieldname": "proof_attachment_1",
+      "fieldtype": "Attach",
+      "label": "Order Copy"
+    },
+    {
+      "fieldname": "proof_attachment_2",
+      "fieldtype": "Attach",
+      "label": "Supply Proof"
+    },
+    {
+      "fieldname": "proof_attachment_3",
+      "fieldtype": "Attach",
+      "label": "Additional Document 1"
+    },
+    {
+      "fieldname": "proof_attachment_4",
+      "fieldtype": "Attach",
+      "label": "Additional Document 2"
+    },
+    {
+      "fieldname": "approval_log",
+      "fieldtype": "Table",
+      "label": "Approval History",
+      "options": "Scheme Approval Log",
+      "read_only": 1
+    },
+    {
+      "fieldname": "amended_from",
+      "fieldtype": "Link",
+      "label": "Amended From",
+      "no_copy": 1,
+      "options": "Scheme Request",
+      "print_hide": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "request_details_section",
+      "fieldtype": "Section Break",
+      "label": "Request Information"
+    },
+    {
+      "fieldname": "column_break_zxwe",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "hq_stockist_section",
+      "fieldtype": "Section Break",
+      "label": "HQ & Stockist Selection"
+    },
+    {
+      "fieldname": "doctor_details_section",
+      "fieldtype": "Section Break",
+      "label": "Doctor Details"
+    },
+    {
+      "fieldname": "column_break_qwer",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "products_section",
+      "fieldtype": "Section Break",
+      "label": "Products & Quantities"
+    },
+    {
+      "fieldname": "section_break_tyui",
+      "fieldtype": "Section Break"
+    },
+    {
+      "fieldname": "column_break_ghbn",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "attachments_section",
+      "fieldtype": "Section Break",
+      "label": "Upload Supporting Documents"
+    },
+    {
+      "fieldname": "column_break_vbnm",
+      "fieldtype": "Column Break"
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "approval_section",
+      "fieldtype": "Section Break",
+      "label": "Approval History"
+    }
+  ],
  "is_submittable": 1,
  "modified": "2025-12-01 09:15:00.000000",
  "module": "Scanify",

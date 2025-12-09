@@ -1,190 +1,184 @@
 {
- "actions": [],
- "autoname": "format:{stockist_code}-{statement_month}-{YYYY}",
- "creation": "2025-11-28 22:00:00.000000",
- "doctype": "DocType",
- "engine": "InnoDB",
- "field_order": [
-  "stockist_details_section",
-  "stockist_code",
-  "stockist_name",
-  "hq",
-  "column_break_jzwe",
-  "team",
-  "region",
-  "city_pool",
-  "statement_details_section",
-  "statement_month",
-  "from_date",
-  "to_date",
-  "column_break_qxcv",
-  "uploaded_file",
-  "extracted_data_status",
-  "extraction_notes",
-  "items_section",
-  "items",
-  "totals_section",
-  "total_opening_value",
-  "total_purchase_value",
-  "column_break_tyui",
-  "total_sales_value",
-  "total_closing_value",
-  "amended_from"
- ],
- "fields": [
-  {
-   "fieldname": "stockist_code",
-   "fieldtype": "Link",
-   "label": "Stockist Code",
-   "options": "Stockist Master",
-   "reqd": 1
-  },
-  {
-   "fetch_from": "stockist_code.stockist_name",
-   "fieldname": "stockist_name",
-   "fieldtype": "Data",
-   "label": "Stockist Name",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "stockist_code.hq",
-   "fieldname": "hq",
-   "fieldtype": "Link",
-   "label": "HQ",
-   "options": "HQ Master",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "stockist_code.team",
-   "fieldname": "team",
-   "fieldtype": "Link",
-   "label": "Team",
-   "options": "Team Master",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "stockist_code.region",
-   "fieldname": "region",
-   "fieldtype": "Link",
-   "label": "Region",
-   "options": "Region Master",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "stockist_code.city_pool",
-   "fieldname": "city_pool",
-   "fieldtype": "Data",
-   "label": "City Pool",
-   "read_only": 1
-  },
-  {
-   "fieldname": "statement_month",
-   "fieldtype": "Date",
-   "in_list_view": 1,
-   "label": "Statement Month",
-   "reqd": 1
-  },
-  {
-   "fieldname": "from_date",
-   "fieldtype": "Date",
-   "label": "From Date",
-   "reqd": 1
-  },
-  {
-   "fieldname": "to_date",
-   "fieldtype": "Date",
-   "label": "To Date",
-   "reqd": 1
-  },
-  {
-   "fieldname": "uploaded_file",
-   "fieldtype": "Attach",
-   "label": "Uploaded Statement File"
-  },
-  {
-   "default": "Pending",
-   "fieldname": "extracted_data_status",
-   "fieldtype": "Select",
-   "label": "Extraction Status",
-   "options": "Pending\nIn Progress\nCompleted\nFailed"
-  },
-  {
-   "fieldname": "extraction_notes",
-   "fieldtype": "Small Text",
-   "label": "Extraction Notes"
-  },
-  {
-   "fieldname": "items",
-   "fieldtype": "Table",
-   "label": "Statement Items",
-   "options": "Stockist Statement Item"
-  },
-  {
-   "fieldname": "total_opening_value",
-   "fieldtype": "Currency",
-   "label": "Total Opening Value",
-   "read_only": 1
-  },
-  {
-   "fieldname": "total_purchase_value",
-   "fieldtype": "Currency",
-   "label": "Total Purchase Value",
-   "read_only": 1
-  },
-  {
-   "fieldname": "total_sales_value",
-   "fieldtype": "Currency",
-   "label": "Total Sales Value",
-   "read_only": 1
-  },
-  {
-   "fieldname": "total_closing_value",
-   "fieldtype": "Currency",
-   "label": "Total Closing Value",
-   "read_only": 1
-  },
-  {
-   "fieldname": "amended_from",
-   "fieldtype": "Link",
-   "label": "Amended From",
-   "no_copy": 1,
-   "options": "Stockist Statement",
-   "print_hide": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "stockist_details_section",
-   "fieldtype": "Section Break",
-   "label": "Stockist Details"
-  },
-  {
-   "fieldname": "column_break_jzwe",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "statement_details_section",
-   "fieldtype": "Section Break",
-   "label": "Statement Details"
-  },
-  {
-   "fieldname": "column_break_qxcv",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "items_section",
-   "fieldtype": "Section Break",
-   "label": "Products"
-  },
-  {
-   "fieldname": "totals_section",
-   "fieldtype": "Section Break",
-   "label": "Totals"
-  },
-  {
-   "fieldname": "column_break_tyui",
-   "fieldtype": "Column Break"
-  }
- ],
+  "actions": [],
+  "autoname": "format:{stockist_code}-{statement_month}-{####}",
+  "creation": "2025-11-28 22:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "stockist_details_section",
+    "stockist_code",
+    "stockist_name",
+    "hq",
+    "column_break_jzwe",
+    "team",
+    "region",
+    "city_pool",
+    "statement_details_section",
+    "statement_month",
+    "column_break_qxcv",
+    "uploaded_file",
+    "extracted_data_status",
+    "extraction_notes",
+    "items_section",
+    "items",
+    "totals_section",
+    "total_opening_value",
+    "total_purchase_value",
+    "total_free_value",
+    "column_break_tyui",
+    "total_sales_value",
+    "total_closing_value",
+    "amended_from"
+  ],
+  "fields": [
+    {
+      "fieldname": "stockist_code",
+      "fieldtype": "Link",
+      "label": "Stockist Code",
+      "options": "Stockist Master",
+      "reqd": 1
+    },
+    {
+      "fetch_from": "stockist_code.stockist_name",
+      "fieldname": "stockist_name",
+      "fieldtype": "Data",
+      "label": "Stockist Name",
+      "read_only": 1
+    },
+    {
+      "fetch_from": "stockist_code.hq",
+      "fieldname": "hq",
+      "fieldtype": "Link",
+      "label": "HQ",
+      "options": "HQ Master",
+      "read_only": 1
+    },
+    {
+      "fetch_from": "stockist_code.team",
+      "fieldname": "team",
+      "fieldtype": "Link",
+      "label": "Team",
+      "options": "Team Master",
+      "read_only": 1
+    },
+    {
+      "fetch_from": "stockist_code.region",
+      "fieldname": "region",
+      "fieldtype": "Link",
+      "label": "Region",
+      "options": "Region Master",
+      "read_only": 1
+    },
+    {
+      "fetch_from": "stockist_code.city_pool",
+      "fieldname": "city_pool",
+      "fieldtype": "Data",
+      "label": "City Pool",
+      "read_only": 1
+    },
+    {
+      "fieldname": "statement_month",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "label": "Statement Month",
+      "reqd": 1,
+      "description": "Select the first day of the month for the statement"
+    },
+    {
+      "fieldname": "uploaded_file",
+      "fieldtype": "Attach",
+      "label": "Upload Statement File"
+    },
+    {
+      "default": "Pending",
+      "fieldname": "extracted_data_status",
+      "fieldtype": "Select",
+      "label": "Extraction Status",
+      "options": "Pending\nIn Progress\nCompleted\nFailed"
+    },
+    {
+      "fieldname": "extraction_notes",
+      "fieldtype": "Small Text",
+      "label": "Extraction Notes"
+    },
+    {
+      "fieldname": "items",
+      "fieldtype": "Table",
+      "label": "Statement Items",
+      "options": "Stockist Statement Item"
+    },
+    {
+      "fieldname": "total_opening_value",
+      "fieldtype": "Currency",
+      "label": "Total Opening Value",
+      "read_only": 1
+    },
+    {
+      "fieldname": "total_purchase_value",
+      "fieldtype": "Currency",
+      "label": "Total Purchase Value",
+      "read_only": 1
+    },
+    {
+      "fieldname": "total_free_value",
+      "fieldtype": "Currency",
+      "label": "Total Free Value",
+      "read_only": 1
+    },
+    {
+      "fieldname": "total_sales_value",
+      "fieldtype": "Currency",
+      "label": "Total Sales Value",
+      "read_only": 1
+    },
+    {
+      "fieldname": "total_closing_value",
+      "fieldtype": "Currency",
+      "label": "Total Closing Value",
+      "read_only": 1
+    },
+    {
+      "fieldname": "amended_from",
+      "fieldtype": "Link",
+      "label": "Amended From",
+      "no_copy": 1,
+      "options": "Stockist Statement",
+      "print_hide": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "stockist_details_section",
+      "fieldtype": "Section Break",
+      "label": "Stockist Details"
+    },
+    {
+      "fieldname": "column_break_jzwe",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "statement_details_section",
+      "fieldtype": "Section Break",
+      "label": "Statement Details"
+    },
+    {
+      "fieldname": "column_break_qxcv",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "items_section",
+      "fieldtype": "Section Break",
+      "label": "Products"
+    },
+    {
+      "fieldname": "totals_section",
+      "fieldtype": "Section Break",
+      "label": "Totals"
+    },
+    {
+      "fieldname": "column_break_tyui",
+      "fieldtype": "Column Break"
+    }
+  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
