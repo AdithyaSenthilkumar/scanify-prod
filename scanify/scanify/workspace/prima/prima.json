@@ -1,0 +1,156 @@
+{
+ "app": "scanify",
+ "charts": [],
+ "content": [
+  {
+   "type": "header",
+   "data": {
+    "text": "Prima Operations",
+    "align": "left",
+    "col": 12
+   }
+  },
+  {
+   "type": "shortcut",
+   "data": {
+    "shortcut_name": "New Scheme Request",
+    "col": 4
+   }
+  },
+  {
+   "type": "shortcut",
+   "data": {
+    "shortcut_name": "Pending Approvals",
+    "col": 4
+   }
+  },
+  {
+   "type": "shortcut",
+   "data": {
+    "shortcut_name": "Bulk Stockist Import",
+    "col": 4
+   }
+  },
+  {
+   "type": "card",
+   "data": {
+    "card_name": "Stockist Management",
+    "col": 4
+   }
+  },
+  {
+   "type": "card",
+   "data": {
+    "card_name": "Scheme Administration",
+    "col": 4
+   }
+  },
+  {
+   "type": "card",
+   "data": {
+    "card_name": "Tools",
+    "col": 4
+   }
+  }
+ ],
+ "shortcuts": [
+  {
+   "label": "New Scheme Request",
+   "type": "DocType",
+   "link_to": "Scheme Request",
+   "url": "new-scheme-request",
+   "color": "Blue"
+  },
+  {
+   "label": "Pending Approvals",
+   "type": "Report",
+   "link_to": "Scheme Request",
+   "stats_filter": {"approval_status": "Pending"},
+   "color": "Orange"
+  },
+  {
+   "label": "Bulk Stockist Import",
+   "type": "DocType",
+   "link_to": "Data Import",
+   "url": "data-import?reference_doctype=Stockist%20Master",
+   "color": "Grey"
+  }
+ ],
+ "links": [
+  {
+   "label": "Stockist Management",
+   "type": "Card Break",
+   "links": [
+    {
+     "label": "Prima Stockists",
+     "type": "Link",
+     "link_to": "Stockist Master",
+     "description": "Active Stockists List"
+    },
+    {
+     "label": "Stockist Statements",
+     "type": "Link",
+     "link_to": "Stockist Statement",
+     "description": "Monthly Closing Entries"
+    }
+   ]
+  },
+  {
+   "label": "Scheme Administration",
+   "type": "Card Break",
+   "links": [
+    {
+     "label": "All Scheme Requests",
+     "type": "Link",
+     "link_to": "Scheme Request"
+    },
+    {
+     "label": "Incentive Rules",
+     "type": "Link",
+     "link_to": "Incentive Master"
+    }
+   ]
+  },
+  {
+   "label": "Tools",
+   "type": "Card Break",
+   "links": [
+    {
+     "label": "Download Statement Template",
+     "type": "Link",
+     "link_to": "Data Import",
+     "description": "For bulk closing balance upload"
+    },
+    {
+     "label": "Product Master",
+     "type": "Link",
+     "link_to": "Product Master"
+    }
+   ]
+  }
+ ], "creation": "2026-01-05 14:22:18.745903",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "wrench",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Prima",
+ "link_type": "DocType",
+ "modified": "2026-01-08 06:44:40.161143",
+ "modified_by": "Administrator",
+ "module": "Scanify",
+ "name": "Prima",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "Scanify",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [],
+ "sequence_id": 34.0,
+ "title": "Prima",
+ "type": "Workspace"
+}

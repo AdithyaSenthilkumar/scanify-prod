@@ -19,78 +19,98 @@
   "column_break_olkl",
   "status"
  ],
- "fields": [
-  {
-   "fieldname": "product_code",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Product Code",
-   "reqd": 1,
-   "unique": 1
-  },
-  {
-   "fieldname": "product_name",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Product Name",
-   "reqd": 1
-  },
-  {
-   "fieldname": "pack",
-   "fieldtype": "Data",
-   "label": "Pack"
-  },
-  {
-   "fieldname": "mrp",
-   "fieldtype": "Currency",
-   "label": "MRP"
-  },
-  {
-   "description": "Price to Dealer/Hospital",
-   "fieldname": "ptr",
-   "fieldtype": "Currency",
-   "label": "PTR"
-  },
-  {
-   "description": "Price to Stockist",
-   "fieldname": "pts",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "PTS"
-  },
-  {
-   "default": "Active",
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "label": "Status",
-   "options": "Active\nInactive"
-  },
-  {
-   "fieldname": "division",
-   "fieldtype": "Select",
-   "label": "Division",
-   "options": "\nPrima\nVektra"
-  },
-  {
-   "fieldname": "category",
-   "fieldtype": "Select",
-   "label": "Category",
-   "options": "\nMain Products\nHospital Products\nNew Products"
-  },
-  {
-   "fieldname": "column_break_zmwd",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "section_break_ypsu",
-   "fieldtype": "Section Break",
-   "label": "Pricing"
-  },
-  {
-   "fieldname": "column_break_olkl",
-   "fieldtype": "Column Break"
-  }
- ],
+  "fields": [
+    {
+      "fieldname": "product_code",
+      "fieldtype": "Data",
+      "label": "Product Code",
+      "reqd": 1,
+      "unique": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "product_name",
+      "fieldtype": "Data",
+      "label": "Product Name",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "pack",
+      "fieldtype": "Data",
+      "label": "Pack"
+    },
+    {
+      "fieldname": "pack_conversion",
+      "fieldtype": "Data",
+      "label": "Pack Conversion",
+      "description": "E.g., 10's, Unit, 3s - used for sales & scheme calculations"
+    },
+    {
+      "fieldname": "column_break_zmwd",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "division",
+      "fieldtype": "Select",
+      "label": "Division",
+      "options": "\nVektra\nPrima\nASPR\nWellness",
+      "reqd": 1
+    },
+    {
+      "fieldname": "product_group",
+      "fieldtype": "Select",
+      "label": "Product Group",
+      "options": "\nDentist\nDerma\nContus\nXptum\nAmino\nOrtho\nDrez\nGynae\nJusdee\nDygerm\nOthers",
+      "reqd": 1
+    },
+    {
+      "fieldname": "category",
+      "fieldtype": "Select",
+      "label": "Category",
+      "options": "\nMain Product\nHospital Product\nNew Product"
+    },
+    {
+      "fieldname": "section_break_ypsu",
+      "fieldtype": "Section Break",
+      "label": "Pricing"
+    },
+    {
+      "fieldname": "mrp",
+      "fieldtype": "Currency",
+      "label": "MRP"
+    },
+    {
+      "fieldname": "ptr",
+      "fieldtype": "Currency",
+      "label": "PTR",
+      "description": "Price to Retailer"
+    },
+    {
+      "fieldname": "pts",
+      "fieldtype": "Currency",
+      "label": "PTS",
+      "description": "Price to Stockist",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "gst_rate",
+      "fieldtype": "Percent",
+      "label": "GST Rate",
+      "default": "5"
+    },
+    {
+      "fieldname": "column_break_olkl",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Active\nInactive",
+      "default": "Active"
+    }
+  ],
  "index_web_pages_for_search": 1,
  "links": [],
  "modified": "2025-12-01 08:20:50.990271",

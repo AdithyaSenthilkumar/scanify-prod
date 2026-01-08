@@ -1,10 +1,9 @@
 {
  "app": "scanify",
- "creation": "2025-12-26 17:16:48.487113",
+ "creation": "2026-01-08 06:47:24.404741",
  "docstatus": 0,
  "doctype": "Workspace Sidebar",
- "for_user": "Administrator",
- "header_icon": "calendar-range",
+ "header_icon": "wrench",
  "idx": 0,
  "items": [
   {
@@ -22,11 +21,23 @@
   {
    "child": 0,
    "collapsible": 1,
-   "icon": "wrench",
+   "icon": "calendar-cog",
    "indent": 0,
    "keep_closed": 0,
-   "label": "Prima Division",
-   "link_to": "Prima",
+   "label": "Secondary Sales",
+   "link_to": "Stockists",
+   "link_type": "Workspace",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 0,
+   "collapsible": 1,
+   "icon": "calendar-check-2",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Schemes",
+   "link_to": "Schemes",
    "link_type": "Workspace",
    "show_arrow": 0,
    "type": "Link"
@@ -86,16 +97,16 @@
    "indent": 0,
    "keep_closed": 0,
    "label": "Users",
-   "link_to": "User",
-   "link_type": "DocType",
+   "link_to": "Users",
+   "link_type": "Workspace",
    "show_arrow": 0,
    "type": "Link"
   }
  ],
- "modified": "2026-01-08 06:39:22.985372",
+ "modified": "2026-01-08 07:02:27.207766",
  "modified_by": "Administrator",
  "module": "Scanify",
- "name": "Masters",
+ "name": "Prima",
  "owner": "Administrator",
- "title": "Masters"
+ "title": "Prima"
 }

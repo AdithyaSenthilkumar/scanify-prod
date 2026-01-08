@@ -11,8 +11,8 @@ class BulkStatementUpload(Document):
         
         # Call bulk extraction
         try:
-            from scanify.api import bulk_extract_statements
-            result = bulk_extract_statements(self.statement_month, self.zip_file)
+            from scanify.api import bulk_extract_statements_async
+            result = bulk_extract_statements_async(self.statement_month, self.zip_file)
             
             if result.get('success'):
                 self.status = "Completed"
