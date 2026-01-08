@@ -10,8 +10,8 @@
    "label": "Stock Trend"
   }
  ],
- "content": "[{\"id\":\"3AzrKF4BJT\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h3\\\"><i><b>Stedman Pharmaceuticals</b></i></span>\",\"col\":12}},{\"id\":\"0Euh6f5-Dm\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Stock and Scheme Management System</span>\",\"col\":12}},{\"id\":\"snIDlpNf5-\",\"type\":\"header\",\"data\":{\"text\":\"<span style=\\\"font-size: 16px;\\\"><i>Quick Links</i></span>\",\"col\":12}},{\"id\":\"q2LxtfTE31\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 Stock upload\",\"col\":4}},{\"id\":\"GgySNDaG1P\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 Scheme Request\",\"col\":4}},{\"id\":\"meE56UlwJJ\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Stock Trend\",\"col\":6}},{\"id\":\"-2lDNE_auR\",\"type\":\"chart\",\"data\":{\"chart_name\":\"AI Processed\",\"col\":6}},{\"id\":\"EAMYysFP2o\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Stock Statement History\",\"col\":4}},{\"id\":\"ov7Ww9hlXO\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Doctors\",\"col\":4}},{\"id\":\"uIGW5wKj5k\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Scheme Request History\",\"col\":4}},{\"id\":\"1oBAFfSJlF\",\"type\":\"spacer\",\"data\":{\"col\":12}}]",
- "creation": "2025-12-26 17:26:21.693493",
+ "content": "[{\"id\":\"3AzrKF4BJT\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h3\\\"><i><b>Stedman Pharmaceuticals</b></i></span>\",\"col\":12}},{\"id\":\"0Euh6f5-Dm\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Stock and Scheme Management System</span>\",\"col\":12}},{\"id\":\"meE56UlwJJ\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Stock Trend\",\"col\":6}},{\"id\":\"-2lDNE_auR\",\"type\":\"chart\",\"data\":{\"chart_name\":\"AI Processed\",\"col\":6}},{\"id\":\"EAMYysFP2o\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Stock Statement History\",\"col\":4}},{\"id\":\"ov7Ww9hlXO\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Doctors\",\"col\":4}},{\"id\":\"uIGW5wKj5k\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Scheme Request History\",\"col\":4}},{\"id\":\"1oBAFfSJlF\",\"type\":\"spacer\",\"data\":{\"col\":12}}]",
+ "creation": "2026-01-08 07:14:02.989996",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -24,7 +24,7 @@
  "label": "Scanify",
  "link_type": "DocType",
  "links": [],
- "modified": "2025-12-26 17:37:33.260276",
+ "modified": "2026-01-08 07:20:50.838789",
  "modified_by": "Administrator",
  "module": "Scanify",
  "name": "Scanify",
@@ -54,24 +54,7 @@
   }
  ],
  "sequence_id": 28.0,
- "shortcuts": [
-  {
-   "color": "Orange",
-   "doc_view": "New",
-   "label": "\u2795 Stock upload",
-   "link_to": "Stockist Statement",
-   "stats_filter": "[]",
-   "type": "DocType"
-  },
-  {
-   "color": "Orange",
-   "doc_view": "New",
-   "label": "\u2795 Scheme Request",
-   "link_to": "Scheme Request",
-   "stats_filter": "[]",
-   "type": "DocType"
-  }
- ],
+ "shortcuts": [],
  "title": "Scanify",
  "type": "Workspace"
 }

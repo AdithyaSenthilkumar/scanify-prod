@@ -14,6 +14,8 @@ import zipfile
 import tempfile
 import time
 from google.api_core.exceptions import ResourceExhausted
+from frappe.utils import flt, cstr
+from frappe.utils.background_jobs import enqueue
 import re
 from difflib import SequenceMatcher
 
@@ -71,476 +73,533 @@ def get_gemini_settings():
         frappe.log_error(frappe.get_traceback(), "Gemini Settings Error")
         frappe.throw(_("Error fetching Gemini settings: {0}").format(str(e)))
 
+def build_product_catalog_for_prompt():
+    """
+    Build comprehensive product catalog with all matching hints for Gemini
+    Returns formatted string for prompt inclusion
+    """
+    products = frappe.get_all(
+        "Product Master",
+        filters={"status": "Active"},
+        fields=[
+            "product_code",
+            "product_name",
+            "pack",
+            "pack_conversion",
+            "division",
+            "product_group",
+            "pts",
+            "ptr",
+            "mrp"
+        ],
+        order_by="division, product_group, product_name"
+    )
+    
+    if not products:
+        frappe.throw("No active products found in Product Master")
+    
+    # Group by division for better organization
+    catalog_text = "\n=== PRODUCT MASTER CATALOG ===\n"
+    catalog_text += f"Total Products: {len(products)}\n\n"
+    
+    current_division = None
+    current_group = None
+    
+    for p in products:
+        # Division header
+        if p.get("division") != current_division:
+            current_division = p.get("division")
+            catalog_text += f"\n--- {current_division} Division ---\n"
+        
+        # Group header
+        if p.get("product_group") != current_group:
+            current_group = p.get("product_group")
+            catalog_text += f"\n  [{current_group} Group]\n"
+        
+        # Product entry with all matching hints
+        catalog_text += f"  • Code: {p['product_code']}\n"
+        catalog_text += f"    Name: {p['product_name']}\n"
+        catalog_text += f"    Pack: {p.get('pack', 'N/A')}\n"
+        catalog_text += f"    Conversion: {p.get('pack_conversion', 'N/A')}\n"
+        catalog_text += f"    PTS: {p.get('pts', 0)}\n\n"
+    
+    return catalog_text, products
+
 @frappe.whitelist()
 def extract_stockist_statement(doc_name, file_url):
-    """Extract stockist statement data using Gemini AI - TWO STAGE APPROACH"""
+    """
+    Extract stockist statement data using Gemini AI - ENHANCED WITH PRODUCT CATALOG
+    """
     api_key, model_name, is_enabled = get_gemini_settings()
-        
     genai.configure(api_key=api_key)
+    
     doc = None
     try:
         doc = frappe.get_doc("Stockist Statement", doc_name)
-        doc.extracted_data_status = "In Progress"
+        doc.extraction_data_status = "In Progress"
         doc.save()
         frappe.db.commit()
-
+        
         if not file_url:
             raise ValueError("No file uploaded")
-
-        # Get file path using Frappe's utility
+        
+        # Get file path
         from frappe.utils.file_manager import get_file_path
         file_path = get_file_path(file_url)
-
+        
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_url}")
-
-        # STAGE 1: Extract raw data WITHOUT product list (reduces tokens massively)
-        extracted_data = call_gemini_extraction_two_stage(file_path, doc.stockist_code,model_name)
-
+        
+        # Build product catalog
+        product_catalog, products_list = build_product_catalog_for_prompt()
+        
+        # Extract with enhanced prompt
+        extracted_data = call_gemini_extraction_with_catalog(
+            file_path,
+            doc.stockist_code,
+            product_catalog,
+            products_list,
+            model_name
+        )
+        
         if not extracted_data or len(extracted_data) == 0:
-            doc.extracted_data_status = "Failed"
+            doc.extraction_data_status = "Failed"
             doc.extraction_notes = "No data extracted - AI returned empty results"
             doc.save()
             frappe.db.commit()
-            return {
-                "success": False,
-                "message": "No data extracted - AI returned empty results"
-            }
-
-        # Clear existing items
+            return {"success": False, "message": "No data extracted"}
+        
+        # Clear existing items and add new ones
         doc.items = []
-
-        # Add extracted items
         items_added = 0
+        
         for item_data in extracted_data:
-            if item_data.get("product_code"):  # Only add if product code exists
+            if item_data.get("product_code"):
                 doc.append("items", {
                     "product_code": item_data.get("product_code"),
-                    "opening_qty": flt(item_data.get("opening_qty", 0)),
-                    "purchase_qty": flt(item_data.get("purchase_qty", 0)),
-                    "sales_qty": flt(item_data.get("sales_qty", 0)),
-                    "free_qty": flt(item_data.get("free_qty", 0)),
-                    "return_qty": flt(item_data.get("return_qty", 0)),
-                    "misc_out_qty": flt(item_data.get("misc_out_qty", 0)),
+                    "opening_qty": flt(item_data.get("opening_qty"), 0),
+                    "purchase_qty": flt(item_data.get("purchase_qty"), 0),
+                    "sales_qty": flt(item_data.get("sales_qty"), 0),
+                    "free_qty": flt(item_data.get("free_qty"), 0),
+                    "return_qty": flt(item_data.get("return_qty"), 0),
+                    "misc_out_qty": flt(item_data.get("misc_out_qty"), 0),
                 })
                 items_added += 1
-
+        
         if items_added == 0:
-            doc.extracted_data_status = "Failed"
+            doc.extraction_data_status = "Failed"
             doc.extraction_notes = "No valid products found in extracted data"
             doc.save()
             frappe.db.commit()
-            return {
-                "success": False,
-                "message": "No valid products found in extracted data"
-            }
-
-        # Success - save with completed status
-        doc.extracted_data_status = "Completed"
-        doc.extraction_notes = f"Successfully extracted {items_added} items using AI (two-stage approach)"
+            return {"success": False, "message": "No valid products found"}
+        
+        doc.extraction_data_status = "Completed"
+        doc.extraction_notes = f"Successfully extracted {items_added} items using enhanced AI with product catalog"
         doc.calculate_closing_and_totals()
         doc.save()
         frappe.db.commit()
-
-        return {
-            "success": True,
-            "message": f"Successfully extracted {items_added} items"
-        }
-
+        
+        return {"success": True, "message": f"Successfully extracted {items_added} items"}
+        
     except Exception as e:
         error_msg = str(e)
         frappe.log_error(frappe.get_traceback(), "Gemini Extraction Error")
-
-        # Update document with error if possible
+        
         if doc:
             try:
-                doc.extracted_data_status = "Failed"
+                doc.extraction_data_status = "Failed"
                 doc.extraction_notes = f"Extraction failed: {error_msg}"
                 doc.save()
                 frappe.db.commit()
             except:
                 pass
-
-        return {
-            "success": False,
-            "message": f"Extraction failed: {error_msg}"
-        }
+        
+        return {"success": False, "message": f"Extraction failed: {error_msg}"}
 
 
-def call_gemini_extraction_two_stage(file_path, stockist_code,  model_name=None):
+
+
+def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalog, products_list, model_name=None):
     """
-    TWO-STAGE EXTRACTION:
-    Stage 1: Extract raw product data without sending product list (saves massive tokens)
-    Stage 2: Match extracted products to product codes locally (no API call)
+    Enhanced extraction that sends the full product catalog to Gemini
+    Gemini does the matching directly using product codes
     """
-
     if not model_name:
         api_key, model_name, is_enabled = get_gemini_settings()
         genai.configure(api_key=api_key)
-
+    
     try:
-        # Get product master for Stage 2 matching (but DON'T send to Gemini)
-        products = frappe.get_all("Product Master", 
-            fields=["product_code", "product_name", "pack", "pts"],
-            filters={"status": "Active"})
-
-        # Determine file type and process accordingly
+        # Determine file type
         mime_type, _ = mimetypes.guess_type(file_path)
         file_ext = os.path.splitext(file_path)[1].lower()
+        
+        # Enhanced prompt with product catalog
+        prompt = f"""You are extracting pharmaceutical stockist statement data for STEDMAN PHARMACEUTICALS.
 
-        # ========== STAGE 1: EXTRACT WITHOUT PRODUCT LIST ==========
-        # Simplified prompt - NO PRODUCT LIST to reduce tokens
-        prompt = """You are extracting product-wise stock data from a pharmaceutical stockist statement.
+{product_catalog}
 
-RULES FOR UNDERSTANDING TABLE ROWS:
-1. A valid product row ALWAYS has at least one numeric quantity (opening, purchase, sales, free, return, closing).
-2. If a line contains ONLY product name + unit but NO numeric columns, it is NOT a separate product.
-   → It is a continuation/description of the next line. IGNORE such lines.
-3. If two consecutive lines have the same product name/unit, merge them and extract quantities ONLY from the numeric row.
-4. DO NOT create duplicate items for the same product in the same statement.
+=== EXTRACTION RULES ===
 
-WHAT TO EXTRACT PER PRODUCT (ONE ENTRY PER PRODUCT ONLY):
-- Product Name (exact text from document)
-- Pack Size (e.g., 10TAB, 15CAP, 200ML)
-- Opening Quantity (Op.Qty, OPSTK, Opening, Op Stock)
-- Purchase Quantity (Purch.Qty, PURCH, Receipt, Pr.Qty, Purchase)
-- Sales Quantity (Sales, Sale, Sl, Sold)
-- Free Quantity (Free Qty, Free, Scheme Qty, Gift)
-- Sales Return (Return, Ret, Sales Ret, Sl Ret)
-- Misc Out/Transfer Out (Misc.Out, M.Out, Others, Trans Out, Transfer)
+1. PRODUCT MATCHING (CRITICAL):
+   - Match each product in the statement to the EXACT product code from the catalog above
+   - Use product name, pack size, and pack conversion for matching
+   - Handle variations: "AMINORICH CAP 15CAP" = "AMINORICH CAP" with Pack "15CAP"
+   - Handle split notations: "10x10" = "10's", "1x10s" = "10's", "Unit" = single item
+   - If uncertain between 2 products, choose based on pack similarity
+   - ONLY return products that exist in the catalog
 
-IMPORTANT:
-- Many products may appear in multiple lines. Only keep the MOST DETAILED row — the one that has quantity values.
-- Ignore lines that have NO quantities or NO numbers.
-- Ignore unit-only lines (e.g. "AMINORICH CAP 10 CAP").
-- Ignore header lines, totals, summaries, and continuation labels like "Continued..."
+2. TABLE ROW UNDERSTANDING:
+   - A valid product row MUST have at least ONE numeric quantity value
+   - Lines with ONLY text (no numbers) are descriptions - IGNORE them
+   - If product name spans multiple lines, merge and use the row with quantities
+   - DO NOT create duplicate entries for the same product
 
-RETURN ONLY A JSON ARRAY LIKE:
+3. QUANTITY EXTRACTION (per product):
+   - Opening: "Op.Qty", "OPSTK", "Opening", "Open.Qty", "OpenBalQty"
+   - Purchase: "Purch.Qty", "PURCH", "Receipt", "Pr.Qty", "PurchBillQty"
+   - Sales: "Sales", "Sale", "Sl", "Sold", "SalesBillQty"
+   - Free: "Free Qty", "Free", "Scheme Qty", "Gift", "Scheme"
+   - Return: "Return", "Ret", "Sales Ret", "SalesRetQty"
+   - Misc Out: "Misc.Out", "M.Out", "Others", "Trans Out", "Transfer", "CloseBalQty" (if separate column)
 
+4. OUTPUT FORMAT:
+   - Return ONLY valid JSON array
+   - Each object must have "product_code" from the catalog
+   - Include all quantities (use 0 if not found)
+   
+EXPECTED JSON FORMAT:
 [
-  {
-    "product_name": "AMINORICH CAP",
-    "pack": "15 CAP",
+  {{
+    "product_code": "ARC",
     "opening_qty": 88,
     "purchase_qty": 29,
     "sales_qty": 59,
     "free_qty": 0,
     "return_qty": 0,
     "misc_out_qty": 0
-  },
+  }},
   ...
 ]
 
-NO MARKDOWN, NO EXPLANATION — ONLY VALID JSON.
-
+IMPORTANT:
+- NO markdown formatting
+- NO explanations
+- ONLY valid JSON array
+- ONLY products from the catalog above
+- Use EXACT product codes from catalog
 """
-
-        frappe.logger().info(f"🤖 Using Gemini model: {model_name}")
+        
+        frappe.logger().info(f"Using Gemini model: {model_name}")
         model = genai.GenerativeModel(model_name)
+        
+        # Retry logic for rate limiting
         max_retries = 3
-        base_delay = 2  # seconds
-
+        base_delay = 2
         response = None
+        
         for attempt in range(max_retries):
             try:
-                if file_ext in ['.pdf', '.jpg', '.jpeg', '.png']:
-                    # Handle images and PDFs
-                    with open(file_path, 'rb') as f:
+                if file_ext in [".pdf", ".jpg", ".jpeg", ".png"]:
+                    with open(file_path, "rb") as f:
                         file_data = f.read()
-
-                    # For PDFs, convert first page to image with REDUCED QUALITY
-                    if file_ext == '.pdf':
+                    
+                    if file_ext == ".pdf":
                         import fitz  # PyMuPDF
                         pdf = fitz.open(file_path)
                         page = pdf[0]
-                        # Reduce resolution to 50% to save tokens
-                        pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
+                        pix = page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))  # Higher quality for better extraction
                         img_data = pix.tobytes("png")
-                        image_part = {
-                            'mime_type': 'image/png',
-                            'data': img_data
-                        }
+                        image_part = {"mime_type": "image/png", "data": img_data}
                     else:
-                        image_part = {
-                            'mime_type': mime_type or 'image/jpeg',
-                            'data': file_data
-                        }
-
+                        image_part = {"mime_type": mime_type or "image/jpeg", "data": file_data}
+                    
                     response = model.generate_content([prompt, image_part])
-
-                elif file_ext in ['.csv', '.txt']:
-                    # Handle CSV/TXT files
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                
+                elif file_ext in [".csv", ".txt"]:
+                    with open(file_path, "r", encoding="utf-8") as f:
                         file_content = f.read()
-
-                    response = model.generate_content(f"{prompt}\n\nFile content:\n{file_content}")
-
-                elif file_ext in ['.xls', '.xlsx']:
-                    # Handle Excel files
+                    response = model.generate_content(f"{prompt}\n\nCONTENT:\n{file_content}")
+                
+                elif file_ext in [".xls", ".xlsx"]:
                     import pandas as pd
                     df = pd.read_excel(file_path)
                     file_content = df.to_string()
-
-                    response = model.generate_content(f"{prompt}\n\nExcel content:\n{file_content}")
-
+                    response = model.generate_content(f"{prompt}\n\nCONTENT:\n{file_content}")
+                
                 else:
                     frappe.throw(f"Unsupported file type: {file_ext}")
-
-                # If we reach here, the API call succeeded
-                break
-
+                
+                break  # Success
+                
             except ResourceExhausted as e:
                 if attempt == max_retries - 1:
-                    # Last attempt failed, re-raise
-                    frappe.throw(f"Gemini API rate limit exceeded after {max_retries} retries. Please try again in a few minutes.")
-
-                # Calculate exponential backoff delay
+                    frappe.throw(f"Gemini API rate limit exceeded after {max_retries} retries. Please try again later.")
+                
                 delay = base_delay * (2 ** attempt)
                 frappe.logger().warning(f"Rate limit hit (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
                 time.sleep(delay)
-
+            
             except Exception as e:
-                # Other errors, don't retry
                 raise e
-
-        # Log response
+        
+        # Parse response
         try:
-            frappe.logger().info("🤖 GEMINI RAW RESPONSE (TWO-STAGE) START >>>")
+            frappe.logger().info("=== GEMINI RAW RESPONSE START ===")
             frappe.logger().info(response.text)
-            frappe.logger().info("🤖 GEMINI RAW RESPONSE END <<<")
+            frappe.logger().info("=== GEMINI RAW RESPONSE END ===")
         except Exception as log_err:
             frappe.logger().error(f"Failed to log Gemini response: {log_err}")
-
-        # Parse response
+        
         response_text = response.text.strip()
-
-        # Remove markdown code blocks if present
-        if response_text.startswith('```'):
-            response_text = response_text.split('```')[1]
-            if response_text.startswith('json'):
-                response_text = response_text[4:]
-
-        frappe.logger().info("🧹 Cleaned Response Text >>>")
+        
+        # Clean response
+        if response_text.startswith("```"):
+            response_text = response_text.split("```", 1)[1]
+        if response_text.startswith("json"):
+            response_text = response_text[4:]
+        if response_text.endswith("```"):
+            response_text = response_text.rsplit("```", 1)[0]
+        
+        response_text = response_text.strip()
+        
+        frappe.logger().info("=== Cleaned Response Text ===")
         frappe.logger().info(response_text)
-
-        extracted_items = json.loads(response_text or "[]")
-        frappe.logger().info(f"📊 Parsed Items Count: {len(extracted_items)}")
-
-        # ========== STAGE 2: MATCH PRODUCTS LOCALLY (NO API CALL) ==========
-        result = match_products_locally(extracted_items, products)
-
-        frappe.logger().info(f"✅ Final Matched Products: {len(result)}")
-        return result
-
+        
+        extracted_items = json.loads(response_text) or []
+        frappe.logger().info(f"Parsed Items Count: {len(extracted_items)}")
+        
+        # Validate product codes exist
+        valid_codes = {p["product_code"] for p in products_list}
+        validated_items = []
+        
+        for item in extracted_items:
+            if item.get("product_code") in valid_codes:
+                validated_items.append(item)
+            else:
+                frappe.logger().warning(f"Skipping invalid product code: {item.get('product_code')}")
+        
+        frappe.logger().info(f"Final Validated Items: {len(validated_items)}")
+        return validated_items
+        
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "Gemini API Call Error (Two-Stage)")
+        frappe.log_error(frappe.get_traceback(), "Gemini API Call Error - Enhanced")
         frappe.throw(f"Extraction failed: {str(e)}")
 
 
-def match_products_locally(extracted_items, products):
-    """
-    STAGE 2: Match extracted product names to product codes LOCALLY (no API)
-
-    - Robust normalisation (TAB/TABLET, CAP/CAPSULE, OINT/OINTMENT, GM/G, etc.)
-    - Uses BOTH name similarity and pack similarity
-    - Logs best candidate for unmatched items
-    """
-    result = []
-    unmatched_logs = []
-
-    # Pre-process products once
-    enriched_products = []
-    for p in products:
-        enriched_products.append({
-            "product_code": p["product_code"],
-            "product_name": p["product_name"],
-            "pack": p.get("pack") or "",
-            "norm_tokens": _normalise_tokens(p["product_name"]),
-        })
-
-    for item in extracted_items:
-        raw_name = (item.get("product_name") or "").strip()
-        raw_pack = (item.get("pack") or "").strip()
-
-        if not raw_name:
-            continue
-
-        best = None
-        best_score = 0.0
-
-        for p in enriched_products:
-            # Name similarity
-            name_score = _name_similarity(raw_name, p["product_name"])
-            # Pack similarity
-            pack_score = _pack_similarity(raw_pack, p["pack"])
-
-            # Weight: name 80%, pack 20%
-            total_score = 0.8 * name_score + 0.2 * pack_score
-
-            if total_score > best_score:
-                best_score = total_score
-                best = p
-
-        # Threshold – tweak if needed
-        if best and best_score >= 0.55:
-            result.append({
-                "product_code": best["product_code"],
-                "opening_qty": item.get("opening_qty", 0),
-                "purchase_qty": item.get("purchase_qty", 0),
-                "sales_qty": item.get("sales_qty", 0),
-                "free_qty": item.get("free_qty", 0),
-                "return_qty": item.get("return_qty", 0),
-                "misc_out_qty": item.get("misc_out_qty", 0),
-            })
-        else:
-            unmatched_logs.append(f"{raw_name} ({raw_pack}) [best_score={best_score:.2f}, best={best['product_name'] if best else 'None'}]")
-
-    if unmatched_logs:
-        frappe.logger().warning("⚠️ Unmatched / low-confidence products:")
-        for line in unmatched_logs:
-            frappe.logger().warning(f" - {line}")
-
-    return result
-def _clean_text(text: str) -> str:
-    """Uppercase, remove extra punctuation/spaces."""
-    if not text:
-        return ""
-    # Upper + replace separators with space
-    text = text.upper()
-    text = re.sub(r"[\-_/.,()]+", " ", text)
-    # Collapse multiple spaces
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-# Domain-specific normalisation
-_SYNONYM_MAP = {
-    "TAB": "TAB",
-    "TABS": "TAB",
-    "TABLET": "TAB",
-    "TABLETS": "TAB",
-
-    "CAP": "CAP",
-    "CAPS": "CAP",
-    "CAPSULE": "CAP",
-    "CAPSULES": "CAP",
-
-    "OINT": "OINT",
-    "OINT.": "OINT",
-    "ONT": "OINT",
-    "OINTMENT": "OINT",
-
-    "POWDER": "PWD",
-    "POWDER.": "PWD",
-    "PWD": "PWD",
-
-    "CREAM": "CRM",
-    "CRM": "CRM",
-
-    "DROP": "DROP",
-    "DROPS": "DROP",
-
-    "LIQ": "LIQ",
-    "LIQUID": "LIQ",
-
-    "SOL": "SOL",
-    "SOLUTION": "SOL",
-
-    "GARGLE": "GARGLE",
-}
-
-def _normalise_tokens(text: str):
-    """
-    Turn a product name into a set of normalised tokens,
-    stripping pack-like fragments (1X10S, 150 ML, 5GM).
-    """
-    text = _clean_text(text)
-    if not text:
-        return set()
-
-    # Split and clean tokens
-    tokens = []
-    for tok in text.split():
-        # Pack-like token? keep for pack matching but not for name similarity
-        if re.match(r"^\d+(\.\d+)?(ML|GM|G|MG|KG)$", tok):
-            continue
-        if re.match(r"^\d+X\d+S?$", tok):
-            continue
-
-        mapped = _SYNONYM_MAP.get(tok, tok)
-        tokens.append(mapped)
-
-    return set(tokens)
-
-def _normalise_pack(pack: str) -> str:
-    """Normalise pack like '30 GM', '30G', '150 ML', '2x15s' -> comparable form."""
-    if not pack:
-        return ""
-
-    pack = _clean_text(pack)
-
-    # 2x15s -> 15CAP (we only care about the unit qty)
-    m = re.search(r"(\d+)\s*X\s*(\d+)", pack)
-    if m:
-        inner = m.group(2)
-        # treat as 'inner' units, type unknown -> just number
-        return inner
-
-    # Extract number + unit
-    m = re.search(r"(\d+(\.\d+)?)\s*(ML|GM|G|MG|KG)?", pack)
-    if not m:
-        return pack
-
-    qty = m.group(1)
-    unit = m.group(3) or ""
-
-    # GM and G are basically same for our comparison
-    if unit in ("GM", "G"):
-        unit = "G"
-    return f"{qty}{unit}"
-
-def _pack_similarity(p1: str, p2: str) -> float:
-    """Simple pack similarity 0..1."""
-    n1 = _normalise_pack(p1)
-    n2 = _normalise_pack(p2)
-    if not n1 or not n2:
-        return 0.0
-    if n1 == n2:
-        return 1.0
-    # If just the numeric part matches (e.g. 30G vs 30MG) give partial credit
-    num1 = re.findall(r"\d+(\.\d+)?", n1)
-    num2 = re.findall(r"\d+(\.\d+)?", n2)
-    if num1 and num2 and num1[0] == num2[0]:
-        return 0.7
-    return 0.0
-
-def _token_jaccard(a: set, b: set) -> float:
-    """Jaccard similarity of token sets."""
-    if not a or not b:
-        return 0.0
-    inter = len(a & b)
-    union = len(a | b)
-    return inter / union
-
-def _name_similarity(extracted_name: str, master_name: str) -> float:
-    """
-    Combine token Jaccard + raw SequenceMatcher for robustness.
-    """
-    tokens_a = _normalise_tokens(extracted_name)
-    tokens_b = _normalise_tokens(master_name)
-
-    jacc = _token_jaccard(tokens_a, tokens_b)
-
-    # Raw similarity on cleaned strings
-    clean_a = _clean_text(extracted_name)
-    clean_b = _clean_text(master_name)
-    seq = SequenceMatcher(None, clean_a, clean_b).ratio()
-
-    # Weight both
-    return 0.6 * jacc + 0.4 * seq
-
-
 # ========== REST OF THE API FILE (UNCHANGED) ==========
+@frappe.whitelist()
+def bulk_extract_statements_async(docname):
+    """
+    Enqueue bulk extraction as background job
+    """
+    doc = frappe.get_doc("Bulk Statement Upload", docname)
+    
+    # Enqueue background job
+    job = enqueue(
+        method="scanify.api.process_bulk_extraction",
+        queue="long",
+        timeout=3600,  # 1 hour
+        job_name=f"bulk_extract_{docname}",
+        docname=docname,
+        month=doc.statement_month,
+        zip_file_url=doc.zipfile
+    )
+    
+    # Update status
+    doc.status = "Queued"
+    doc.job_id = job.id
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    
+    return {
+        "success": True,
+        "message": "Bulk extraction job queued successfully",
+        "job_id": job.id
+    }
 
+def process_bulk_extraction(docname, month, zip_file_url):
+    """
+    Background job to process bulk extraction
+    """
+    try:
+        doc = frappe.get_doc("Bulk Statement Upload", docname)
+        doc.status = "In Progress"
+        doc.progress = 0
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        
+        # Get ZIP file
+        from frappe.utils.file_manager import get_file_path
+        file_path = get_file_path(zip_file_url)
+        
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {zip_file_url}")
+        
+        # Extract ZIP
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with zipfile.ZipFile(file_path, "r") as zip_ref:
+                zip_ref.extractall(temp_dir)
+            
+            # Get all files
+            all_files = []
+            for root, dirs, files in os.walk(temp_dir):
+                for file in files:
+                    if file.startswith(".") or file.startswith("__MACOSX") or file == "Thumbs.db":
+                        continue
+                    
+                    file_full_path = os.path.join(root, file)
+                    file_ext = os.path.splitext(file)[1].lower()
+                    
+                    supported_extensions = [".pdf", ".jpg", ".jpeg", ".png", ".csv", ".txt", ".xls", ".xlsx"]
+                    if file_ext in supported_extensions:
+                        all_files.append((file, file_full_path, file_ext))
+            
+            doc.total_files = len(all_files)
+            doc.save(ignore_permissions=True)
+            frappe.db.commit()
+            
+            # Process each file
+            results = []
+            success_count = 0
+            failed_count = 0
+            skipped_count = 0
+            
+            # Build product catalog once (reuse for all files)
+            product_catalog, products_list = build_product_catalog_for_prompt()
+            
+            for idx, (file, file_full_path, file_ext) in enumerate(all_files, 1):
+                try:
+                    # Identify stockist
+                    stockist_code = identify_stockist_from_filename(file)
+                    
+                    if not stockist_code:
+                        results.append({
+                            "file": file,
+                            "status": "Failed",
+                            "message": "Could not identify stockist from filename"
+                        })
+                        failed_count += 1
+                        continue
+                    
+                    # Check if already exists
+                    existing = frappe.db.exists("Stockist Statement", {
+                        "stockist_code": stockist_code,
+                        "statement_month": month
+                    })
+                    
+                    if existing:
+                        results.append({
+                            "file": file,
+                            "status": "Skipped",
+                            "message": f"Statement already exists: {existing}",
+                            "stockist": stockist_code
+                        })
+                        skipped_count += 1
+                        continue
+                    
+                    # Create statement
+                    statement_name = f"TEMP-{frappe.generate_hash(length=8)}"
+                    
+                    # Save file
+                    from frappe.utils.file_manager import save_file_on_filesystem
+                    file_doc = save_file_to_public(file, file_full_path, "Stockist Statement", statement_name)
+                    
+                    # Create statement doc
+                    statement = frappe.get_doc({
+                        "doctype": "Stockist Statement",
+                        "stockist_code": stockist_code,
+                        "statement_month": month,
+                        "uploaded_file": file_doc.file_url,
+                        "extraction_data_status": "Pending"
+                    })
+                    statement.insert(ignore_permissions=True)
+                    
+                    # Update file attachment
+                    file_doc.attached_to_name = statement.name
+                    file_doc.save(ignore_permissions=True)
+                    
+                    # Extract data using enhanced method
+                    api_key, model_name, _ = get_gemini_settings()
+                    genai.configure(api_key=api_key)
+                    
+                    extracted_data = call_gemini_extraction_with_catalog(
+                        file_full_path,
+                        stockist_code,
+                        product_catalog,
+                        products_list,
+                        model_name
+                    )
+                    
+                    if extracted_data and len(extracted_data) > 0:
+                        for item_data in extracted_data:
+                            statement.append("items", {
+                                "product_code": item_data.get("product_code"),
+                                "opening_qty": flt(item_data.get("opening_qty"), 0),
+                                "purchase_qty": flt(item_data.get("purchase_qty"), 0),
+                                "sales_qty": flt(item_data.get("sales_qty"), 0),
+                                "free_qty": flt(item_data.get("free_qty"), 0),
+                                "return_qty": flt(item_data.get("return_qty"), 0),
+                                "misc_out_qty": flt(item_data.get("misc_out_qty"), 0),
+                            })
+                        
+                        statement.extraction_data_status = "Completed"
+                        statement.extraction_notes = f"Extracted {len(extracted_data)} products successfully"
+                    else:
+                        statement.extraction_data_status = "Failed"
+                        statement.extraction_notes = "No data extracted from file"
+                    
+                    statement.calculate_closing_and_totals()
+                    statement.save(ignore_permissions=True)
+                    
+                    results.append({
+                        "file": file,
+                        "status": "Success",
+                        "statement": statement.name,
+                        "stockist": stockist_code,
+                        "items_extracted": len(extracted_data) if extracted_data else 0
+                    })
+                    success_count += 1
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    frappe.log_error(
+                        f"Error processing {file}: {error_msg}\n{frappe.get_traceback()}",
+                        "Bulk Extract File Error"
+                    )
+                    results.append({
+                        "file": file,
+                        "status": "Failed",
+                        "message": error_msg,
+                        "stockist": stockist_code if 'stockist_code' in locals() else None
+                    })
+                    failed_count += 1
+                
+                # Update progress
+                doc.progress = (idx / len(all_files)) * 100
+                doc.save(ignore_permissions=True)
+                frappe.db.commit()
+        
+        # Final update
+        doc.status = "Completed" if failed_count == 0 else "Partially Completed"
+        doc.progress = 100
+        doc.success_count = success_count
+        doc.failed_count = failed_count
+        doc.skipped_count = skipped_count
+        doc.extraction_log = json.dumps(results, indent=2)
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Bulk Extraction Background Job Error")
+        
+        try:
+            doc = frappe.get_doc("Bulk Statement Upload", docname)
+            doc.status = "Failed"
+            doc.extraction_log = f"Job failed: {str(e)}"
+            doc.save(ignore_permissions=True)
+            frappe.db.commit()
+        except:
+            pass
 @frappe.whitelist()
 def bulk_extract_statements(month, zip_file_url):
     """
