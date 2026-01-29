@@ -15,7 +15,6 @@ def import_scheme_master_data(file_path):
 				"doctor_code": row['doc_code'],
 				"doctor_name": row['doc_name'],
 				"place": row['doc_place'],
-				"city_pool": row['citypool'],
 				"team": row['team'],
 				"region": row['region']
 			})

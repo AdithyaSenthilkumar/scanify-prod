@@ -183,6 +183,7 @@ def extract_stockist_statement(doc_name, file_url):
                     "free_qty": flt(item_data.get("free_qty"), 0),
                     "return_qty": flt(item_data.get("return_qty"), 0),
                     "misc_out_qty": flt(item_data.get("misc_out_qty"), 0),
+                    "closing_qty": flt(item_data.get("closing_qty"), None)
                 })
                 items_added += 1
         
@@ -243,29 +244,27 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
 1. PRODUCT MATCHING (CRITICAL):
    - Match each product in the statement to the EXACT product code from the catalog above
    - Use product name, pack size, and pack conversion for matching
-   - Handle variations: "AMINORICH CAP 15CAP" = "AMINORICH CAP" with Pack "15CAP"
-   - Handle split notations: "10x10" = "10's", "1x10s" = "10's", "Unit" = single item
-   - If uncertain between 2 products, choose based on pack similarity
    - ONLY return products that exist in the catalog
 
-2. TABLE ROW UNDERSTANDING:
-   - A valid product row MUST have at least ONE numeric quantity value
-   - Lines with ONLY text (no numbers) are descriptions - IGNORE them
-   - If product name spans multiple lines, merge and use the row with quantities
-   - DO NOT create duplicate entries for the same product
+2. QUANTITY EXTRACTION ONLY (CRITICAL):
+   Extract ONLY QUANTITIES, do NOT extract any values/prices.
 
-3. QUANTITY EXTRACTION (per product):
-   - Opening: "Op.Qty", "OPSTK", "Opening", "Open.Qty", "OpenBalQty"
-   - Purchase: "Purch.Qty", "PURCH", "Receipt", "Pr.Qty", "PurchBillQty"
-   - Sales: "Sales", "Sale", "Sl", "Sold", "SalesBillQty"
-   - Free: "Free Qty", "Free", "Scheme Qty", "Gift", "Scheme"
-   - Return: "Return", "Ret", "Sales Ret", "SalesRetQty"
-   - Misc Out: "Misc.Out", "M.Out", "Others", "Trans Out", "Transfer", "CloseBalQty" (if separate column)
+   Column meanings:
+   - Opening: "Op.Qty", "OPSTK", "Opening", "Open.Qty"
+   - Purchase: "Purch.Qty", "PURCH", "Receipt", "Pr.Qty"
+   - Sales: "Sales", "Sale", "Sl", "Sold"
+   - Free: "Free Qty", "Free", "Scheme Qty"
+   - Return: "Return", "Ret", "Sales Ret"
+   - Misc Out: "Misc.Out", "M.Out", "Transfer"
+   - Closing: "Closing", "Cls", "Cl.Bal", "Closing Qty", "Balance"
 
-4. OUTPUT FORMAT:
+   IMPORTANT:
+   - If Closing Qty is present in the statement, extract it.
+   - If not present, leave closing_qty as 0.
+
+3. OUTPUT FORMAT - QUANTITIES ONLY:
    - Return ONLY valid JSON array
-   - Each object must have "product_code" from the catalog
-   - Include all quantities (use 0 if not found)
+   - Include ONLY quantities (NO values/prices)
    
 EXPECTED JSON FORMAT:
 [
@@ -276,16 +275,15 @@ EXPECTED JSON FORMAT:
     "sales_qty": 59,
     "free_qty": 0,
     "return_qty": 0,
-    "misc_out_qty": 0
-  }},
-  ...
+    "misc_out_qty": 0,
+    "closing_qty": 58
+  }}
 ]
 
 IMPORTANT:
+- NO values/prices in output
 - NO markdown formatting
-- NO explanations
-- ONLY valid JSON array
-- ONLY products from the catalog above
+- ONLY valid JSON array with quantities
 - Use EXACT product codes from catalog
 """
         
@@ -1166,7 +1164,7 @@ def search_doctors(search_term):
                 place,
                 specialization,
                 hospital_address,
-                city_pool,
+                hq,
                 team,
                 region
             FROM `tabDoctor Master`
@@ -1757,7 +1755,7 @@ def get_doctor_history_for_scheme(doctor_code, hq=None):
             "place": doctor.place or "N/A",
             "specialization": doctor.specialization or "General",
             "hospital_address": doctor.hospital_address or "N/A",
-            "city_pool": doctor.city_pool or "N/A",
+            "hq": doctor.hq or "N/A",
             "total_schemes": total_schemes,
             "total_approved": total_approved,
             "total_pending": total_pending,

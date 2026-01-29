@@ -32,47 +32,125 @@ frappe.ui.form.on('Stockist Statement', {
         }
     }
 });
+frappe.ui.form.on('Stockist Statement', {
+    refresh: function(frm) {
+        // Add toggle button
+        if (!frm.doc.__islocal) {
+            frm.add_custom_button(__('Toggle Detailed View'), function() {
+                toggle_detailed_view(frm);
+            });
+        }
+        
+        // Start with compact view
+        set_compact_view(frm);
+    }
+});
+
+function set_compact_view(frm) {
+    // Show only essential columns
+    const compact_fields = [
+        'product_code', 'product_name', 'pack',
+        'opening_qty', 'purchase_qty', 'sales_qty',
+        'closing_qty', 'closing_value'
+    ];
+    
+    if (frm.fields_dict.items && frm.fields_dict.items.grid) {
+        // Hide all first
+        const all_fields = [
+            'opening_qty', 'purchase_qty', 'sales_qty', 'free_qty',
+            'free_qty_scheme', 'return_qty', 'misc_out_qty', 'closing_qty',
+            'pts', 'closing_value', 'conversion_factor'
+        ];
+        
+        all_fields.forEach(field => {
+            frm.fields_dict.items.grid.update_docfield_property(
+                field, 'in_list_view', compact_fields.includes(field) ? 1 : 0
+            );
+        });
+        
+        frm.fields_dict.items.grid.refresh();
+    }
+}
+
+function set_detailed_view(frm) {
+    // Show all columns
+    const detailed_fields = [
+        'product_code', 'product_name', 'pack',
+        'opening_qty', 'purchase_qty', 'sales_qty', 'free_qty',
+        'free_qty_scheme', 'return_qty', 'misc_out_qty',
+        'closing_qty', 'closing_value'
+    ];
+    
+    if (frm.fields_dict.items && frm.fields_dict.items.grid) {
+        detailed_fields.forEach(field => {
+            frm.fields_dict.items.grid.update_docfield_property(
+                field, 'in_list_view', 1
+            );
+        });
+        
+        frm.fields_dict.items.grid.refresh();
+    }
+}
+
+function toggle_detailed_view(frm) {
+    if (!frm._detailed_view_active) {
+        set_detailed_view(frm);
+        frm._detailed_view_active = true;
+        frappe.show_alert({message: 'Detailed View Enabled', indicator: 'blue'});
+    } else {
+        set_compact_view(frm);
+        frm._detailed_view_active = false;
+        frappe.show_alert({message: 'Compact View Enabled', indicator: 'green'});
+    }
+}
+
 
 frappe.ui.form.on('Stockist Statement Item', {
-    opening_qty: function(frm, cdt, cdn) {
-        calculate_item_closing(frm, cdt, cdn);
-    },
-    purchase_qty: function(frm, cdt, cdn) {
-        calculate_item_closing(frm, cdt, cdn);
-    },
-    sales_qty: function(frm, cdt, cdn) {
-        calculate_item_closing(frm, cdt, cdn);
-    },
-    free_qty: function(frm, cdt, cdn) {
-        calculate_item_closing(frm, cdt, cdn);
-    },
-    return_qty: function(frm, cdt, cdn) {
-        calculate_item_closing(frm, cdt, cdn);
-    },
-    misc_out_qty: function(frm, cdt, cdn) {
-        calculate_item_closing(frm, cdt, cdn);
-    },
     product_code: function(frm, cdt, cdn) {
         let row = locals[cdt][cdn];
         if (row.product_code) {
-            frappe.db.get_value('Product Master', row.product_code, 
-                ['product_name', 'pack', 'pts'], (r) => {
+            frappe.db.get_value('Product Master', row.product_code, ['product_name', 'pack', 'pts'], (r) => {
                 frappe.model.set_value(cdt, cdn, 'product_name', r.product_name);
                 frappe.model.set_value(cdt, cdn, 'pack', r.pack);
                 frappe.model.set_value(cdt, cdn, 'pts', r.pts);
+                
+                // Calculate conversion factor from pack
+                let conversion_factor = get_conversion_factor(r.pack);
+                frappe.model.set_value(cdt, cdn, 'conversion_factor', conversion_factor);
+                
                 calculate_item_closing(frm, cdt, cdn);
             });
         }
-    }
+    },
+    
+    opening_qty: function(frm, cdt, cdn) { calculate_item_closing(frm, cdt, cdn); },
+    purchase_qty: function(frm, cdt, cdn) { calculate_item_closing(frm, cdt, cdn); },
+    sales_qty: function(frm, cdt, cdn) { calculate_item_closing(frm, cdt, cdn); },
+    free_qty: function(frm, cdt, cdn) { calculate_item_closing(frm, cdt, cdn); },
+    free_qty_scheme: function(frm, cdt, cdn) { calculate_item_closing(frm, cdt, cdn); },
+    return_qty: function(frm, cdt, cdn) { calculate_item_closing(frm, cdt, cdn); },
+    misc_out_qty: function(frm, cdt, cdn) { calculate_item_closing(frm, cdt, cdn); }
 });
 
 function calculate_item_closing(frm, cdt, cdn) {
     let row = locals[cdt][cdn];
     
-    // Closing = Opening + Purchase - Sales - Free - Return - Misc Out
-    let closing_qty = flt(row.opening_qty) + flt(row.purchase_qty) 
-                      - flt(row.sales_qty) - flt(row.free_qty)
-                      - flt(row.return_qty) - flt(row.misc_out_qty);
+    // Get conversion factor from pack
+    let conversion_factor = row.conversion_factor || 1;
+    
+    // Apply conversion to all quantities
+    let converted_opening = flt(row.opening_qty) / conversion_factor;
+    let converted_purchase = flt(row.purchase_qty) / conversion_factor;
+    let converted_sales = flt(row.sales_qty) / conversion_factor;
+    let converted_free = flt(row.free_qty) / conversion_factor;
+    let converted_free_scheme = flt(row.free_qty_scheme) / conversion_factor;
+    let converted_return = flt(row.return_qty) / conversion_factor;
+    let converted_misc_out = flt(row.misc_out_qty) / conversion_factor;
+    
+    // Closing = Opening + Purchase - Sales - Free - Free(Scheme) - Return - Misc Out
+    let closing_qty = converted_opening + converted_purchase 
+                    - converted_sales - converted_free - converted_free_scheme
+                    - converted_return - converted_misc_out;
     
     frappe.model.set_value(cdt, cdn, 'closing_qty', closing_qty);
     

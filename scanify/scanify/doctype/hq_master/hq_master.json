@@ -7,9 +7,9 @@
  "engine": "InnoDB",
  "field_order": [
   "hq_name",
-  "team",
   "region",
-  "city_pool",
+  "team",
+  "zone",
   "status"
  ],
  "fields": [
@@ -37,9 +37,9 @@
    "reqd": 1
   },
   {
-   "fieldname": "city_pool",
+   "fieldname": "zone",
    "fieldtype": "Data",
-   "label": "City Pool"
+   "label": "Zone"
   },
   {
    "default": "Active",
@@ -51,7 +51,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-12 18:34:47.070199",
+ "modified": "2026-01-29 14:59:40.032245",
  "modified_by": "Administrator",
  "module": "Scanify",
  "name": "HQ Master",

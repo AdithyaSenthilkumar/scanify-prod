@@ -68,12 +68,28 @@
   },
   {
    "default": "0",
-   "description": "Free quantity given (scheme quantity)",
+   "description": "Free quantity",
    "fieldname": "free_qty",
    "fieldtype": "Float",
-   "label": "Free Qty",
+   "label": "Free Qty (Sales)",
     "allow_on_submit": 1
   },
+  {
+  "fieldname": "free_qty_scheme",
+  "fieldtype": "Float",
+  "label": "Approved Free Qty (Scheme)",
+  "default": 0,
+  "description": "Free quantity from approved schemes",
+  "allow_on_submit": 1
+},
+{
+  "fieldname": "conversion_factor",
+  "fieldtype": "Float",
+  "label": "Conversion Factor",
+  "default": 1,
+  "description": "Auto-calculated from pack field for quantity adjustment",
+  "readonly": 1
+},
   {
    "default": "0",
    "fieldname": "return_qty",

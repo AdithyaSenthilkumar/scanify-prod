@@ -1,6 +1,6 @@
 {
  "actions": [],
-"autoname": "format:D{####}",
+ "autoname": "format:D{####}",
  "creation": "2025-12-13 01:22:40.211564",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -15,7 +15,7 @@
   "place",
   "hospital_address",
   "house_address",
-  "city_pool",
+  "hq",
   "team",
   "region",
   "state_name",
@@ -25,13 +25,13 @@
   "status"
  ],
  "fields": [
-{
-  "fieldname": "doctor_code",
-  "fieldtype": "Data",
-  "label": "Doctor Code",
-  "read_only": 1,
-  "unique": 1
-},
+  {
+   "fieldname": "doctor_code",
+   "fieldtype": "Data",
+   "label": "Doctor Code",
+   "read_only": 1,
+   "unique": 1
+  },
   {
    "fieldname": "doctor_name",
    "fieldtype": "Data",
@@ -80,11 +80,6 @@
    "label": "House Address"
   },
   {
-   "fieldname": "city_pool",
-   "fieldtype": "Data",
-   "label": "City Pool"
-  },
-  {
    "fieldname": "team",
    "fieldtype": "Link",
    "label": "Team",
@@ -121,15 +116,20 @@
    "fieldtype": "Select",
    "label": "Status",
    "options": "Active\nInactive"
+  },
+  {
+   "fieldname": "hq",
+   "fieldtype": "Link",
+   "label": "HQ",
+   "options": "HQ Master"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-13 01:52:44.720787",
+ "modified": "2026-01-29 14:56:41.091390",
  "modified_by": "Administrator",
  "module": "Scanify",
  "name": "Doctor Master",
- "naming_rule": "",
  "owner": "Administrator",
  "permissions": [
   {

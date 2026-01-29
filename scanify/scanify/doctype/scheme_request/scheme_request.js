@@ -96,12 +96,12 @@ frappe.ui.form.on('Scheme Request', {
     doctor_code: function(frm) {
         if (frm.doc.doctor_code) {
             frappe.db.get_value('Doctor Master', frm.doc.doctor_code, 
-                ['doctor_name', 'place', 'city_pool', 'team', 'region', 'specialization', 'hospital_address'], 
+                ['doctor_name', 'place', 'hq', 'team', 'region', 'specialization', 'hospital_address'], 
                 (r) => {
                     if (r) {
                         frm.set_value('doctor_name', r.doctor_name);
                         frm.set_value('doctor_place', r.place);
-                        frm.set_value('city_pool', r.city_pool);
+                        frm.set_value('hq', r.hq);
                         frm.set_value('team', r.team);
                         frm.set_value('region', r.region);
                         frm.set_value('specialization', r.specialization);
@@ -857,7 +857,7 @@ function generate_Doctor_History_Html(data) {
                         <tr><th>Place</th><td>${data.place}</td></tr>
                         <tr><th>Specialization</th><td>${data.specialization}</td></tr>
                         <tr><th>Hospital/Clinic</th><td>${data.hospital_address}</td></tr>
-                        <tr><th>City Pool</th><td>${data.city_pool}</td></tr>
+                        <tr><th>HQ</th><td>${data.hq}</td></tr>
                     </table>
                 </div>
                 

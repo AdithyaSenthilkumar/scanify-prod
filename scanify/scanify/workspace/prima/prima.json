@@ -1,7 +1,7 @@
 {
  "app": "scanify",
  "charts": [],
- "content": "[{\"id\":\"ir_LVhGWl1\",\"type\":\"header\",\"data\":{\"text\":\"<span style=\\\"font-size: 16px;\\\"><b>Prima Division</b></span>\",\"col\":12}}]",
+ "content": "[{\"id\":\"ir_LVhGWl1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h3\\\"><b>Stedman Pharmaceuticals - Prima Division</b></span>\",\"col\":12}},{\"id\":\"wriqUpOUUF\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><i>Quick Links</i></span>\",\"col\":12}},{\"id\":\"-DNuP6jmoP\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 New Stockist Statement\",\"col\":6}},{\"id\":\"W-lSjmi_H0\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2714\ufe0f View Stockist Statements\",\"col\":6}},{\"id\":\"zpoV3jvsn4\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 New Bulk Upload\",\"col\":6}},{\"id\":\"bouHYpsIVm\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2714\ufe0f View Bulk Uploads\",\"col\":6}},{\"id\":\"NVEYnkFkOx\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 New Stockist into Master\",\"col\":6}},{\"id\":\"VX0xs_7XGu\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2714\ufe0f View Schemes\",\"col\":6}},{\"id\":\"A8yWBVQHNr\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2714\ufe0f Manual Scheme Deduction From Sales\",\"col\":12}},{\"id\":\"pwefPoCpJm\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"UWhYjvOCg8\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Prima Products\",\"col\":4}},{\"id\":\"bSDEvMS4s7\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Statement History\",\"col\":4}},{\"id\":\"cFXBUnX4Df\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Scheme History\",\"col\":4}}]",
  "creation": "2026-01-05 14:22:18.745903",
  "custom_blocks": [],
  "docstatus": 0,
@@ -15,7 +15,7 @@
  "label": "Prima",
  "link_type": "DocType",
  "links": [],
- "modified": "2026-01-13 20:01:17.975412",
+ "modified": "2026-01-27 09:31:51.148797",
  "modified_by": "Administrator",
  "module": "Scanify",
  "name": "Prima",
@@ -23,10 +23,83 @@
  "owner": "Administrator",
  "parent_page": "Scanify",
  "public": 1,
- "quick_lists": [],
+ "quick_lists": [
+  {
+   "document_type": "Product Master",
+   "label": "Prima Products",
+   "quick_list_filter": "[[\"Product Master\",\"division\",\"=\",\"Prima\",false]]"
+  },
+  {
+   "document_type": "Stockist Statement",
+   "label": "Statement History",
+   "quick_list_filter": "[]"
+  },
+  {
+   "document_type": "Scheme Request",
+   "label": "Scheme History",
+   "quick_list_filter": "[]"
+  }
+ ],
  "roles": [],
  "sequence_id": 34.0,
- "shortcuts": [],
+ "shortcuts": [
+  {
+   "color": "Green",
+   "doc_view": "New",
+   "label": "\u2795 New Stockist Statement",
+   "link_to": "Stockist Statement",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "\u2714\ufe0f View Schemes",
+   "link_to": "Scheme Request",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "\u2714\ufe0f Manual Scheme Deduction From Sales",
+   "link_to": "Scheme Deduction",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "\u2714\ufe0f View Stockist Statements",
+   "link_to": "Stockist Statement",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "New",
+   "label": "\u2795 New Bulk Upload",
+   "link_to": "Bulk Statement Upload",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "New",
+   "label": "\u2795 New Stockist into Master",
+   "link_to": "Stockist Master",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "\u2714\ufe0f View Bulk Uploads",
+   "link_to": "Bulk Statement Upload",
+   "stats_filter": "[]",
+   "type": "DocType"
+  }
+ ],
  "title": "Prima",
  "type": "Workspace"
 }

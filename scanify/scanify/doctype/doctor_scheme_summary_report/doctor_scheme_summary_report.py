@@ -161,7 +161,6 @@ class DoctorSchemeSummaryReport(Document):
                     "doctor_name": doctor.doctor_name,
                     "team": doctor.team if hasattr(doctor, 'team') else "N/A",
                     "region": doctor.region if hasattr(doctor, 'region') else "N/A",
-                    "city_pool": doctor.city_pool if hasattr(doctor, 'city_pool') else "N/A",
                     "total_schemes": 0,
                     "approved_schemes": 0,
                     "pending_schemes": 0,

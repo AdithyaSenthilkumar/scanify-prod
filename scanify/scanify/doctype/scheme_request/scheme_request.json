@@ -21,7 +21,6 @@
     "doctor_place",
     "column_break_qwer",
     "specialization",
-    "city_pool",
     "hospital_address",
 
     "hq_stockist_section",   
@@ -117,13 +116,6 @@
       "fieldname": "hospital_address",
       "fieldtype": "Data",
       "label": "Hospital/Clinic",
-      "read_only": 1
-    },
-    {
-      "fetch_from": "doctor_code.city_pool",
-      "fieldname": "city_pool",
-      "fieldtype": "Data",
-      "label": "City Pool",
       "read_only": 1
     },
     {

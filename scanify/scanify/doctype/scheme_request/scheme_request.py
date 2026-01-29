@@ -175,7 +175,6 @@ def repeat_scheme_request(source_name):
         new_doc.doctor_name = source_doc.doctor_name
         new_doc.doctor_place = source_doc.doctor_place
         new_doc.specialization = source_doc.specialization
-        new_doc.city_pool = source_doc.city_pool
         new_doc.hospital_clinic = source_doc.hospital_clinic
         new_doc.scheme_notes = f"Repeated from {source_doc.name}"
         

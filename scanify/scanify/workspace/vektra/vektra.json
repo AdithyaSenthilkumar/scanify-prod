@@ -1,7 +1,7 @@
 {
  "app": "scanify",
  "charts": [],
- "content": "[{\"id\":\"yXFbsX4JOJ\",\"type\":\"header\",\"data\":{\"text\":\"<span style=\\\"font-size: 16px;\\\">Vektra Division</span>\",\"col\":12}}]",
+ "content": "[{\"id\":\"yXFbsX4JOJ\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h3\\\"><b>Stedman Pharmaceuticals - Vektra Division</b></span>\",\"col\":12}},{\"id\":\"TYkNi_UbAR\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><i>Quick Links</i></span>\",\"col\":12}},{\"id\":\"at0kjbN4uf\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 New Stockist Statement\",\"col\":6}},{\"id\":\"54hXu5Gx0B\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2714\ufe0f View Stockist Statements\",\"col\":6}},{\"id\":\"fZJDTqoiJA\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 New Bulk Upload\",\"col\":6}},{\"id\":\"trSx4piCah\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2714\ufe0f View Bulk Uploads\",\"col\":6}},{\"id\":\"2HDrwDhN7N\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2795 New Stockist into Master\",\"col\":6}},{\"id\":\"7pqbmqK-T7\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2714\ufe0f View Schemes\",\"col\":6}},{\"id\":\"fAuyfM1kuU\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"\u2714\ufe0f Manual Scheme Deduction From Sales\",\"col\":12}},{\"id\":\"M0cEUtuUBT\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"ZAyBEt_V9E\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Vektra Products\",\"col\":4}},{\"id\":\"YpAiwOTVyR\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Statement History\",\"col\":4}},{\"id\":\"m_fyP81JiD\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Scheme History\",\"col\":4}}]",
  "creation": "2026-01-05 14:23:51.683637",
  "custom_blocks": [],
  "docstatus": 0,
@@ -15,7 +15,7 @@
  "label": "Vektra",
  "link_type": "DocType",
  "links": [],
- "modified": "2026-01-08 06:45:18.864018",
+ "modified": "2026-01-27 09:32:44.281006",
  "modified_by": "Administrator",
  "module": "Scanify",
  "name": "Vektra",
@@ -23,10 +23,83 @@
  "owner": "Administrator",
  "parent_page": "Scanify",
  "public": 1,
- "quick_lists": [],
+ "quick_lists": [
+  {
+   "document_type": "Product Master",
+   "label": "Vektra Products",
+   "quick_list_filter": "[[\"Product Master\",\"division\",\"=\",\"Vektra\",false]]"
+  },
+  {
+   "document_type": "Stockist Statement",
+   "label": "Statement History",
+   "quick_list_filter": "[]"
+  },
+  {
+   "document_type": "Scheme Request",
+   "label": "Scheme History",
+   "quick_list_filter": "[]"
+  }
+ ],
  "roles": [],
  "sequence_id": 35.0,
- "shortcuts": [],
+ "shortcuts": [
+  {
+   "color": "Green",
+   "doc_view": "New",
+   "label": "\u2795 New Stockist Statement",
+   "link_to": "Stockist Statement",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "New",
+   "label": "\u2795 New Stockist into Master",
+   "link_to": "Stockist Master",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "\u2714\ufe0f Manual Scheme Deduction From Sales",
+   "link_to": "Scheme Deduction",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "\u2714\ufe0f View Stockist Statements",
+   "link_to": "Stockist Statement",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "\u2714\ufe0f View Schemes",
+   "link_to": "Scheme Request",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "New",
+   "label": "\u2795 New Bulk Upload",
+   "link_to": "Bulk Statement Upload",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "\u2714\ufe0f View Bulk Uploads",
+   "link_to": "Bulk Statement Upload",
+   "stats_filter": "[]",
+   "type": "DocType"
+  }
+ ],
  "title": "Vektra",
  "type": "Workspace"
 }
