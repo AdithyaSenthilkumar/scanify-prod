@@ -17,10 +17,10 @@ frappe.ui.form.on('Stockist Master', {
 	
 	hq: function(frm) {
 		if (frm.doc.hq) {
-			frappe.db.get_value('HQ Master', frm.doc.hq, ['team', 'region', 'city_pool'], (r) => {
+			frappe.db.get_value('HQ Master', frm.doc.hq, ['team', 'region', 'zone'], (r) => {
 				frm.set_value('team', r.team);
 				frm.set_value('region', r.region);
-				frm.set_value('city_pool', r.city_pool);
+				frm.set_value('zone', r.zone);
 			});
 		}
 	}

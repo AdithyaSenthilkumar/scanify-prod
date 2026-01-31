@@ -12,7 +12,6 @@
   "column_break_jkip",
   "team",
   "region",
-  "city_pool",
   "section_break_fkyu",
   "address",
   "city",
@@ -47,6 +46,12 @@
    "options": "HQ Master",
    "reqd": 1
   },
+      {
+   "fieldname": "division",
+   "fieldtype": "Link",
+   "label": "Division",
+   "options": "Division"
+  },
   {
    "fieldname": "team",
    "fieldtype": "Link",
@@ -62,13 +67,6 @@
    "label": "Region",
    "options": "Region Master",
    "reqd": 1
-  },
-  {
-   "fetch_from": "hq.city_pool",
-   "fieldname": "city_pool",
-   "fieldtype": "Data",
-   "label": "City Pool",
-   "read_only": 1
   },
   {
    "fieldname": "address",

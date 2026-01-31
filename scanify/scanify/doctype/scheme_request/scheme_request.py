@@ -10,6 +10,21 @@ class SchemeRequest(Document):
         self.calculate_total_scheme_value()
         # REMOVED: self.validate_attachments() - No longer mandatory
         self.validate_monthly_doctor_limit()  # NEW
+        self.set_division()
+
+    def set_division(self):
+        division = None
+
+        if self.doctor_code:
+            division = frappe.db.get_value("Doctor Master", self.doctor_code, "division")
+
+        if not division and self.stockist_code:
+            division = frappe.db.get_value("Stockist Master", self.stockist_code, "division")
+
+        if not division:
+            frappe.throw("Unable to determine Division for this Scheme Request")
+
+        self.division = division
     
     def calculate_total_scheme_value(self):
         total = 0

@@ -26,7 +26,6 @@
     "total_purchase_value",
     "total_free_value",
     "column_break_tyui",
-    "total_sales_value",
     "total_closing_value",
     "amended_from"
   ],
@@ -53,6 +52,12 @@
       "options": "HQ Master",
       "read_only": 1
     },
+          {
+   "fieldname": "division",
+   "fieldtype": "Link",
+   "label": "Division",
+   "options": "Division"
+  },
     {
       "fetch_from": "stockist_code.team",
       "fieldname": "team",
@@ -131,12 +136,18 @@
 
     },
     {
-      "fieldname": "total_sales_value",
-      "fieldtype": "Currency",
-      "label": "Total Sales Value",
-      "read_only": 1,
-        "allow_on_submit": 1
-    },
+  "fieldname": "total_sales_value_pts",
+  "fieldtype": "Currency",
+  "label": "Total Sales Value (PTS)",
+  "read_only": 1
+},
+{
+  "fieldname": "total_sales_value_ptr",
+  "fieldtype": "Currency",
+  "label": "Total Sales Value (PTR)",
+  "read_only": 1
+}
+,
     {
       "fieldname": "total_closing_value",
       "fieldtype": "Currency",

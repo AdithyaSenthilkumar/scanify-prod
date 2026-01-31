@@ -146,6 +146,15 @@ function calculate_item_closing(frm, cdt, cdn) {
     let converted_free_scheme = flt(row.free_qty_scheme) / conversion_factor;
     let converted_return = flt(row.return_qty) / conversion_factor;
     let converted_misc_out = flt(row.misc_out_qty) / conversion_factor;
+
+    let pts = flt(row.pts || 0);
+    let ptr = flt(row.ptr || 0);
+
+    frappe.model.set_value(cdt, cdn, 'sales_value_pts', converted_sales * pts);
+    frappe.model.set_value(cdt, cdn, 'sales_value_ptr', converted_sales * ptr);
+    frappe.model.set_value(cdt, cdn, 'opening_value', converted_opening * pts);
+    frappe.model.set_value(cdt, cdn, 'purchase_value', converted_purchase * pts);
+
     
     // Closing = Opening + Purchase - Sales - Free - Free(Scheme) - Return - Misc Out
     let closing_qty = converted_opening + converted_purchase 
@@ -165,21 +174,18 @@ function calculate_item_closing(frm, cdt, cdn) {
 function calculate_totals(frm) {
     let total_opening = 0;
     let total_purchase = 0;
-    let total_sales = 0;
     let total_free = 0;
     let total_closing = 0;
     
     frm.doc.items.forEach(item => {
         total_opening += flt(item.opening_qty) * flt(item.pts);
         total_purchase += flt(item.purchase_qty) * flt(item.pts);
-        total_sales += flt(item.sales_qty) * flt(item.pts);
         total_free += flt(item.free_qty) * flt(item.pts);
         total_closing += flt(item.closing_value);
     });
     
     frm.set_value('total_opening_value', total_opening);
     frm.set_value('total_purchase_value', total_purchase);
-    frm.set_value('total_sales_value', total_sales);
     frm.set_value('total_free_value', total_free);
     frm.set_value('total_closing_value', total_closing);
 }

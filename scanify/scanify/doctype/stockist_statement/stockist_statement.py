@@ -5,57 +5,66 @@ from frappe.utils import flt, add_months, get_first_day, get_last_day
 
 class StockistStatement(Document):
     def validate(self):
-        """Validate and calculate closing balance"""
-        self.calculate_closing_and_totals()
+        self.set_division_from_stockist()
+        self.calculate_closing_and_totals()   # your existing method
+
+    def set_division_from_stockist(self):
+        if not self.stockist_code:
+            return
+
+        division = frappe.db.get_value("Stockist Master", self.stockist_code, "division")
+        if not division:
+            division = frappe.db.get_value("HQ Master", self.hq, "division")
+        if not division:
+            frappe.throw(f"Stockist {self.stockist_code} has no Division set")
+
+        self.division = division
     
     def calculate_closing_and_totals(self):
-        """
-        Calculate values using pack conversion internally
-        BUT keep original quantities in the table for display
-        """
-        total_opening = 0
-        total_purchase = 0
-        total_sales = 0
-        total_free = 0
-        total_free_scheme = 0
-        total_closing = 0
-        
+        """Calculate closing qty and value totals with pack-to-strip conversion"""
+
+        total_sales_qty = 0
+        total_sales_value_pts = 0
+        total_sales_value_ptr = 0
+        total_opening_value = 0
+        total_purchase_value = 0
+        total_closing_value = 0
+
         for item in self.items:
             if not item.product_code:
                 continue
-            
-            # Get product details
+
+            # -------- FETCH PRODUCT MASTER --------
             product = frappe.db.get_value(
                 "Product Master",
                 item.product_code,
-                ["pts", "pack"],
+                ["pts", "ptr", "pack"],
                 as_dict=True
             )
-            
             if not product:
                 continue
-            
-            # Get conversion factor (store for reference, but don't modify quantities)
-            item.conversion_factor = self.get_conversion_factor(product.pack)
-            conversion_factor = flt(item.conversion_factor or 1)
-            
-            # Use ORIGINAL quantities from stockist statement (don't overwrite them)
-            # Apply conversion ONLY for calculation
-            opening_for_calc = flt(item.opening_qty) / conversion_factor
-            purchase_for_calc = flt(item.purchase_qty) / conversion_factor
-            sales_for_calc = flt(item.sales_qty) / conversion_factor
-            free_for_calc = flt(item.free_qty) / conversion_factor
-            free_scheme_for_calc = flt(item.free_qty_scheme) / conversion_factor
-            return_for_calc = flt(item.return_qty) / conversion_factor
-            misc_out_for_calc = flt(item.misc_out_qty) / conversion_factor
-            
-            # Calculate closing (if not provided by stockist)
-            # If closing_qty already extracted from OCR, use it; otherwise calculate
+
+            pts = flt(product.pts or 0)
+            ptr = flt(product.ptr or 0)
+
+            # -------- UNIT CONVERSION (BOX ➜ STRIP) --------
+            conversion_factor = flt(self.get_conversion_factor(product.pack)) or 1
+            item.conversion_factor = conversion_factor 
+
+            opening_qty_base = flt(item.opening_qty) / conversion_factor
+            purchase_qty_base = flt(item.purchase_qty) / conversion_factor
+            sales_qty_base = flt(item.sales_qty) / conversion_factor
+            free_qty_base = flt(item.free_qty) / conversion_factor
+            scheme_free_qty_base = flt(item.free_qty_scheme) / conversion_factor
+            return_qty_base = flt(item.return_qty) / conversion_factor
+            misc_out_qty_base = flt(item.misc_out_qty) / conversion_factor
+            closing_qty_base = flt(item.closing_qty) / conversion_factor
+
             if item.closing_qty is None or item.closing_qty == 0:
                 closing_for_calc = (
-                    opening_for_calc + purchase_for_calc 
-                    - sales_for_calc - free_for_calc - free_scheme_for_calc
-                    - return_for_calc - misc_out_for_calc
+                    opening_qty_base + purchase_qty_base 
+                    - sales_qty_base - free_qty_base - scheme_free_qty_base
+                    - return_qty_base - misc_out_qty_base
                 )
                 # Store UNCONVERTED closing (multiply back)
                 item.closing_qty = closing_for_calc * conversion_factor
@@ -63,41 +72,49 @@ class StockistStatement(Document):
                 # Use stockist's reported closing
                 closing_for_calc = flt(item.closing_qty) / conversion_factor
             
-            # Get PTS from Product Master
-            pts = flt(product.pts)
-            
-            # Calculate VALUES using converted quantities
-            # Store values, not converted quantities
-            opening_value = opening_for_calc * pts
-            purchase_value = purchase_for_calc * pts
-            sales_value = sales_for_calc * pts
-            free_value = free_for_calc * pts
-            free_scheme_value = free_scheme_for_calc * pts
-            closing_value = closing_for_calc * pts
-            
-            # Store ONLY values in hidden fields (optional, for detailed tracking)
-            item.opening_value = opening_value
-            item.purchase_value = purchase_value
-            item.sales_value = sales_value
-            item.free_value = free_value
-            item.free_scheme_value = free_scheme_value
-            item.closing_value = closing_value
-            
-            # Accumulate totals
-            total_opening += opening_value
-            total_purchase += purchase_value
-            total_sales += sales_value
-            total_free += free_value
-            total_free_scheme += free_scheme_value
-            total_closing += closing_value
-        
-        # Set document totals (values only)
-        self.total_opening_value = total_opening
-        self.total_purchase_value = total_purchase
-        self.total_sales_value = total_sales
-        self.total_free_value = total_free
-        self.total_free_scheme_value = total_free_scheme
-        self.total_closing_value = total_closing
+            # -------- SCHEME COMPLIANCE METRIC --------
+            approved_scheme_qty = frappe.db.get_value(
+                "Scheme Request Item",
+                {
+                    "parent": ["in", frappe.get_all(
+                        "Scheme Request",
+                        filters={
+                            "stockist_code": self.stockist_code,
+                            "docstatus": 1
+                        },
+                        pluck="name"
+                    )],
+                    "product_code": item.product_code
+                },
+                "free_quantity"
+            ) or 0
+
+            item.scheme_deducted_qty_calc = (
+                flt(item.sales_qty) + flt(item.free_qty)
+            ) - flt(approved_scheme_qty)
+
+            # -------- VALUE CALCULATIONS (STRIP LEVEL) --------
+            item.opening_value = opening_qty_base * pts
+            item.purchase_value = purchase_qty_base * pts
+            item.sales_value_pts = sales_qty_base * pts
+            item.sales_value_ptr = sales_qty_base * ptr
+            item.closing_value = closing_qty_base * pts
+
+            # -------- TOTALS --------
+            total_sales_qty += flt(item.sales_qty)
+            total_sales_value_pts += item.sales_value_pts
+            total_sales_value_ptr += item.sales_value_ptr
+            total_opening_value += item.opening_value
+            total_purchase_value += item.purchase_value
+            total_closing_value += item.closing_value
+
+        # -------- DOCUMENT TOTALS --------
+        self.total_sales_qty = total_sales_qty
+        self.total_sales_value_pts = total_sales_value_pts
+        self.total_sales_value_ptr = total_sales_value_ptr
+        self.total_opening_value = total_opening_value
+        self.total_purchase_value = total_purchase_value
+        self.total_closing_value = total_closing_value
 
     
     def get_conversion_factor(self, pack_str):

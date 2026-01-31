@@ -39,6 +39,12 @@
    "label": "Doctor Name",
    "reqd": 1
   },
+        {
+   "fieldname": "division",
+   "fieldtype": "Link",
+   "label": "Division",
+   "options": "Division"
+  },
   {
    "fieldname": "qualification",
    "fieldtype": "Data",

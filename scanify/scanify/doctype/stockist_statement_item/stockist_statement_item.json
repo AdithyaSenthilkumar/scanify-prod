@@ -119,12 +119,42 @@
    "read_only": 1
   },
   {
+  "fieldname": "sales_value_pts",
+  "fieldtype": "Currency",
+  "label": "Sales Value (PTS)",
+  "read_only": 1
+},
+{
+  "fieldname": "sales_value_ptr",
+  "fieldtype": "Currency",
+  "label": "Sales Value (PTR)",
+  "read_only": 1
+},
+{
+  "fieldname": "opening_value",
+  "fieldtype": "Currency",
+  "label": "Opening Value",
+  "read_only": 1
+},
+{
+  "fieldname": "purchase_value",
+  "fieldtype": "Currency",
+  "label": "Purchase Value",
+  "read_only": 1
+},
+  {
    "fieldname": "closing_value",
    "fieldtype": "Currency",
    "label": "Closing Value",
    "read_only": 1,
           "allow_on_submit": 1
   },
+  {
+  "fieldname": "scheme_deducted_qty_calc",
+  "fieldtype": "Float",
+  "label": "Scheme Deducted Qty (Calc)",
+  "read_only": 1
+},
   {
    "fieldname": "column_break_zxwe",
    "fieldtype": "Column Break"

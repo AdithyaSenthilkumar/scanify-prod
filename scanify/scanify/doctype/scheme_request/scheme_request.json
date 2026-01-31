@@ -127,6 +127,12 @@
       "in_list_view": 1,
       "description": "Select HQ first - Stockists will be filtered accordingly"
     },
+          {
+   "fieldname": "division",
+   "fieldtype": "Link",
+   "label": "Division",
+   "options": "Division"
+  },
     {
       "fieldname": "stockist_code",
       "fieldtype": "Link",
