@@ -19,6 +19,31 @@ class StockistStatement(Document):
             frappe.throw(f"Stockist {self.stockist_code} has no Division set")
 
         self.division = division
+    def _get_approved_scheme_qty_map(self):
+        """Return {productcode: approved_free_qty} for THIS statement month only (statement units)."""
+        approved_map = {}
+
+        if not self.stockist_code or not self.statement_month:
+            return approved_map
+
+        start_date = get_first_day(self.statement_month)
+        end_date   = get_last_day(self.statement_month)
+
+        rows = frappe.db.sql("""
+            SELECT
+                sri.product_code AS product_code,
+                SUM(COALESCE(sri.free_quantity, 0)) AS approved_free_qty
+            FROM `tabScheme Request` sr
+            INNER JOIN `tabScheme Request Item` sri ON sri.parent = sr.name
+            WHERE sr.stockist_code = %s
+            AND sr.docstatus = 1
+            AND sr.application_date BETWEEN %s AND %s
+            GROUP BY sri.product_code
+        """, (self.stockist_code, start_date, end_date), as_dict=True)
+        for r in rows:
+            approved_map[r.product_code] = flt(r.approved_free_qty)
+
+        return approved_map
     
     def calculate_closing_and_totals(self):
         """Calculate closing qty and value totals with pack-to-strip conversion"""
@@ -29,6 +54,8 @@ class StockistStatement(Document):
         total_opening_value = 0
         total_purchase_value = 0
         total_closing_value = 0
+        approved_scheme_map = self._get_approved_scheme_qty_map()
+
 
         for item in self.items:
             if not item.product_code:
@@ -72,32 +99,17 @@ class StockistStatement(Document):
                 # Use stockist's reported closing
                 closing_for_calc = flt(item.closing_qty) / conversion_factor
             
-            # -------- SCHEME COMPLIANCE METRIC --------
-            approved_scheme_qty = frappe.db.get_value(
-                "Scheme Request Item",
-                {
-                    "parent": ["in", frappe.get_all(
-                        "Scheme Request",
-                        filters={
-                            "stockist_code": self.stockist_code,
-                            "docstatus": 1
-                        },
-                        pluck="name"
-                    )],
-                    "product_code": item.product_code
-                },
-                "free_quantity"
-            ) or 0
+            approved_scheme_qty = flt(approved_scheme_map.get(item.product_code, 0))
+            item.scheme_deducted_qty_calc = flt(item.sales_qty) + flt(item.free_qty) - approved_scheme_qty 
+            
+            scheme_deducted_qty_base = flt(item.scheme_deducted_qty_calc) / conversion_factor
 
-            item.scheme_deducted_qty_calc = (
-                flt(item.sales_qty) + flt(item.free_qty)
-            ) - flt(approved_scheme_qty)
 
             # -------- VALUE CALCULATIONS (STRIP LEVEL) --------
             item.opening_value = opening_qty_base * pts
             item.purchase_value = purchase_qty_base * pts
-            item.sales_value_pts = sales_qty_base * pts
-            item.sales_value_ptr = sales_qty_base * ptr
+            item.sales_value_pts = scheme_deducted_qty_base  * pts
+            item.sales_value_ptr = scheme_deducted_qty_base  * ptr
             item.closing_value = closing_qty_base * pts
 
             # -------- TOTALS --------

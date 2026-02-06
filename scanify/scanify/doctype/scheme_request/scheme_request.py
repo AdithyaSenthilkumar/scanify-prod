@@ -14,17 +14,17 @@ class SchemeRequest(Document):
 
     def set_division(self):
         division = None
-
         if self.doctor_code:
             division = frappe.db.get_value("Doctor Master", self.doctor_code, "division")
-
         if not division and self.stockist_code:
             division = frappe.db.get_value("Stockist Master", self.stockist_code, "division")
-
+        if not division and self.hq:
+            # Fallback to HQ division if doctor and stockist division not set
+            division = frappe.db.get_value("HQ Master", self.hq, "division")
         if not division:
             frappe.throw("Unable to determine Division for this Scheme Request")
-
         self.division = division
+
     
     def calculate_total_scheme_value(self):
         total = 0

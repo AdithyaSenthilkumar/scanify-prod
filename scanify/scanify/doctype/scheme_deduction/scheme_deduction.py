@@ -96,8 +96,6 @@ class SchemeDeduction(Document):
                     # 1. Add to free_qty_scheme (this represents scheme free goods)
                     stmt_item.free_qty_scheme = flt(stmt_item.free_qty_scheme) + flt(deduction_item.deduct_qty)
                     
-                    # 2. Deduct from sales_qty (as per your requirement)
-                    stmt_item.sales_qty = flt(stmt_item.sales_qty) - flt(deduction_item.deduct_qty)
                     
                     products_updated.append(deduction_item.product_code)
                     break

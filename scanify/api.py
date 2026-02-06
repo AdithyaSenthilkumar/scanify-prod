@@ -195,7 +195,7 @@ def extract_stockist_statement(doc_name, file_url):
             return {"success": False, "message": "No valid products found"}
         
         doc.extraction_data_status = "Completed"
-        doc.extraction_notes = f"Successfully extracted {items_added} items using enhanced AI with product catalog"
+        doc.extraction_notes = f"Successfully extracted {items_added} items using AI with product catalog"
         doc.calculate_closing_and_totals()
         doc.save()
         frappe.db.commit()
@@ -1770,3 +1770,430 @@ def get_doctor_history_for_scheme(doctor_code, hq=None):
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Get Doctor History Error")
         return {"success": False, "message": str(e)}
+@frappe.whitelist()
+def set_user_division(division):
+    """Set user's selected division in session and User document"""
+    
+    # Validate division
+    if division not in ["Prima", "Vektra"]:
+        frappe.throw("Invalid division")
+    
+    try:
+        # Store in session
+        frappe.session.user_division = division
+        
+        # Store in User document for persistence
+        user_doc = frappe.get_doc("User", frappe.session.user)
+        
+        # Check if field exists
+        if hasattr(user_doc, "division"):
+            user_doc.division = division
+            user_doc.save(ignore_permissions=True)
+            frappe.db.commit()
+        else:
+            frappe.log_error("Division field not found in User doctype")
+        
+        return {
+            "success": True, 
+            "division": division,
+            "message": f"Division switched to {division}"
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Could not save division to user: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error: {str(e)}"
+        }
+
+
+@frappe.whitelist()
+def get_user_division():
+    """Get user's current division with proper fallback logic"""
+    
+    # Priority 1: Check session first (for current page load)
+    if hasattr(frappe.session, "user_division") and frappe.session.user_division:
+        return frappe.session.user_division
+    
+    # Priority 2: Check User document (persistent storage)
+    try:
+        user_doc = frappe.get_doc("User", frappe.session.user)
+        if hasattr(user_doc, "division") and user_doc.division:
+            # Sync to session
+            frappe.session.user_division = user_doc.division
+            return user_doc.division
+    except:
+        pass
+    
+    # Default: Prima
+    default_division = "Prima"
+    frappe.session.user_division = default_division
+    return default_division
+
+
+@frappe.whitelist()
+def get_user_schemes(filters=None):
+    """Get schemes for current user based on division and role"""
+    user = frappe.session.user
+    division = get_user_division(user)
+    
+    # Build filters
+    scheme_filters = {"division": division}
+    
+    if filters:
+        if isinstance(filters, str):
+            filters = json.loads(filters)
+        
+        if filters.get("status"):
+            scheme_filters["approval_status"] = filters["status"]
+        if filters.get("from_date"):
+            scheme_filters["application_date"] = [">=", filters["from_date"]]
+        if filters.get("to_date"):
+            if "application_date" in scheme_filters:
+                scheme_filters["application_date"] = [
+                    "between",
+                    [filters["from_date"], filters["to_date"]]
+                ]
+            else:
+                scheme_filters["application_date"] = ["<=", filters["to_date"]]
+    
+    # Get schemes
+    schemes = frappe.get_all(
+        "Scheme Request",
+        filters=scheme_filters,
+        fields=[
+            "name", "application_date", "doctor_name", "stockist_name",
+            "hq", "total_scheme_value", "approval_status"
+        ],
+        order_by="application_date desc",
+        limit=100
+    )
+    
+    return schemes
+
+@frappe.whitelist()
+def get_user_hqs():
+    """Get HQs for current user based on division"""
+    user = frappe.session.user
+    division = get_user_division(user)
+    
+    hqs = frappe.get_all(
+        "HQ Master",
+        filters={"division": division, "status": "Active"},
+        fields=["name", "hqname", "team", "region"]
+    )
+    
+    return hqs
+
+@frappe.whitelist()
+def get_active_products():
+    """Get all active products for scheme entry"""
+    user = frappe.session.user
+    division = get_user_division(user)
+    
+    products = frappe.get_all(
+        "Product Master",
+        filters={"status": "Active"},
+        fields=["name", "product_code", "product_name", "pack", "pts", "division"]
+    )
+    
+    # Filter by division if applicable
+    if division != "Both":
+        products = [p for p in products if p.get("division") == division]
+    
+    return products
+
+@frappe.whitelist()
+def get_stockists_by_hq(hq):
+    """Get stockists for a specific HQ"""
+    stockists = frappe.get_all(
+        "Stockist Master",
+        filters={"hq": hq, "status": "Active"},
+        fields=["name", "stockist_code", "stockist_name"]
+    )
+    
+    return stockists
+
+@frappe.whitelist()
+def search_doctors(searchterm):
+    """Search doctors by name or code"""
+    user = frappe.session.user
+    division = get_user_division(user)
+    
+    doctors = frappe.db.sql("""
+        SELECT name, doctor_code, doctor_name, place, specialization, hq
+        FROM `tabDoctor Master`
+        WHERE status = 'Active'
+        AND (doctor_name LIKE %(term)s OR doctor_code LIKE %(term)s OR place LIKE %(term)s)
+        ORDER BY doctor_name
+        LIMIT 20
+    """, {"term": f"%{searchterm}%"}, as_dict=True)
+    
+    return doctors
+
+@frappe.whitelist()
+def create_scheme_request(data):
+    """Create a new scheme request from portal"""
+    try:
+        if isinstance(data, str):
+            data = json.loads(data)
+        
+        # Create scheme document
+        doc = frappe.get_doc({
+            "doctype": "Scheme Request",
+            "application_date": data.get("application_date"),
+            "hq": data.get("hq"),
+            "doctor_code": data.get("doctor_code"),
+            "stockist_code": data.get("stockist_code"),
+            "chemist": data.get("chemist"),
+            "scheme_notes": data.get("scheme_notes"),
+            "requestedby": frappe.session.user,
+            "approval_status": "Pending"
+        })
+        
+        # Add items
+        for item in data.get("items", []):
+            doc.append("items", {
+                "product_code": item.get("product_code"),
+                "quantity": item.get("quantity"),
+                "free_quantity": item.get("free_quantity"),
+                "special_rate": item.get("special_rate")
+            })
+        
+        doc.insert(ignore_permissions=False)
+        frappe.db.commit()
+        
+        return {
+            "success": True,
+            "name": doc.name,
+            "message": "Scheme request created successfully"
+        }
+        
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Create Scheme Request Error")
+        return {
+            "success": False,
+            "message": str(e)
+        }
+@frappe.whitelist()
+def get_master_data(doctype, division):
+    """Get all records from a master doctype filtered by division"""
+    try:
+        filters = {"status": "Active"}
+        
+        # Add division filter if applicable
+        if doctype in ["HQ Master", "Product Master", "Team Master", "Region Master"]:
+            filters["division"] = ["in", [division, "Both"]]
+        
+        # Get all fields for the doctype
+        meta = frappe.get_meta(doctype)
+        fields = [f.fieldname for f in meta.fields if f.fieldtype not in ["Table", "HTML", "Button"]]
+        fields = ["name"] + fields
+        
+        data = frappe.get_all(
+            doctype,
+            filters=filters,
+            fields=fields,
+            order_by="modified desc"
+        )
+        
+        return {"success": True, "data": data}
+    
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Master Data Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def save_master_record(doctype, name, data):
+    """Save or update a master record"""
+    try:
+        data = frappe.parse_json(data) if isinstance(data, str) else data
+        
+        # Auto-set division from user session (DON'T accept from form)
+        division = get_user_division()
+        
+        # Add division to doctypes that need it
+        if doctype in ['HQ Master', 'Product Master', 'Team Master', 'Region Master']:
+            data['division'] = division
+        
+        if name:
+            # Update existing record
+            doc = frappe.get_doc(doctype, name)
+            doc.update(data)
+        else:
+            # Create new record - let autoname handle code generation
+            doc = frappe.get_doc({
+                'doctype': doctype,
+                **data
+            })
+        
+        doc.save(ignore_permissions=False)
+        frappe.db.commit()
+        
+        return {"success": True, "message": "Record saved successfully", "name": doc.name}
+    
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Save Master Record Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def delete_master_record(doctype, name):
+    """Delete a master record"""
+    try:
+        frappe.delete_doc(doctype, name, ignore_permissions=False)
+        frappe.db.commit()
+        
+        return {"success": True, "message": "Record deleted successfully"}
+    
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Delete Master Record Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def import_master_data(doctype, division):
+    """Bulk import master data from Excel file"""
+    try:
+        import pandas as pd
+        from frappe.utils.file_manager import get_file
+        
+        # Get uploaded file
+        file = frappe.request.files.get('file')
+        if not file:
+            return {"success": False, "message": "No file uploaded"}
+        
+        # Read Excel file
+        df = pd.read_excel(file)
+        
+        # Map columns based on doctype
+        column_mapping = get_column_mapping(doctype)
+        
+        imported = 0
+        failed = 0
+        errors = []
+        
+        for idx, row in df.iterrows():
+            try:
+                data = {}
+                for excel_col, field_name in column_mapping.items():
+                    if excel_col in row and pd.notna(row[excel_col]):
+                        data[field_name] = row[excel_col]
+                
+                # Add division if applicable
+                if doctype in ["HQ Master", "Product Master", "Team Master", "Region Master"]:
+                    if "division" not in data:
+                        data["division"] = division
+                
+                # Check if record exists
+                code_field = get_code_field(doctype)
+                if code_field and code_field in data:
+                    if frappe.db.exists(doctype, data[code_field]):
+                        doc = frappe.get_doc(doctype, data[code_field])
+                        doc.update(data)
+                    else:
+                        doc = frappe.get_doc({
+                            "doctype": doctype,
+                            **data
+                        })
+                else:
+                    doc = frappe.get_doc({
+                        "doctype": doctype,
+                        **data
+                    })
+                
+                doc.save(ignore_permissions=True)
+                imported += 1
+                
+                if imported % 50 == 0:
+                    frappe.db.commit()
+                    
+            except Exception as e:
+                failed += 1
+                errors.append(f"Row {idx + 2}: {str(e)}")
+        
+        frappe.db.commit()
+        
+        return {
+            "success": True,
+            "imported": imported,
+            "failed": failed,
+            "errors": errors[:10]  # Return first 10 errors
+        }
+    
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Import Master Data Error")
+        return {"success": False, "message": str(e)}
+
+
+def get_column_mapping(doctype):
+    """Get Excel column to field mapping for each doctype"""
+    mappings = {
+        "HQ Master": {
+            "HQ Code": "name",
+            "HQ Name": "hq_name",
+            "Team": "team",
+            "Region": "region",
+            "Division": "division",
+            "Status": "status"
+        },
+        "Stockist Master": {
+            "Stockist Code": "stockist_code",
+            "Stockist Name": "stockist_name",
+            "HQ": "hq",
+            "Address": "address",
+            "Contact": "contact",
+            "Email": "email",
+            "Status": "status"
+        },
+        "Product Master": {
+            "Product Code": "product_code",
+            "Product Name": "product_name",
+            "Pack": "pack",
+            "PTS": "pts",
+            "PTR": "ptr",
+            "Division": "division",
+            "Product Type": "product_type",
+            "Status": "status"
+        },
+        "Doctor Master": {
+            "Doctor Code": "doctor_code",
+            "Doctor Name": "doctor_name",
+            "Place": "place",
+            "Specialization": "specialization",
+            "Hospital Address": "hospital_address",
+            "HQ": "hq",
+            "Team": "team",
+            "Region": "region",
+            "Zone": "zone",
+            "Status": "status"
+        },
+        "Team Master": {
+            "Team Code": "name",
+            "Team Name": "team_name",
+            "Region": "region",
+            "Division": "division",
+            "Status": "status"
+        },
+        "Region Master": {
+            "Region Code": "name",
+            "Region Name": "region_name",
+            "Division": "division",
+            "Status": "status"
+        }
+    }
+    return mappings.get(doctype, {})
+
+
+def get_code_field(doctype):
+    """Get the code/unique identifier field for each doctype"""
+    code_fields = {
+        "HQ Master": "name",
+        "Stockist Master": "stockist_code",
+        "Product Master": "product_code",
+        "Doctor Master": "doctor_code",
+        "Team Master": "name",
+        "Region Master": "name"
+    }
+    return code_fields.get(doctype)

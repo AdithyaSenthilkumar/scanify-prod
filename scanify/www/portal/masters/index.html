@@ -1,0 +1,235 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Masters Management{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page masters-page">
+    <!-- Page Header -->
+    <div class="page-header">
+        <h1 class="page-title"><i class="fa fa-database"></i> Masters Management</h1>
+        <p class="page-subtitle">Manage all master data for {{ division }} division</p>
+    </div>
+
+    <!-- Master Type Selector -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row align-items-center">
+                <div class="col-md-3">
+                    <label><strong>Select Master Type</strong></label>
+                    <select class="form-control" id="master-type">
+                        <option value="hq">HQ Master</option>
+                        <option value="stockist">Stockist Master</option>
+                        <option value="product">Product Master</option>
+                        <option value="doctor">Doctor Master</option>
+                        <option value="team">Team Master</option>
+                        <option value="region">Region Master</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label><strong>Search</strong></label>
+                    <input type="text" class="form-control" id="search-input" placeholder="Search...">
+                </div>
+                <div class="col-md-3">
+                    <label>&nbsp;</label>
+                    <div class="btn-group btn-block">
+                        <button class="btn btn-primary" onclick="showAddModal()">
+                            <i class="fa fa-plus"></i> Add New
+                        </button>
+                        <button class="btn btn-secondary" onclick="showBulkImportModal()">
+                            <i class="fa fa-file-excel"></i> Bulk Import
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter Section -->
+    <div class="card mb-3" id="filter-section">
+        <div class="card-header">
+            <i class="fa fa-filter"></i> Filters
+            <button class="btn btn-sm btn-link float-right" onclick="resetFilters()">Reset</button>
+        </div>
+        <div class="card-body">
+            <div class="row" id="filter-controls">
+                <!-- Dynamic filters will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="card">
+        <div class="card-header">
+            <i class="fa fa-list"></i> <span id="table-title">Records</span>
+            <span class="badge badge-info ml-2" id="record-count">0</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" id="data-table">
+                    <thead id="table-header">
+                        <!-- Dynamic headers -->
+                    </thead>
+                    <tbody id="table-body">
+                        <tr>
+                            <td colspan="10" class="text-center p-5">
+                                <i class="fa fa-spinner fa-spin fa-3x text-muted"></i>
+                                <p class="mt-3 text-muted">Loading data...</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">Add New Record</h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="edit-form">
+                    <input type="hidden" id="record-id">
+                    <div id="form-fields">
+                        <!-- Dynamic form fields -->
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveRecord()">
+                    <i class="fa fa-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Import Modal -->
+<div class="modal fade" id="bulkImportModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fa fa-file-excel"></i> Bulk Import - <span id="import-master-type"></span>
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Sample Excel Structure -->
+                <div class="alert alert-info">
+                    <strong><i class="fa fa-info-circle"></i> Excel File Structure:</strong>
+                    <p class="mb-2">Please ensure your Excel file has the following columns in this exact order:</p>
+                    <div class="table-responsive" id="sample-table-container">
+                        <!-- Dynamic sample table -->
+                    </div>
+                </div>
+
+                <!-- File Upload -->
+                <div class="form-group">
+                    <label><strong>Select Excel File</strong></label>
+                    <input type="file" class="form-control-file" id="import-file" accept=".xlsx,.xls">
+                    <small class="form-text text-muted">Supported formats: .xlsx, .xls</small>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="progress" id="import-progress" style="display: none;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                </div>
+
+                <!-- Import Results -->
+                <div id="import-results" style="display: none;">
+                    <div class="alert" id="import-alert"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="processImport()">
+                    <i class="fa fa-upload"></i> Import Data
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Additional custom styles for masters page */
+.masters-page {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+#data-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--color-bg);
+    z-index: 10;
+    white-space: nowrap;
+}
+
+#data-table tbody tr {
+    transition: all 0.2s ease;
+}
+
+#data-table tbody tr:hover {
+    background: var(--color-hover);
+    transform: translateX(2px);
+}
+
+.action-buttons {
+    white-space: nowrap;
+}
+
+.action-buttons .btn {
+    padding: 4px 8px;
+    font-size: 12px;
+    margin-right: 4px;
+}
+
+.sample-excel-table {
+    font-size: 12px;
+    background: #f8f9fa;
+}
+
+.sample-excel-table th {
+    background: #4CAF50;
+    color: white;
+    font-weight: 600;
+    padding: 8px;
+}
+
+.sample-excel-table td {
+    padding: 8px;
+    border: 1px solid #ddd;
+    font-family: monospace;
+}
+
+.filter-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    margin: 2px;
+    background: var(--color-accent);
+    color: white;
+    border-radius: 12px;
+    font-size: 11px;
+}
+
+.filter-badge .remove {
+    cursor: pointer;
+    margin-left: 6px;
+    font-weight: bold;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/scanify/js/masters.js"></script>
+{% endblock %}

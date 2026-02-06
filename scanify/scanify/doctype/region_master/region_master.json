@@ -32,6 +32,12 @@
    "fieldtype": "Data",
    "label": "State"
   },
+          {
+   "fieldname": "division",
+   "fieldtype": "Link",
+   "label": "Division",
+   "options": "Division"
+  },
   {
    "default": "Active",
    "fieldname": "status",

@@ -1,0 +1,166 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}{{ _("New Scheme Request") }}{% endblock %}
+
+{% block portal_content %}
+<div class="scheme-form-page">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h2>New Scheme Request</h2>
+        </div>
+        <div class="col-md-4 text-right">
+            <a href="/portal/schemes" class="btn btn-secondary">
+                <i class="fa fa-arrow-left"></i> Back to List
+            </a>
+        </div>
+    </div>
+
+    <form id="scheme-request-form">
+        <div class="card mb-3">
+            <div class="card-header">
+                <h4>Scheme Details</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Application Date <span class="text-danger">*</span></label>
+                            <input type="date" class="form-control" name="applicationdate" required>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>HQ <span class="text-danger">*</span></label>
+                            <select class="form-control" name="hq" id="hq" required>
+                                <option value="">Select HQ</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Doctor <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="doctor_search" id="doctor_search" placeholder="Search doctor by name/code">
+                            <input type="hidden" name="doctorcode" id="doctorcode" required>
+                            <div id="doctor-results" class="dropdown-menu" style="width: 100%;"></div>
+                            <small class="form-text text-muted" id="doctor-info"></small>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Stockist <span class="text-danger">*</span></label>
+                            <select class="form-control" name="stockistcode" id="stockistcode" required>
+                                <option value="">Select Stockist</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="form-group">
+                            <label>Chemist Name</label>
+                            <input type="text" class="form-control" name="chemist">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="form-group">
+                            <label>Scheme Notes</label>
+                            <textarea class="form-control" name="schemenotes" rows="2"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">
+                <h4>Products</h4>
+            </div>
+            <div class="card-body">
+                <table class="table table-bordered" id="items-table">
+                    <thead>
+                        <tr>
+                            <th width="30%">Product</th>
+                            <th>Pack</th>
+                            <th width="10%">Order Qty</th>
+                            <th width="10%">Free Qty</th>
+                            <th width="12%">Rate (PTS)</th>
+                            <th width="12%">Special Rate</th>
+                            <th width="10%">Scheme %</th>
+                            <th width="12%">Value</th>
+                            <th width="5%"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="items-tbody">
+                    </tbody>
+                </table>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="addItemRow()">
+                    <i class="fa fa-plus"></i> Add Product
+                </button>
+                
+                <div class="row mt-3">
+                    <div class="col-md-9 text-right">
+                        <strong>Total Scheme Value:</strong>
+                    </div>
+                    <div class="col-md-3">
+                        <input type="text" class="form-control" id="total-value" readonly>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">
+                <h4>Attachments</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Order Copy</label>
+                            <input type="file" class="form-control-file" name="ordercopy" accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Supply Proof</label>
+                            <input type="file" class="form-control-file" name="supplyproof" accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Stock Statement</label>
+                            <input type="file" class="form-control-file" name="stockstatement" accept=".pdf,.jpg,.jpeg,.png,.xlsx">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Additional Document</label>
+                            <input type="file" class="form-control-file" name="additionaldoc" accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-12 text-right">
+                <button type="button" class="btn btn-secondary" onclick="window.location.href='/portal/schemes'">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="submit-btn">
+                    <i class="fa fa-save"></i> Submit Scheme Request
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script src="/assets/scanify/js/scheme_form.js"></script>
+{% endblock %}

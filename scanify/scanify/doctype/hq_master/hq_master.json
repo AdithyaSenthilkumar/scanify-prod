@@ -37,11 +37,14 @@
    "options": "Region Master",
    "reqd": 1
   },
-  {
-   "fieldname": "zone",
-   "fieldtype": "Data",
-   "label": "Zone"
-  },
+{
+  "fieldname": "zone",
+  "fieldtype": "Data",
+  "label": "Zone",
+  "fetch_from": "region.zone",
+  "in_list_view": 1
+},
+
     {
    "fieldname": "division",
    "fieldtype": "Link",

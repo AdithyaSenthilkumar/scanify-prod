@@ -135,10 +135,8 @@ frappe.ui.form.on('Stockist Statement Item', {
 function calculate_item_closing(frm, cdt, cdn) {
     let row = locals[cdt][cdn];
     
-    // Get conversion factor from pack
     let conversion_factor = row.conversion_factor || 1;
     
-    // Apply conversion to all quantities
     let converted_opening = flt(row.opening_qty) / conversion_factor;
     let converted_purchase = flt(row.purchase_qty) / conversion_factor;
     let converted_sales = flt(row.sales_qty) / conversion_factor;
@@ -146,28 +144,23 @@ function calculate_item_closing(frm, cdt, cdn) {
     let converted_free_scheme = flt(row.free_qty_scheme) / conversion_factor;
     let converted_return = flt(row.return_qty) / conversion_factor;
     let converted_misc_out = flt(row.misc_out_qty) / conversion_factor;
-
+    
     let pts = flt(row.pts || 0);
-    let ptr = flt(row.ptr || 0);
-
-    frappe.model.set_value(cdt, cdn, 'sales_value_pts', converted_sales * pts);
-    frappe.model.set_value(cdt, cdn, 'sales_value_ptr', converted_sales * ptr);
+    
     frappe.model.set_value(cdt, cdn, 'opening_value', converted_opening * pts);
     frappe.model.set_value(cdt, cdn, 'purchase_value', converted_purchase * pts);
 
+    let closing_qty_base = converted_opening + converted_purchase 
+                         - converted_sales - converted_free - converted_free_scheme
+                         - converted_return - converted_misc_out;
     
-    // Closing = Opening + Purchase - Sales - Free - Free(Scheme) - Return - Misc Out
-    let closing_qty = converted_opening + converted_purchase 
-                    - converted_sales - converted_free - converted_free_scheme
-                    - converted_return - converted_misc_out;
+    // Convert back to display units
+    frappe.model.set_value(cdt, cdn, 'closing_qty', closing_qty_base * conversion_factor);
     
-    frappe.model.set_value(cdt, cdn, 'closing_qty', closing_qty);
+    // Closing Value = Closing Qty (base) * PTS
+    frappe.model.set_value(cdt, cdn, 'closing_value', closing_qty_base * pts);
     
-    // Closing Value = Closing Qty * PTS
-    let closing_value = closing_qty * flt(row.pts);
-    frappe.model.set_value(cdt, cdn, 'closing_value', closing_value);
-    
-    // Recalculate totals
+    // Recalculate totals (only for fields JS can calculate)
     calculate_totals(frm);
 }
 
@@ -176,18 +169,33 @@ function calculate_totals(frm) {
     let total_purchase = 0;
     let total_free = 0;
     let total_closing = 0;
+    let total_sales_pts = 0;
+    let total_sales_ptr = 0;
     
-    frm.doc.items.forEach(item => {
-        total_opening += flt(item.opening_qty) * flt(item.pts);
-        total_purchase += flt(item.purchase_qty) * flt(item.pts);
-        total_free += flt(item.free_qty) * flt(item.pts);
-        total_closing += flt(item.closing_value);
-    });
+    if (frm.doc.items) {
+        frm.doc.items.forEach(item => {
+            let conversion_factor = flt(item.conversion_factor) || 1;
+            
+            // Opening and Purchase: divide by conversion_factor first
+            total_opening += (flt(item.opening_qty) / conversion_factor) * flt(item.pts);
+            total_purchase += (flt(item.purchase_qty) / conversion_factor) * flt(item.pts);
+            total_free += (flt(item.free_qty) / conversion_factor) * flt(item.pts);
+            
+            // Closing value is already calculated correctly
+            total_closing += flt(item.closing_value);
+            
+            // Sales values - use what Python calculated (already in the row)
+            total_sales_pts += flt(item.sales_value_pts);
+            total_sales_ptr += flt(item.sales_value_ptr);
+        });
+    }
     
     frm.set_value('total_opening_value', total_opening);
     frm.set_value('total_purchase_value', total_purchase);
     frm.set_value('total_free_value', total_free);
     frm.set_value('total_closing_value', total_closing);
+    frm.set_value('total_sales_value_pts', total_sales_pts);
+    frm.set_value('total_sales_value_ptr', total_sales_ptr);
 }
 
 function extract_statement_data(frm) {

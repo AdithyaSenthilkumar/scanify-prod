@@ -8,10 +8,12 @@
  "field_order": [
   "stockist_code",
   "stockist_name",
+  "division",
   "hq",
   "column_break_jkip",
   "team",
   "region",
+  "zone",
   "section_break_fkyu",
   "address",
   "city",
@@ -74,9 +76,9 @@
    "label": "Address"
   },
   {
-   "fieldname": "city",
+   "fieldname": "zone",
    "fieldtype": "Data",
-   "label": "City"
+   "label": "Zone"
   },
   {
    "fieldname": "contact_person",

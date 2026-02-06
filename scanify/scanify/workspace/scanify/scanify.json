@@ -11,7 +11,7 @@
   }
  ],
  "content": "[{\"id\":\"3AzrKF4BJT\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h3\\\"><i><b>Stedman Pharmaceuticals</b></i></span>\",\"col\":12}},{\"id\":\"0Euh6f5-Dm\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Stock and Scheme Management System</span>\",\"col\":12}},{\"id\":\"meE56UlwJJ\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Stock Trend\",\"col\":6}},{\"id\":\"-2lDNE_auR\",\"type\":\"chart\",\"data\":{\"chart_name\":\"AI Processed\",\"col\":6}},{\"id\":\"EAMYysFP2o\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Stock Statement History\",\"col\":4}},{\"id\":\"ov7Ww9hlXO\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Doctors\",\"col\":4}},{\"id\":\"uIGW5wKj5k\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"Scheme Request History\",\"col\":4}},{\"id\":\"1oBAFfSJlF\",\"type\":\"spacer\",\"data\":{\"col\":12}}]",
- "creation": "2026-01-27 08:58:54.898548",
+ "creation": "2026-02-06 02:15:59.622237",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -24,7 +24,7 @@
  "label": "Scanify",
  "link_type": "DocType",
  "links": [],
- "modified": "2026-01-27 09:33:16.228989",
+ "modified": "2026-02-06 08:01:48.146537",
  "modified_by": "Administrator",
  "module": "Scanify",
  "name": "Scanify",

@@ -15,6 +15,16 @@ app_include_css = "/assets/scanify/css/scanify.css"
 website_context = {
     "brand_html": "<img src='/assets/scanify/images/stedman_logo.png' style='max-height: 40px;' />"
 }
+# Portal settings
+has_website_permission = {
+    "Scheme Request": "scanify.permissions.has_scheme_permission",
+    "Stockist Statement": "scanify.permissions.has_statement_permission"
+}
+
+# Web form list
+web_form_list_context = {
+    "Scheme Request": "scanify.portal.get_scheme_list_context"
+}
 
 
 # Redirect after login

@@ -15,6 +15,7 @@
   "place",
   "hospital_address",
   "house_address",
+  "division",
   "hq",
   "team",
   "region",

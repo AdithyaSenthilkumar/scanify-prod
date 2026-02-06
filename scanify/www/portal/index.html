@@ -1,0 +1,103 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page">
+    <!-- Page Header -->
+    <div class="page-header">
+        <h1 class="page-title">Dashboard</h1>
+        <p class="page-subtitle">Welcome back, {{ frappe.session.user }}</p>
+    </div>
+
+    <!-- Stats Overview -->
+    <div class="stats-grid">
+        <div class="stat-box">
+            <div class="stat-value">{{ stats.pending_schemes }}</div>
+            <div class="stat-label">Pending Schemes</div>
+            <div class="stat-icon">
+                <i class="fa fa-clock"></i>
+            </div>
+        </div>
+
+        <div class="stat-box">
+            <div class="stat-value">{{ stats.approved_this_month }}</div>
+            <div class="stat-label">Approved This Month</div>
+            <div class="stat-icon">
+                <i class="fa fa-check"></i>
+            </div>
+        </div>
+
+        <div class="stat-box">
+            <div class="stat-value">{{ stats.pending_statements }}</div>
+            <div class="stat-label">Pending Statements</div>
+            <div class="stat-icon">
+                <i class="fa fa-database"></i>
+            </div>
+        </div>
+
+        <div class="stat-box">
+            <div class="stat-value">{{ stats.total_doctors }}</div>
+            <div class="stat-label">Active Doctors</div>
+            <div class="stat-icon">
+                <i class="fa fa-user-md"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="section-header">
+        <h2 class="section-title">Quick Actions</h2>
+    </div>
+
+    <div class="action-grid">
+        <a href="/portal/schemes" class="action-card">
+            <div class="action-icon">
+                <i class="fa fa-file-alt"></i>
+            </div>
+            <div class="action-title">View Schemes</div>
+            <div class="action-description">Manage scheme requests and approvals</div>
+        </a>
+
+        <a href="/portal/stock-statements" class="action-card">
+            <div class="action-icon">
+                <i class="fa fa-database"></i>
+            </div>
+            <div class="action-title">Stock Statements</div>
+            <div class="action-description">Upload and process stockist statements</div>
+        </a>
+
+        <a href="/portal/reports/moving-trend" class="action-card">
+            <div class="action-icon">
+                <i class="fa fa-chart-line"></i>
+            </div>
+            <div class="action-title">Moving Trend</div>
+            <div class="action-description">View sales trends and analytics</div>
+        </a>
+
+        <a href="/portal/doctors" class="action-card">
+            <div class="action-icon">
+                <i class="fa fa-user-md"></i>
+            </div>
+            <div class="action-title">Manage Doctors</div>
+            <div class="action-description">View and update doctor information</div>
+        </a>
+
+        <a href="/portal/stockists" class="action-card">
+            <div class="action-icon">
+                <i class="fa fa-building"></i>
+            </div>
+            <div class="action-title">Manage Stockists</div>
+            <div class="action-description">View and update stockist details</div>
+        </a>
+
+        <a href="/portal/products" class="action-card">
+            <div class="action-icon">
+                <i class="fa fa-cubes"></i>
+            </div>
+            <div class="action-title">Products</div>
+            <div class="action-description">Manage product catalog</div>
+        </a>
+    </div>
+</div>
+{% endblock %}
