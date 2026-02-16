@@ -83,6 +83,10 @@ fixtures = [
     {
         "dt": "Page",
         "filters": [["module", "in", ["Scanify"]]]
+    },
+        {
+        "doctype": "Role",
+        "filters": [["role_name", "=", "UATadmin"]]
     }
 ]
 
