@@ -1,0 +1,369 @@
+xml
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Stock Statement Entry{% endblock %}
+
+{% block portal_content %}
+<div class="stock-statement-page">
+  <div class="page-header-section">
+    <div class="row align-items-center mb-4">
+      <div class="col-md-8">
+        <h2><i class="fa fa-file-invoice"></i> Stock Statement Entry</h2>
+        <p class="text-muted">AI-Powered Statement Extraction & Processing</p>
+      </div>
+      <div class="col-md-4 text-right">
+        <a href="/portal" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back to Portal</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="card statement-entry-card" id="entry-card">
+    <div class="card-header">
+      <h4 class="mb-0"><i class="fa fa-edit"></i> Statement Details</h4>
+    </div>
+
+    <div class="card-body">
+      <form id="statement-form">
+        <div class="row">
+          <div class="col-md-4">
+            <div class="form-group">
+              <label>Statement Month <span class="text-danger">*</span></label>
+              <input type="month" class="form-control" id="statement-month" required>
+              <small class="form-text text-muted">Select the statement period</small>
+            </div>
+          </div>
+
+          <div class="col-md-4">
+            <div class="form-group position-relative">
+              <label>Stockist <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="stockist-search" placeholder="Search stockist..." autocomplete="off" required>
+              <input type="hidden" id="stockist-code">
+              <div class="autocomplete-results" id="stockist-results"></div>
+              <small class="form-text text-muted" id="stockist-info"></small>
+            </div>
+          </div>
+
+          <div class="col-md-4">
+            <div class="form-group">
+              <label>Division</label>
+              <input type="text" class="form-control" id="division" readonly value="{{ division or 'Prima' }}">
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col-md-3">
+            <div class="form-group">
+              <label>HQ</label>
+              <input type="text" class="form-control" id="hq" readonly>
+            </div>
+          </div>
+
+          <div class="col-md-3">
+            <div class="form-group">
+              <label>Team</label>
+              <input type="text" class="form-control" id="team" readonly>
+            </div>
+          </div>
+
+          <div class="col-md-3">
+            <div class="form-group">
+              <label>Region</label>
+              <input type="text" class="form-control" id="region" readonly>
+            </div>
+          </div>
+
+          <div class="col-md-3">
+            <div class="form-group">
+              <label>Zone</label>
+              <input type="text" class="form-control" id="zone" readonly>
+            </div>
+          </div>
+        </div>
+
+        <div class="upload-section">
+          <div class="form-group">
+            <label>Upload Statement <span class="text-danger">*</span></label>
+
+            <div class="custom-file-upload" id="file-drop-zone">
+              <input type="file" class="form-control-file" id="statement-file"
+                     accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv,.txt" required>
+
+              <div class="upload-placeholder">
+                <i class="fa fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
+                <h5 class="mb-1">Drag & Drop or Click to Upload</h5>
+                <p class="text-muted mb-3">Supports PDF, JPG, PNG, Excel, TXT</p>
+                <button type="button" class="btn btn-outline-primary" id="browse-btn">
+                  <i class="fa fa-folder-open"></i> Browse Files
+                </button>
+              </div>
+
+              <div class="file-preview" id="file-preview" style="display:none;">
+                <div class="file-info">
+                  <i class="fa fa-file-alt fa-2x text-success"></i>
+                  <div class="file-details">
+                    <strong id="file-name"></strong>
+                    <small id="file-size" class="text-muted d-block"></small>
+                  </div>
+                  <button type="button" class="btn btn-sm btn-danger" id="clear-file-btn">
+                    <i class="fa fa-times"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col-md-12">
+            <div class="form-group">
+              <label>Remarks</label>
+              <textarea class="form-control" id="remarks" rows="2" placeholder="Optional notes..."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="action-bar">
+          <button type="submit" class="btn btn-extract btn-lg" id="extract-btn">
+            <i class="fa fa-magic"></i> Extract with AI <span class="magic-sparkle"></span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+    <!-- Loading Animation -->
+    <div class="extraction-loader" id="extraction-loader" style="display: none;">
+        <div class="loader-content">
+            <div class="ai-loader">
+                <div class="brain-icon">
+                    <i class="fa fa-brain fa-4x"></i>
+                </div>
+                <div class="loading-dots">
+                    <span></span><span></span><span></span>
+                </div>
+            </div>
+            <h4 class="mt-4">AI is Extracting Data...</h4>
+            <p class="text-muted">Analyzing statement and matching products</p>
+            <div class="progress mt-3" style="width: 300px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                     role="progressbar" style="width: 100%"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Section (Hidden until extraction) -->
+    <div id="results-section" style="display: none;">
+        <!-- Summary Cards -->
+        <div class="row stats-grid mb-4">
+            <div class="col-md-3">
+                <div class="stat-card blue">
+                    <div class="stat-icon"><i class="fa fa-box"></i></div>
+                    <div class="stat-value" id="total-products">0</div>
+                    <div class="stat-label">Products</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card green">
+                    <div class="stat-icon"><i class="fa fa-cubes"></i></div>
+                    <div class="stat-value" id="total-opening">0</div>
+                    <div class="stat-label">Opening Qty</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card orange">
+                    <div class="stat-icon"><i class="fa fa-shopping-cart"></i></div>
+                    <div class="stat-value" id="total-sales">0</div>
+                    <div class="stat-label">Sales Qty</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card purple">
+                    <div class="stat-icon"><i class="fa fa-warehouse"></i></div>
+                    <div class="stat-value" id="total-closing">0</div>
+                    <div class="stat-label">Closing Qty</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <h5 class="mb-0">
+                            <i class="fa fa-check-circle text-success"></i> 
+                            Extraction Completed
+                        </h5>
+                        <small class="text-muted" id="extraction-info"></small>
+                    </div>
+                    <div class="col-md-6 text-right">
+                        <button class="btn btn-primary" onclick="open_fullscreen_table()">
+                            <i class="fa fa-table"></i> View Full Table
+                        </button>
+                        <button class="btn btn-info" onclick="open_qc_screen()">
+                            <i class="fa fa-clipboard-check"></i> QC Screen
+                        </button>
+                        <button class="btn btn-success" onclick="save_statement()">
+                            <i class="fa fa-save"></i> Save Statement
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Preview Table -->
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fa fa-list"></i> Extracted Items Preview</h4>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-hover mb-0" id="preview-table">
+                        <thead class="sticky-header">
+                            <tr>
+                                <th>Product Code</th>
+                                <th>Product Name</th>
+                                <th>Pack</th>
+                                <th class="text-right">Opening</th>
+                                <th class="text-right">Purchase</th>
+                                <th class="text-right">Sales</th>
+                                <th class="text-right">Free</th>
+                                <th class="text-right">Closing</th>
+                                <th class="text-right">Value</th>
+                            </tr>
+                        </thead>
+                        <tbody id="preview-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Fullscreen Table Modal -->
+<div class="modal fade" id="fullscreen-modal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fa fa-table"></i> Complete Statement View
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm mb-0" id="full-table">
+                        <thead class="bg-primary text-white">
+                            <tr>
+                                <th>Product Code</th>
+                                <th>Product Name</th>
+                                <th>Pack</th>
+                                <th>Opening Qty</th>
+                                <th>Purchase Qty</th>
+                                <th>Sales Qty</th>
+                                <th>Free Qty</th>
+                                <th>Return Qty</th>
+                                <th>Misc Out</th>
+                                <th>Closing Qty</th>
+                                <th>PTS</th>
+                                <th>Opening Value</th>
+                                <th>Purchase Value</th>
+                                <th>Sales Value (PTS)</th>
+                                <th>Closing Value</th>
+                            </tr>
+                        </thead>
+                        <tbody id="full-tbody">
+                        </tbody>
+                        <tfoot class="bg-light font-weight-bold">
+                            <tr id="full-totals"></tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- QC Screen Modal -->
+<div class="modal fade" id="qc-modal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fa fa-clipboard-check"></i> Quality Check Screen
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="qc-container">
+                    <!-- Left: Document Viewer -->
+                    <div class="qc-document">
+                        <div class="document-header">
+                            <h6><i class="fa fa-file-pdf"></i> Original Statement</h6>
+                            <div class="document-controls">
+                                <button class="btn btn-sm btn-light" onclick="zoom_in()">
+                                    <i class="fa fa-search-plus"></i>
+                                </button>
+                                <button class="btn btn-sm btn-light" onclick="zoom_out()">
+                                    <i class="fa fa-search-minus"></i>
+                                </button>
+                                <button class="btn btn-sm btn-light" onclick="reset_zoom()">
+                                    <i class="fa fa-sync"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="document-viewer" id="document-viewer">
+                            <iframe id="pdf-viewer" style="display: none;"></iframe>
+                            <img id="img-viewer" style="display: none;">
+                        </div>
+                    </div>
+
+                    <!-- Right: Data Table -->
+                    <div class="qc-data">
+                        <div class="qc-header">
+                            <h6><i class="fa fa-database"></i> Extracted Data</h6>
+                            <div class="column-selector">
+                                <label>Select Columns (Choose 5):</label>
+                                <div class="checkbox-group" id="column-checkboxes">
+                                    <label><input type="checkbox" value="productcode" checked disabled> Product Code</label>
+                                    <label><input type="checkbox" value="productname" checked> Product Name</label>
+                                    <label><input type="checkbox" value="pack"> Pack</label>
+                                    <label><input type="checkbox" value="openingqty" checked> Opening</label>
+                                    <label><input type="checkbox" value="purchaseqty"> Purchase</label>
+                                    <label><input type="checkbox" value="salesqty" checked> Sales</label>
+                                    <label><input type="checkbox" value="freeqty"> Free</label>
+                                    <label><input type="checkbox" value="returnqty"> Return</label>
+                                    <label><input type="checkbox" value="miscoutqty"> Misc Out</label>
+                                    <label><input type="checkbox" value="closingqty" checked> Closing</label>
+                                    <label><input type="checkbox" value="pts"> PTS</label>
+                                    <label><input type="checkbox" value="closingvalue"> Closing Value</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="qc-table-container">
+                            <table class="table table-bordered table-sm" id="qc-table">
+                                <thead id="qc-thead"></thead>
+                                <tbody id="qc-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<style>
+  .action-bar{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:10px}
+  .custom-file-upload{border:1px dashed #cfd6e4;border-radius:12px;padding:18px;background:#fbfcff}
+  .custom-file-upload.drag-over{border-color:#2b7cff;background:#f0f6ff}
+  #stockist-results{position:absolute;z-index:50;width:100%}
+  .autocomplete-item{padding:10px 12px;cursor:pointer;border-bottom:1px solid #edf1f7;background:#fff}
+  .autocomplete-item:hover{background:#f6f9ff}
+  .file-info{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .file-details{flex:1;min-width:0}
+</style>
+<script src="/assets/scanify/js/stock-statements.js"></script>
+{% endblock %}

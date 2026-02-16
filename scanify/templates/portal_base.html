@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="stylesheet" href="/assets/scanify/css/portal.css">
+    <link rel="icon" href="/assets/scanify/images/scanify_logo.jpg" type="image/x-icon">
     
     {% block head_include %}{% endblock %}
 </head>
@@ -19,7 +20,7 @@
                 <a href="/portal" class="brand-link">
 <div class="brand-logo">
     <img src="/assets/scanify/images/scanify_logo.jpg" alt="Scanify Logo">
-</div>                    <span class="brand-name">Stedman Portal</span>
+</div>                    <span class="brand-name">Scanify - Stedman Portal</span>
                 </a>
             </div>
             
@@ -51,13 +52,14 @@
                 </div>
 
             <!-- User Menu (existing) -->
-            <div class="user-menu">
-                <button class="user-button" type="button" id="userMenuButton" data-toggle="dropdown">
+            <div class="user-menu-simple">
+                <div class="user-trigger">
                     <i class="fa fa-user-circle"></i>
                     <span class="user-name">{{ frappe.session.user }}</span>
                     <i class="fa fa-chevron-down"></i>
-                </button>
-                <div class="dropdown-menu dropdown-menu-right">
+                </div>
+
+                <div class="user-dropdown">
                     <div class="dropdown-header">
                         <div><strong>Division:</strong> {{ division or 'Prima' }}</div>
                         <div><strong>Role:</strong> {{ user_role or 'User' }}</div>
@@ -68,6 +70,7 @@
                     </a>
                 </div>
             </div>
+
         </div>
 
         </div>
@@ -84,14 +87,19 @@
                         <i class="fa fa-home"></i>
                         <span>Dashboard</span>
                     </a>
+                    <a href="/portal/stock-statementss" class="nav-link">
+                        <i class="fa fa-database"></i>
+                        <span>Stock Statements (coming soon)</span>
+                    </a>
                     <a href="/portal/schemes" class="nav-link">
                         <i class="fa fa-file-alt"></i>
-                        <span>Schemes</span>
+                        <span>Schemes (coming soon)</span>
                     </a>
-                    <a href="/portal/stock-statements" class="nav-link">
-                        <i class="fa fa-database"></i>
-                        <span>Stock Statements</span>
+                    <a href="/portal/sales-targets" class="nav-link">
+                        <i class="fa fa-chart-line"></i>
+                        <span>Sales Target (coming soon)</span>
                     </a>
+
                 </div>
 
                 <!-- Masters -->
@@ -100,36 +108,25 @@
                     <a href="/portal/masters" class="nav-link">
                         <i class="fa fa-database"></i> <span>All Masters</span>
                     </a>
-                    <a href="/portal/doctors" class="nav-link">
-                        <i class="fa fa-user-md"></i> <span>Doctors</span>
-                    </a>
-                    <a href="/portal/stockists" class="nav-link">
-                        <i class="fa fa-building"></i> <span>Stockists</span>
-                    </a>
-                    <a href="/portal/products" class="nav-link">
-                        <i class="fa fa-cubes"></i> <span>Products</span>
-                    </a>
-                    <a href="/portal/hqs" class="nav-link">
-                        <i class="fa fa-map-marker-alt"></i> <span>HQs</span>
-                    </a>
                 </div>
 
 
                 <!-- Reports -->
                 <div class="nav-section">
-                    <div class="nav-section-title">Reports</div>
-                    <a href="/portal/reports/moving-trend" class="nav-link">
-                        <i class="fa fa-chart-line"></i>
-                        <span>Moving Trend</span>
-                    </a>
-                    <a href="/portal/reports/secondary-sales" class="nav-link">
-                        <i class="fa fa-chart-bar"></i>
-                        <span>Secondary Sales</span>
-                    </a>
-                    <a href="/portal/reports/ranking" class="nav-link">
-                        <i class="fa fa-trophy"></i>
-                        <span>Ranking</span>
-                    </a>
+                    <div class="nav-section-title">Reports (coming soon)</div>
+
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Insights (coming soon)</div>
+
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Users (coming soon)</div>
+
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Audit Trail (coming soon)</div>
+
                 </div>
             </nav>
         </aside>
@@ -158,14 +155,10 @@
 {{ include_script('frappe-web.bundle.js') }}
 
     <script>
-    // Make frappe available
-    window.frappe = window.frappe || {};
+    // INJECT CSRF TOKEN FROM SERVER SESSION
+    frappe.csrf_token = "{{ frappe.session.csrf_token }}";
+    window.csrf_token = frappe.csrf_token; // make it globally available if needed
     frappe.datetime = frappe.datetime || {};
-    frappe.datetime.str_to_user = function(dateStr) {
-        if (!dateStr) return '';
-        let date = new Date(dateStr);
-        return date.toLocaleDateString('en-GB');
-    };
     
     // Active link highlighting
     $(document).ready(function() {
@@ -205,18 +198,6 @@
         }
     });
 
-function getCSRFToken() {
-    let name = "csrf_token=";
-    let decodedCookie = decodeURIComponent(document.cookie);
-    let ca = decodedCookie.split(';');
-    for (let i = 0; i < ca.length; i++) {
-        let c = ca[i].trim();
-        if (c.indexOf(name) === 0) {
-            return c.substring(name.length, c.length);
-        }
-    }
-    return null;
-}
 
 
 
@@ -239,7 +220,7 @@ function switchDivision(selectedDivision, event) {
         type: 'POST',
         contentType: 'application/json',
         headers: {
-            'X-Frappe-CSRF-Token': getCSRFToken()
+            'X-Frappe-CSRF-Token': frappe.csrf_token
         },
         data: JSON.stringify({
             division: selectedDivision

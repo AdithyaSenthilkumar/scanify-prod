@@ -706,3 +706,148 @@ a:hover {
         display: none;
     }
 }
+/* USER DROPDOWN SIMPLE */
+
+.user-menu-simple {
+    position: relative;
+    display: inline-block;
+}
+.user-trigger {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    padding: 6px 12px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.user-trigger:hover {
+    background: var(--color-hover);
+    border-color: var(--color-text-light);
+}
+
+.user-dropdown {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background: white;
+    min-width: 220px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+    border-radius: 6px;
+    padding: 8px 0;
+    z-index: 9999;
+}
+
+/* SHOW ON HOVER */
+.user-menu-simple:hover .user-dropdown {
+    display: block;
+}
+
+/* Items */
+.user-dropdown .dropdown-item {
+    display: block;
+    padding: 8px 14px;
+    color: #333;
+    text-decoration: none;
+}
+
+.user-dropdown .dropdown-item:hover {
+    background: #f5f5f5;
+}
+
+.dropdown-header {
+    padding: 8px 14px;
+    font-size: 13px;
+    color: #555;
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: #eee;
+    margin: 6px 0;
+}
+.autocomplete-dropdown {
+    position: absolute;
+    z-index: 1000;
+    background: white;
+    border: 1px solid #ddd;
+    border-top: none;
+    max-height: 200px;
+    overflow-y: auto;
+    display: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    width: calc(100% - 2px);
+}
+
+.autocomplete-dropdown div {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background 0.2s;
+}
+
+.autocomplete-dropdown div:hover {
+    background: #f5f5f5;
+}
+
+.autocomplete-dropdown div:last-child {
+    border-bottom: none;
+}
+/* ===============================
+   LINK DROPDOWN (PORTAL STYLE)
+=============================== */
+
+.link-dropdown {
+    position: absolute;
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    z-index: 9999;
+    width: 100%;
+    max-height: 240px;
+    overflow-y: auto;
+
+    /* Soft shadow like Frappe */
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+
+    font-size: 14px;
+    animation: fadeInDropdown 0.15s ease-out;
+}
+
+/* Individual items */
+.link-dropdown div {
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+/* Hover state */
+.link-dropdown div:hover {
+    background: #f5f7fa;
+}
+
+/* Active click feel */
+.link-dropdown div:active {
+    background: #e9eef5;
+}
+
+/* Divider */
+.link-dropdown div:not(:last-child) {
+    border-bottom: 1px solid #f0f0f0;
+}
+
+/* Smooth fade */
+@keyframes fadeInDropdown {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

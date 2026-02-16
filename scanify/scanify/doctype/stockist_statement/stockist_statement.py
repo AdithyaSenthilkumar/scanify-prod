@@ -7,6 +7,57 @@ class StockistStatement(Document):
     def validate(self):
         self.set_division_from_stockist()
         self.calculate_closing_and_totals()   # your existing method
+    def before_insert(self):
+        """Auto-populate previous month closing when creating new statement"""
+        self.populate_previous_month_closing()
+
+    def populate_previous_month_closing(self):
+        """
+        Fetch previous month's closing qty for each product and populate prev_month_closing field
+        """
+        if not self.stockist_code or not self.statement_month:
+            return
+        
+        try:
+            # Calculate previous month
+            current_date = getdate(self.statement_month)
+            previous_month = current_date - relativedelta(months=1)
+            previous_month_first = get_first_day(previous_month)
+            
+            # Find previous month's submitted statement
+            prev_statement = frappe.db.get_value("Stockist Statement", {
+                "stockist_code": self.stockist_code,
+                "statement_month": previous_month_first,
+                "docstatus": 1  # Only submitted statements
+            }, "name")
+            
+            if not prev_statement:
+                # No previous month statement found, set all to 0
+                for item in self.items:
+                    item.prev_month_closing = 0
+                return
+            
+            # Get previous month's closing quantities
+            prev_items = frappe.get_all("Stockist Statement Item",
+                filters={"parent": prev_statement},
+                fields=["product_code", "closing_qty"]
+            )
+            
+            # Create a dict for quick lookup
+            prev_closing_map = {item.product_code: flt(item.closing_qty, 0) for item in prev_items}
+            
+            # Update each item with previous month closing
+            for item in self.items:
+                if item.product_code in prev_closing_map:
+                    item.prev_month_closing = prev_closing_map[item.product_code]
+                else:
+                    item.prev_month_closing = 0
+            
+        except Exception as e:
+            frappe.log_error(frappe.get_traceback(), "Populate Previous Month Closing Error")
+            # Set all to 0 on error
+            for item in self.items:
+                item.prev_month_closing = 0
 
     def set_division_from_stockist(self):
         if not self.stockist_code:
@@ -87,17 +138,8 @@ class StockistStatement(Document):
             misc_out_qty_base = flt(item.misc_out_qty) / conversion_factor
             closing_qty_base = flt(item.closing_qty) / conversion_factor
 
-            if item.closing_qty is None or item.closing_qty == 0:
-                closing_for_calc = (
-                    opening_qty_base + purchase_qty_base 
-                    - sales_qty_base - free_qty_base - scheme_free_qty_base
-                    - return_qty_base - misc_out_qty_base
-                )
-                # Store UNCONVERTED closing (multiply back)
-                item.closing_qty = closing_for_calc * conversion_factor
-            else:
-                # Use stockist's reported closing
-                closing_for_calc = flt(item.closing_qty) / conversion_factor
+            if item.closing_value is None or item.closing_value == 0:
+                item.closing_value = closing_qty_base * pts
             
             approved_scheme_qty = flt(approved_scheme_map.get(item.product_code, 0))
             item.scheme_deducted_qty_calc = flt(item.sales_qty) + flt(item.free_qty) - approved_scheme_qty 
@@ -110,8 +152,12 @@ class StockistStatement(Document):
             item.purchase_value = purchase_qty_base * pts
             item.sales_value_pts = scheme_deducted_qty_base  * pts
             item.sales_value_ptr = scheme_deducted_qty_base  * ptr
-            item.closing_value = closing_qty_base * pts
-
+            if item.closing_value is None or item.closing_value == 0:
+                # Calculate only if not provided from statement
+                item.closing_value = closing_qty_base * pts
+            else:
+                # Use the extracted closing value from statement (no calculation)
+                pass  # Keep the extracted value
             # -------- TOTALS --------
             total_sales_qty += flt(item.sales_qty)
             total_sales_value_pts += item.sales_value_pts

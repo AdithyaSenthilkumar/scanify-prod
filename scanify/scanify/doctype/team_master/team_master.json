@@ -27,6 +27,12 @@
    "options": "Region Master",
    "reqd": 1
   },
+      {
+   "fieldname": "division",
+   "fieldtype": "Link",
+   "label": "Division",
+   "options": "Division"
+  },
   {
    "fieldname": "sanctioned_strength",
    "fieldtype": "Int",

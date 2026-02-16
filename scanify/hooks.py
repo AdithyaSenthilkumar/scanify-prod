@@ -33,7 +33,6 @@ web_form_list_context = {
 doc_events = {
     "Stockist Statement": {
         "validate": "scanify.scanify.doctype.stockist_statement.stockist_statement.validate_closing_balance",
-        "on_submit": "scanify.scanify.doctype.stockist_statement.stockist_statement.update_next_month_opening"
     },
     "Scheme Request": {
         "on_submit": "scanify.scanify.doctype.scheme_request.scheme_request.create_stock_adjustment"

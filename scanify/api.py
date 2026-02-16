@@ -183,7 +183,8 @@ def extract_stockist_statement(doc_name, file_url):
                     "free_qty": flt(item_data.get("free_qty"), 0),
                     "return_qty": flt(item_data.get("return_qty"), 0),
                     "misc_out_qty": flt(item_data.get("misc_out_qty"), 0),
-                    "closing_qty": flt(item_data.get("closing_qty"), None)
+                    "closing_qty": flt(item_data.get("closing_qty"), None),
+                    "closing_value": flt(item_data.get("closing_value"), 0),
                 })
                 items_added += 1
         
@@ -196,6 +197,7 @@ def extract_stockist_statement(doc_name, file_url):
         
         doc.extraction_data_status = "Completed"
         doc.extraction_notes = f"Successfully extracted {items_added} items using AI with product catalog"
+        doc.populate_previous_month_closing()
         doc.calculate_closing_and_totals()
         doc.save()
         frappe.db.commit()
@@ -247,7 +249,7 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
    - ONLY return products that exist in the catalog
 
 2. QUANTITY EXTRACTION ONLY (CRITICAL):
-   Extract ONLY QUANTITIES, do NOT extract any values/prices.
+   - Extract quantities for all columns AND closing value if present.
 
    Column meanings:
    - Opening: "Op.Qty", "OPSTK", "Opening", "Open.Qty"
@@ -256,11 +258,14 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
    - Free: "Free Qty", "Free", "Scheme Qty"
    - Return: "Return", "Ret", "Sales Ret"
    - Misc Out: "Misc.Out", "M.Out", "Transfer"
-   - Closing: "Closing", "Cls", "Cl.Bal", "Closing Qty", "Balance"
+   - Closing Qty: "Closing", "Cls", "Cl.Bal", "Closing Qty", "Balance"
+   - Closing Value: Closing Value, Closing Val, Cl.Value, Closing Amount
+
 
    IMPORTANT:
-   - If Closing Qty is present in the statement, extract it.
-   - If not present, leave closing_qty as 0.
+    - If Closing Qty is present, extract it
+    - If Closing Value is present, extract it (do NOT calculate)
+    - If Closing Value is not present, leave closingvalue as 0
 
 3. OUTPUT FORMAT - QUANTITIES ONLY:
    - Return ONLY valid JSON array
@@ -276,7 +281,8 @@ EXPECTED JSON FORMAT:
     "free_qty": 0,
     "return_qty": 0,
     "misc_out_qty": 0,
-    "closing_qty": 58
+    "closing_qty": 58,
+    "closing_value": 500.00
   }}
 ]
 
@@ -1976,29 +1982,31 @@ def create_scheme_request(data):
             "message": str(e)
         }
 @frappe.whitelist()
-def get_master_data(doctype, division):
-    """Get all records from a master doctype filtered by division"""
+def get_master_data(doctype, division=None, status=None):
+    """Get all records from a master doctype (NO FILTERS)"""
     try:
-        filters = {"status": "Active"}
-        
-        # Add division filter if applicable
-        if doctype in ["HQ Master", "Product Master", "Team Master", "Region Master"]:
+        filters = {}
+       # Add division filter if applicable
+        if doctype in ["HQ Master", "Product Master", "Region Master", "Team Master", "Doctor Master","Stockist Master"]:
             filters["division"] = ["in", [division, "Both"]]
-        
-        # Get all fields for the doctype
         meta = frappe.get_meta(doctype)
-        fields = [f.fieldname for f in meta.fields if f.fieldtype not in ["Table", "HTML", "Button"]]
+        excluded_fieldtypes = [
+            "Table", "HTML", "Button", "Column Break", "Section Break",
+            "Tab Break", "Heading", "Image"
+        ]
+
+        fields = [
+            f.fieldname for f in meta.fields
+            if f.fieldtype not in excluded_fieldtypes
+        ]
         fields = ["name"] + fields
-        
         data = frappe.get_all(
             doctype,
             filters=filters,
             fields=fields,
             order_by="modified desc"
         )
-        
         return {"success": True, "data": data}
-    
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Get Master Data Error")
         return {"success": False, "message": str(e)}
@@ -2006,33 +2014,75 @@ def get_master_data(doctype, division):
 
 @frappe.whitelist()
 def save_master_record(doctype, name, data):
-    """Save or update a master record"""
     try:
         data = frappe.parse_json(data) if isinstance(data, str) else data
-        
-        # Auto-set division from user session (DON'T accept from form)
+
+        # Auto division injection
         division = get_user_division()
-        
-        # Add division to doctypes that need it
-        if doctype in ['HQ Master', 'Product Master', 'Team Master', 'Region Master']:
+        if doctype in ['HQ Master', 'Product Master', 'Region Master']:
             data['division'] = division
-        
+
+        # -----------------------------
+        # CREATE OR LOAD DOC FIRST
+        # -----------------------------
         if name:
-            # Update existing record
             doc = frappe.get_doc(doctype, name)
-            doc.update(data)
         else:
-            # Create new record - let autoname handle code generation
-            doc = frappe.get_doc({
-                'doctype': doctype,
-                **data
-            })
-        
+            doc = frappe.new_doc(doctype)
+
+        # -----------------------------
+        # FIX LINK FIELDS (PORTAL SAFE)
+        # -----------------------------
+        meta = frappe.get_meta(doctype)
+
+        for field, value in data.items():
+            df = meta.get_field(field)
+            if not df or df.fieldtype != "Link":
+                continue
+
+            if not value:
+                continue
+
+            # If label accidentally sent instead of name → resolve
+            if not frappe.db.exists(df.options, value):
+                label_field = next(
+                    (f.fieldname for f in frappe.get_meta(df.options).fields if f.fieldname.endswith("_name")),
+                    "name"
+                )
+
+                match = frappe.db.get_value(df.options, {label_field: value}, "name")
+                if match:
+                    data[field] = match
+
+        # -----------------------------
+        # AUTONAME RENAME SUPPORT
+        # -----------------------------
+        if name:
+            if doctype == 'HQ Master' and 'hq_name' in data and data['hq_name'] != doc.hq_name:
+                frappe.rename_doc(doctype, name, data['hq_name'])
+                doc = frappe.get_doc(doctype, data['hq_name'])
+
+            elif doctype == 'Team Master' and 'team_name' in data and data['team_name'] != doc.team_name:
+                frappe.rename_doc(doctype, name, data['team_name'])
+                doc = frappe.get_doc(doctype, data['team_name'])
+
+            elif doctype == 'Region Master' and 'region_name' in data and data['region_name'] != doc.region_name:
+                frappe.rename_doc(doctype, name, data['region_name'])
+                doc = frappe.get_doc(doctype, data['region_name'])
+
+        # -----------------------------
+        # APPLY DATA
+        # -----------------------------
+        doc.update(data)
         doc.save(ignore_permissions=False)
         frappe.db.commit()
-        
-        return {"success": True, "message": "Record saved successfully", "name": doc.name}
-    
+
+        return {
+            "success": True,
+            "message": "Record saved successfully",
+            "name": doc.name
+        }
+
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Save Master Record Error")
         return {"success": False, "message": str(e)}
@@ -2050,6 +2100,48 @@ def delete_master_record(doctype, name):
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Delete Master Record Error")
         return {"success": False, "message": str(e)}
+
+@frappe.whitelist(allow_guest=True)
+def portal_link_search(doctype=None, search=""):
+    import json
+
+    # 1️⃣ Try normal frappe args (form encoded)
+    doctype = doctype or frappe.form_dict.get("doctype")
+    search = search or frappe.form_dict.get("search", "")
+
+    # 2️⃣ Try raw JSON body (portal fetch)
+    if not doctype and frappe.request.data:
+        try:
+            raw = frappe.request.data.decode("utf-8")
+            data = json.loads(raw)
+            doctype = data.get("doctype")
+            search = data.get("search", "")
+        except:
+            pass
+
+    # 3️⃣ Still missing → error
+    if not doctype:
+        frappe.throw("doctype is required")
+
+    meta = frappe.get_meta(doctype)
+
+    # Find best display field
+    display_field = next(
+        (f.fieldname for f in meta.fields if f.fieldname.endswith("_name")),
+        "name"
+    )
+
+    results = frappe.get_all(
+        doctype,
+        filters={display_field: ["like", f"%{search}%"]},
+        fields=["name", display_field],
+        limit=10
+    )
+
+    return [
+        {"label": r.get(display_field) or r.name, "value": r.name}
+        for r in results
+    ]
 
 
 @frappe.whitelist()
@@ -2197,3 +2289,68 @@ def get_code_field(doctype):
         "Region Master": "name"
     }
     return code_fields.get(doctype)
+@frappe.whitelist()
+def searchstockists(searchterm=None, division=None, limit=20):
+    searchterm = (searchterm or "").strip()
+    if len(searchterm) < 2:
+        return []
+
+    # Basic filters
+    filters = {}
+    if division:
+        filters["division"] = division
+
+    # Match by code or name
+    # NOTE: adapt fieldnames if your doctype uses stockist_code/stockist_name exactly
+    stockists = frappe.get_all(
+        "Stockist Master",
+        filters=filters,
+        fields=["stockist_code", "stockist_name", "hq", "division"],
+        or_filters=[
+            ["stockist_code", "like", f"%{searchterm}%"],
+            ["stockist_name", "like", f"%{searchterm}%"],
+        ],
+        limit_page_length=int(limit),
+        order_by="modified desc"
+    )
+
+    # Enrich with hierarchy from HQ Master (if available)
+    for st in stockists:
+        team = region = zone = None
+        if st.get("hq"):
+            team, region, zone = frappe.db.get_value(
+                "HQ Master",
+                st["hq"],
+                ["team", "region", "zone"]
+            ) or (None, None, None)
+        st["team"] = team
+        st["region"] = region
+        st["zone"] = zone
+
+    return stockists
+
+@frappe.whitelist()
+def get_stockist_details(stockist_code):
+    if not stockist_code:
+        frappe.throw(_("Stockist code is required"))
+
+    # Find Stockist Master by stockist_code
+    name = frappe.db.get_value("Stockist Master", {"stockist_code": stockist_code}, "name")
+    if not name:
+        frappe.throw(_("Stockist not found"))
+
+    st = frappe.get_doc("Stockist Master", name)
+
+    team = region = zone = None
+    if st.hq:
+        team, region, zone = frappe.db.get_value("HQ Master", st.hq, ["team", "region", "zone"]) or (None, None, None)
+
+    return {
+        "stockist_code": st.stockist_code,
+        "stockist_name": st.stockist_name,
+        "division": getattr(st, "division", None),
+        "hq": st.hq,
+        "team": team,
+        "region": region,
+        "zone": zone,
+    }

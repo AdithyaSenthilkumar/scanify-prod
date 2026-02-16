@@ -34,17 +34,199 @@ frappe.ui.form.on('Stockist Statement', {
 });
 frappe.ui.form.on('Stockist Statement', {
     refresh: function(frm) {
-        // Add toggle button
         if (!frm.doc.__islocal) {
-            frm.add_custom_button(__('Toggle Detailed View'), function() {
-                toggle_detailed_view(frm);
-            });
+            frm.add_custom_button('Open in Excel View', function() {
+                frappe.set_route('List', 'Stockist Statement Item', 'Report', {
+                    'parent': frm.doc.name
+                });
+            }).addClass('btn-primary');
         }
-        
-        // Start with compact view
-        set_compact_view(frm);
     }
 });
+frappe.ui.form.on('Stockist Statement', {
+    refresh: function(frm) {
+        // Add "Toggle Detailed View" button
+        if (!frm.doc.__islocal && frm.doc.items && frm.doc.items.length > 0) {
+            frm.add_custom_button('View Fullscreen Table', function() {
+                show_detailed_view_dialog(frm);
+            }).addClass('btn-primary');
+        }
+    }
+});
+
+function show_detailed_view_dialog(frm) {
+    let dialog = new frappe.ui.Dialog({
+        title: `Detailed Statement: ${frm.doc.stockist_name || frm.doc.stockist_code}`,
+        size: 'extra-large',
+        fields: [{ fieldname: 'table_html', fieldtype: 'HTML' }],
+        primary_action_label: 'Close',
+        primary_action: () => dialog.hide()
+    });
+
+    let html = build_detailed_table(frm);
+    dialog.fields_dict.table_html.$wrapper.html(html);
+
+    const $wrapper = dialog.$wrapper;
+
+    // TRULY FULL WIDTH - KILL ALL MARGINS
+    $wrapper.find('.modal-dialog').css({
+        'width': '100vw',
+        'max-width': '100vw',
+        'margin': '0',
+        'height': '100vh'
+    });
+
+    $wrapper.find('.modal-content').css({
+        'height': '100vh',
+        'border': 'none',
+        'border-radius': '0'
+    });
+
+    // Remove the "gutter" on the right (Frappe's default padding)
+    $wrapper.find('.modal-body').css({
+        'padding': '0px',
+        'margin': '0px',
+        'overflow': 'hidden' 
+    });
+
+    $wrapper.find('.container').css({
+        'width': '100%',
+        'max-width': '100%',
+        'padding': '0'
+    });
+
+    // Target the specific Frappe row/column classes that add padding
+    $wrapper.find('.form-layout, .form-page, .form-section, .section-body').css({
+        'padding': '0 !important',
+        'margin': '0 !important'
+    });
+
+    dialog.show();
+}
+
+function build_detailed_table(frm) {
+    let items = frm.doc.items || [];
+    
+    // Adjusted widths to be tighter so more fits on screen
+    const columns = [
+        { fieldname: 'product_code', label: 'Product Code', width: '90px' },
+        { fieldname: 'product_name', label: 'Product Name', width: '180px' },
+        { fieldname: 'pack', label: 'Pack', width: '70px' },
+        { fieldname: 'pts', label: 'PTS', width: '70px', is_currency: true },
+        { fieldname: 'conversion_factor', label: 'Conv', width: '60px' },
+        { fieldname: 'opening_qty', label: 'Opening Qty', width: '90px' },
+        { fieldname: 'purchase_qty', label: 'Purchase Qty', width: '90px' },
+        { fieldname: 'sales_qty', label: 'Sales Qty', width: '90px' },
+        { fieldname: 'free_qty', label: 'Free Qty', width: '80px' },
+        { fieldname: 'free_qty_scheme', label: 'Appr Free (Scheme)', width: '110px' },
+        { fieldname: 'sales_return_qty', label: 'Return Qty', width: '85px' },
+        { fieldname: 'scheme_deducted_qty_calc', label: 'Scheme Ded', width: '90px' },
+        { fieldname: 'closing_qty', label: 'Closing Qty', width: '90px' },
+        { fieldname: 'misc_out_trans_out', label: 'Misc Out', width: '80px' },
+        { fieldname: 'opening_value', label: 'Opening Val', width: '100px', is_currency: true },
+        { fieldname: 'purchase_value', label: 'Purchase Val', width: '100px', is_currency: true },
+        { fieldname: 'sales_value_pts', label: 'Sales (PTS)', width: '100px', is_currency: true },
+        { fieldname: 'sales_value_ptr', label: 'Sales (PTR)', width: '100px', is_currency: true },
+        { fieldname: 'closing_value', label: 'Closing Val', width: '100px', is_currency: true }
+    ];
+
+    let html = `
+        <style>
+            .table-containe r {
+                width: 100vw;
+                height: calc(100vh - 120px);
+                overflow: auto;
+                margin: 0;
+                padding: 0;
+                display: block;
+            }
+            .detailed-view-table {
+                width: 100%;
+                table-layout: fixed; /* Forces columns to stay within assigned widths */
+                border-collapse: collapse;
+                font-size: 11px;
+                background: white;
+            }
+            .detailed-view-table thead th {
+                position: sticky;
+                top: 0;
+                background: #2c3e50;
+                color: white;
+                padding: 8px 4px;
+                z-index: 20;
+                border: 1px solid #1a252f;
+                text-align: left;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .detailed-view-table td {
+                padding: 6px 4px;
+                border: 1px solid #d1d8dd;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .summary-row {
+                position: sticky;
+                bottom: 0;
+                background: #d4edda !important;
+                font-weight: bold;
+                z-index: 10;
+            }
+            .text-right { text-align: right; }
+        </style>
+        
+        <div class="table-container">
+            <table class="detailed-view-table">
+                <thead>
+                    <tr>
+    `;
+
+    columns.forEach(col => {
+        html += `<th style="width: ${col.width};" title="${col.label}">${col.label}</th>`;
+    });
+    html += `</tr></thead><tbody>`;
+
+    items.forEach(item => {
+        html += '<tr>';
+        columns.forEach(col => {
+            let val = item[col.fieldname] || 0;
+            let display = col.is_currency ? format_currency(val) : (typeof val === 'number' ? val.toFixed(2) : val);
+            let align = (col.is_currency || typeof val === 'number') ? 'text-right' : '';
+            html += `<td class="${align}" title="${display}">${display}</td>`;
+        });
+        html += '</tr>';
+    });
+
+    // Totals logic
+    let t_op = 0, t_pu = 0, t_sa = 0, t_cl = 0, t_ov = 0, t_cv = 0;
+    items.forEach(i => {
+        t_op += flt(i.opening_qty); t_pu += flt(i.purchase_qty); t_sa += flt(i.sales_qty);
+        t_cl += flt(i.closing_qty); t_ov += flt(i.opening_value); t_cv += flt(i.closing_value);
+    });
+
+    html += `
+        <tr class="summary-row">
+            <td colspan="4" class="text-right">TOTALS</td>
+            <td class="text-right">${t_op.toFixed(2)}</td>
+            <td class="text-right">${t_pu.toFixed(2)}</td>
+            <td class="text-right">${t_sa.toFixed(2)}</td>
+            <td colspan="3"></td>
+            <td class="text-right">${t_cl.toFixed(2)}</td>
+            <td class="text-right">${format_currency(t_ov)}</td>
+            <td></td>
+            <td class="text-right">${format_currency(t_cv)}</td>
+        </tr>
+    </tbody></table></div>`;
+
+    return html;
+}
+
+function format_currency(value) {
+    if (!value) return '0.00';
+    return parseFloat(value).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
 
 function set_compact_view(frm) {
     // Show only essential columns
@@ -158,8 +340,9 @@ function calculate_item_closing(frm, cdt, cdn) {
     frappe.model.set_value(cdt, cdn, 'closing_qty', closing_qty_base * conversion_factor);
     
     // Closing Value = Closing Qty (base) * PTS
-    frappe.model.set_value(cdt, cdn, 'closing_value', closing_qty_base * pts);
-    
+    if (!row.closing_value || row.closing_value == 0) {
+        frappe.model.set_value(cdt, cdn, 'closing_value', closing_qty_base * pts);
+    }
     // Recalculate totals (only for fields JS can calculate)
     calculate_totals(frm);
 }

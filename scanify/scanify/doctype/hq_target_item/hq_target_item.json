@@ -1,0 +1,234 @@
+{
+    "actions": [],
+    "creation": "2026-02-14 18:02:22.780482",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "hq",
+        "team",
+        "column_break_1",
+        "hq_name",
+        "monthly_targets_section",
+        "apr",
+        "may",
+        "jun",
+        "column_break_2",
+        "jul",
+        "aug",
+        "sep",
+        "column_break_3",
+        "oct",
+        "nov",
+        "dec",
+        "column_break_4",
+        "jan",
+        "feb",
+        "mar",
+        "quarterly_totals_section",
+        "q1_total",
+        "q2_total",
+        "column_break_5",
+        "q3_total",
+        "q4_total",
+        "column_break_6",
+        "yearly_total"
+    ],
+    "fields": [
+        {
+            "fieldname": "hq",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "HQ",
+            "options": "HQ Master",
+            "reqd": 1
+        },
+        {
+            "fetch_from": "hq.hq_name",
+            "fieldname": "hq_name",
+            "fieldtype": "Data",
+            "label": "HQ Name",
+            "read_only": 1
+        },
+        {
+            "fetch_from": "hq.team",
+            "fieldname": "team",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Team",
+            "options": "Team Master",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_1",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "monthly_targets_section",
+            "fieldtype": "Section Break",
+            "label": "Monthly Targets (in Lakhs)"
+        },
+        {
+            "default": "0",
+            "fieldname": "apr",
+            "fieldtype": "Currency",
+            "label": "April",
+            "precision": 2
+        },
+        {
+            "default": "0",
+            "fieldname": "may",
+            "fieldtype": "Currency",
+            "label": "May",
+            "precision": 2
+        },
+        {
+            "default": "0",
+            "fieldname": "jun",
+            "fieldtype": "Currency",
+            "label": "June",
+            "precision": 2
+        },
+        {
+            "fieldname": "column_break_2",
+            "fieldtype": "Column Break"
+        },
+        {
+            "default": "0",
+            "fieldname": "jul",
+            "fieldtype": "Currency",
+            "label": "July",
+            "precision": 2
+        },
+        {
+            "default": "0",
+            "fieldname": "aug",
+            "fieldtype": "Currency",
+            "label": "August",
+            "precision": 2
+        },
+        {
+            "default": "0",
+            "fieldname": "sep",
+            "fieldtype": "Currency",
+            "label": "September",
+            "precision": 2
+        },
+        {
+            "fieldname": "column_break_3",
+            "fieldtype": "Column Break"
+        },
+        {
+            "default": "0",
+            "fieldname": "oct",
+            "fieldtype": "Currency",
+            "label": "October",
+            "precision": 2
+        },
+        {
+            "default": "0",
+            "fieldname": "nov",
+            "fieldtype": "Currency",
+            "label": "November",
+            "precision": 2
+        },
+        {
+            "default": "0",
+            "fieldname": "dec",
+            "fieldtype": "Currency",
+            "label": "December",
+            "precision": 2
+        },
+        {
+            "fieldname": "column_break_4",
+            "fieldtype": "Column Break"
+        },
+        {
+            "default": "0",
+            "fieldname": "jan",
+            "fieldtype": "Currency",
+            "label": "January",
+            "precision": 2
+        },
+        {
+            "default": "0",
+            "fieldname": "feb",
+            "fieldtype": "Currency",
+            "label": "February",
+            "precision": 2
+        },
+        {
+            "default": "0",
+            "fieldname": "mar",
+            "fieldtype": "Currency",
+            "label": "March",
+            "precision": 2
+        },
+        {
+            "fieldname": "quarterly_totals_section",
+            "fieldtype": "Section Break",
+            "label": "Quarterly & Yearly Totals"
+        },
+        {
+            "default": "0",
+            "fieldname": "q1_total",
+            "fieldtype": "Currency",
+            "label": "Q1 Total (Apr-Jun)",
+            "read_only": 1,
+            "precision": 2
+        },
+        {
+            "default": "0",
+            "fieldname": "q2_total",
+            "fieldtype": "Currency",
+            "label": "Q2 Total (Jul-Sep)",
+            "read_only": 1,
+            "precision": 2
+        },
+        {
+            "fieldname": "column_break_5",
+            "fieldtype": "Column Break"
+        },
+        {
+            "default": "0",
+            "fieldname": "q3_total",
+            "fieldtype": "Currency",
+            "label": "Q3 Total (Oct-Dec)",
+            "read_only": 1,
+            "precision": 2
+        },
+        {
+            "default": "0",
+            "fieldname": "q4_total",
+            "fieldtype": "Currency",
+            "label": "Q4 Total (Jan-Mar)",
+            "read_only": 1,
+            "precision": 2
+        },
+        {
+            "fieldname": "column_break_6",
+            "fieldtype": "Column Break"
+        },
+        {
+            "default": "0",
+            "fieldname": "yearly_total",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Yearly Total",
+            "read_only": 1,
+            "precision": 2
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "istable": 1,
+    "links": [],
+    "modified": "2026-02-14 18:02:22.780519",
+    "modified_by": "Administrator",
+    "module": "Scanify",
+    "name": "HQ Target Item",
+    "owner": "Administrator",
+    "permissions": [],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": []
+}

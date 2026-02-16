@@ -2,6 +2,7 @@
  "actions": [],
  "creation": "2025-11-29 08:00:00",
  "doctype": "DocType",
+ "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
   "product_code",
@@ -20,7 +21,14 @@
   "closing_qty",
   "column_break_ajjy",
   "pts",
-  "closing_value"
+  "closing_value",
+  "free_qty_scheme",
+  "conversion_factor",
+  "sales_value_pts",
+  "sales_value_ptr",
+  "opening_value",
+  "purchase_value",
+  "scheme_deducted_qty_calc"
  ],
  "fields": [
   {
@@ -53,6 +61,14 @@
    "in_list_view": 1,
    "label": "Opening Qty"
   },
+      {
+        "fieldname": "prev_month_closing",
+        "fieldtype": "Float",
+        "label": "Previous Month Closing Stock",
+        "readonly": 1,
+        "description": "Auto-fetched from last month's closing qty",
+        "default": "0"
+    },
   {
    "default": "0",
    "fieldname": "purchase_qty",
@@ -67,29 +83,28 @@
    "label": "Sales Qty"
   },
   {
+   "allow_on_submit": 1,
    "default": "0",
    "description": "Free quantity",
    "fieldname": "free_qty",
    "fieldtype": "Float",
-   "label": "Free Qty (Sales)",
-    "allow_on_submit": 1
+   "label": "Free Qty (Sales)"
   },
   {
-  "fieldname": "free_qty_scheme",
-  "fieldtype": "Float",
-  "label": "Approved Free Qty (Scheme)",
-  "default": 0,
-  "description": "Free quantity from approved schemes",
-  "allow_on_submit": 1
-},
-{
-  "fieldname": "conversion_factor",
-  "fieldtype": "Float",
-  "label": "Conversion Factor",
-  "default": 1,
-  "description": "Auto-calculated from pack field for quantity adjustment",
-  "readonly": 1
-},
+   "allow_on_submit": 1,
+   "default": "0",
+   "description": "Free quantity from approved schemes",
+   "fieldname": "free_qty_scheme",
+   "fieldtype": "Float",
+   "label": "Approved Free Qty (Scheme)"
+  },
+  {
+   "default": "1",
+   "description": "Auto-calculated from pack field for quantity adjustment",
+   "fieldname": "conversion_factor",
+   "fieldtype": "Float",
+   "label": "Conversion Factor"
+  },
   {
    "default": "0",
    "fieldname": "return_qty",
@@ -103,12 +118,12 @@
    "label": "Misc Out/Trans Out"
   },
   {
+   "allow_on_submit": 1,
    "default": "0",
    "fieldname": "closing_qty",
    "fieldtype": "Float",
    "in_list_view": 1,
    "label": "Closing Qty",
-       "allow_on_submit": 1,
    "read_only": 1
   },
   {
@@ -119,42 +134,42 @@
    "read_only": 1
   },
   {
-  "fieldname": "sales_value_pts",
-  "fieldtype": "Currency",
-  "label": "Sales Value (PTS)",
-  "read_only": 1
-},
-{
-  "fieldname": "sales_value_ptr",
-  "fieldtype": "Currency",
-  "label": "Sales Value (PTR)",
-  "read_only": 1
-},
-{
-  "fieldname": "opening_value",
-  "fieldtype": "Currency",
-  "label": "Opening Value",
-  "read_only": 1
-},
-{
-  "fieldname": "purchase_value",
-  "fieldtype": "Currency",
-  "label": "Purchase Value",
-  "read_only": 1
-},
+   "fieldname": "sales_value_pts",
+   "fieldtype": "Currency",
+   "label": "Sales Value (PTS)",
+   "read_only": 1
+  },
   {
+   "fieldname": "sales_value_ptr",
+   "fieldtype": "Currency",
+   "label": "Sales Value (PTR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "opening_value",
+   "fieldtype": "Currency",
+   "label": "Opening Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "purchase_value",
+   "fieldtype": "Currency",
+   "label": "Purchase Value",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
    "fieldname": "closing_value",
    "fieldtype": "Currency",
    "label": "Closing Value",
-   "read_only": 1,
-          "allow_on_submit": 1
+   "read_only": 1
   },
   {
-  "fieldname": "scheme_deducted_qty_calc",
-  "fieldtype": "Float",
-  "label": "Scheme Deducted Qty (Calc)",
-  "read_only": 1
-},
+   "fieldname": "scheme_deducted_qty_calc",
+   "fieldtype": "Float",
+   "label": "Scheme Deducted Qty (Calc)",
+   "read_only": 1
+  },
   {
    "fieldname": "column_break_zxwe",
    "fieldtype": "Column Break"
@@ -179,7 +194,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-12-12 18:15:21.781146",
+ "modified": "2026-02-07 22:18:31.278400",
  "modified_by": "Administrator",
  "module": "Scanify",
  "name": "Stockist Statement Item",
