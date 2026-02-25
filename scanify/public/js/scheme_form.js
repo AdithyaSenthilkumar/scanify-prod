@@ -1,12 +1,12 @@
 let itemCounter = 0;
 let products = [];
 
-$(document).ready(function() {
+$(document).ready(function () {
     loadMasters();
     addItemRow();
 
     // Doctor search
-    $('#doctor_search').on('input', function() {
+    $('#doctor_search').on('input', function () {
         let term = $(this).val();
         if (term.length >= 2) {
             searchDoctors(term);
@@ -16,12 +16,12 @@ $(document).ready(function() {
     });
 
     // HQ change
-    $('#hq').on('change', function() {
+    $('#hq').on('change', function () {
         loadStockists($(this).val());
     });
 
     // Form submission
-    $('#scheme-request-form').on('submit', function(e) {
+    $('#scheme-request-form').on('submit', function (e) {
         e.preventDefault();
         submitSchemeRequest();
     });
@@ -29,12 +29,17 @@ $(document).ready(function() {
 
 function loadMasters() {
     // Load HQs
-    frappe.call({
-        method: 'scanify.api.get_user_hqs',
-        callback: function(r) {
+    $.ajax({
+        url: '/api/method/scanify.api.get_user_hqs',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: {
+            'X-Frappe-CSRF-Token': frappe.csrf_token
+        },
+        success: function (r) {
             if (r.message) {
                 let html = '<option value="">Select HQ</option>';
-                r.message.forEach(function(hq) {
+                r.message.forEach(function (hq) {
                     html += `<option value="${hq.name}">${hq.hqname}</option>`;
                 });
                 $('#hq').html(html);
@@ -43,9 +48,14 @@ function loadMasters() {
     });
 
     // Load products
-    frappe.call({
-        method: 'scanify.api.get_active_products',
-        callback: function(r) {
+    $.ajax({
+        url: '/api/method/scanify.api.get_active_products',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: {
+            'X-Frappe-CSRF-Token': frappe.csrf_token
+        },
+        success: function (r) {
             if (r.message) {
                 products = r.message;
             }
@@ -59,13 +69,18 @@ function loadStockists(hq) {
         return;
     }
 
-    frappe.call({
-        method: 'scanify.api.get_stockists_by_hq',
-        args: { hq: hq },
-        callback: function(r) {
+    $.ajax({
+        url: '/api/method/scanify.api.get_stockists_by_hq',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: {
+            'X-Frappe-CSRF-Token': frappe.csrf_token
+        },
+        data: JSON.stringify({ hq: hq }),
+        success: function (r) {
             if (r.message) {
                 let html = '<option value="">Select Stockist</option>';
-                r.message.forEach(function(stockist) {
+                r.message.forEach(function (stockist) {
                     html += `<option value="${stockist.name}">${stockist.stockistname}</option>`;
                 });
                 $('#stockistcode').html(html);
@@ -75,13 +90,18 @@ function loadStockists(hq) {
 }
 
 function searchDoctors(term) {
-    frappe.call({
-        method: 'scanify.api.search_doctors',
-        args: { searchterm: term },
-        callback: function(r) {
+    $.ajax({
+        url: '/api/method/scanify.api.search_doctors',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: {
+            'X-Frappe-CSRF-Token': frappe.csrf_token
+        },
+        data: JSON.stringify({ searchterm: term }),
+        success: function (r) {
             if (r.message && r.message.length > 0) {
                 let html = '';
-                r.message.forEach(function(doctor) {
+                r.message.forEach(function (doctor) {
                     html += `<a class="dropdown-item" href="#" data-code="${doctor.name}" 
                              data-name="${doctor.doctorname}" data-place="${doctor.place || ''}"
                              onclick="selectDoctor(this); return false;">
@@ -101,7 +121,7 @@ function selectDoctor(el) {
     let code = $(el).data('code');
     let name = $(el).data('name');
     let place = $(el).data('place');
-    
+
     $('#doctorcode').val(code);
     $('#doctor_search').val(name);
     $('#doctor-info').text(`${code} - ${place}`);
@@ -132,12 +152,12 @@ function addItemRow() {
         <td><button type="button" class="btn btn-sm btn-danger" onclick="removeRow(${itemCounter})">
             <i class="fa fa-trash"></i></button></td>
     </tr>`;
-    
+
     $('#items-tbody').append(html);
-    
+
     // Populate product dropdown
     let productHtml = '<option value="">Select Product</option>';
-    products.forEach(function(product) {
+    products.forEach(function (product) {
         productHtml += `<option value="${product.name}">${product.productname} - ${product.productcode}</option>`;
     });
     $(`#row-${itemCounter} .product-select`).html(productHtml);
@@ -151,7 +171,7 @@ function removeRow(id) {
 function onProductChange(rowId) {
     let productCode = $(`#row-${rowId} select[name*="productcode"]`).val();
     if (!productCode) return;
-    
+
     let product = products.find(p => p.name === productCode);
     if (product) {
         $(`#row-${rowId} input[name*="pack"]`).val(product.pack);
@@ -165,25 +185,25 @@ function calculateRow(rowId) {
     let freeQty = parseFloat($(`#row-${rowId} input[name*="freequantity"]`).val()) || 0;
     let rate = parseFloat($(`#row-${rowId} input[name*="productrate"]`).val()) || 0;
     let specialRate = parseFloat($(`#row-${rowId} input[name*="specialrate"]`).val()) || 0;
-    
+
     let schemePercent = 0;
     if (specialRate > 0 && rate > 0) {
         schemePercent = ((rate - specialRate) / rate) * 100;
     } else if (freeQty > 0 && qty > 0) {
         schemePercent = (freeQty / qty) * 100;
     }
-    
+
     let value = qty * (specialRate > 0 ? specialRate : rate);
-    
+
     $(`#row-${rowId} input[name*="schemepercentage"]`).val(schemePercent.toFixed(2) + '%');
     $(`#row-${rowId} input[name*="productvalue"]`).val(value.toFixed(2));
-    
+
     calculateTotal();
 }
 
 function calculateTotal() {
     let total = 0;
-    $('input[name*="productvalue"]').each(function() {
+    $('input[name*="productvalue"]').each(function () {
         total += parseFloat($(this).val()) || 0;
     });
     $('#total-value').val(format_currency(total));
@@ -191,52 +211,69 @@ function calculateTotal() {
 
 function submitSchemeRequest() {
     let formData = new FormData($('#scheme-request-form')[0]);
-    
+
     // Validate
     if (!$('#doctorcode').val()) {
         frappe.msgprint('Please select a doctor');
         return;
     }
-    
+
     if ($('#items-tbody tr').length === 0) {
         frappe.msgprint('Please add at least one product');
         return;
     }
-    
+
     $('#submit-btn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Submitting...');
-    
-    frappe.call({
-        method: 'scanify.api.create_scheme_request',
-        args: {
-            data: getFormData()
+
+    $.ajax({
+        url: '/api/method/scanify.api.create_scheme_request',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: {
+            'X-Frappe-CSRF-Token': frappe.csrf_token
         },
-        callback: function(r) {
+        data: JSON.stringify({ data: getFormData() }),
+        success: function (r) {
             $('#submit-btn').prop('disabled', false).html('<i class="fa fa-save"></i> Submit Scheme Request');
-            
+
             if (r.message && r.message.success) {
-                frappe.msgprint({
-                    title: 'Success',
-                    message: 'Scheme request created successfully',
-                    indicator: 'green'
-                });
-                setTimeout(function() {
+                if (typeof frappe.msgprint !== 'undefined') {
+                    frappe.msgprint({
+                        title: 'Success',
+                        message: 'Scheme request created successfully',
+                        indicator: 'green'
+                    });
+                } else {
+                    alert('Scheme request created successfully');
+                }
+                setTimeout(function () {
                     window.location.href = '/portal/schemes/' + r.message.name;
                 }, 1500);
             } else {
-                frappe.msgprint({
-                    title: 'Error',
-                    message: r.message.message || 'Failed to create scheme request',
-                    indicator: 'red'
-                });
+                let msg = (r.message && r.message.message) || 'Failed to create scheme request';
+                if (typeof frappe.msgprint !== 'undefined') {
+                    frappe.msgprint({
+                        title: 'Error',
+                        message: msg,
+                        indicator: 'red'
+                    });
+                } else {
+                    alert('Error: ' + msg);
+                }
             }
         },
-        error: function(r) {
+        error: function (xhr) {
             $('#submit-btn').prop('disabled', false).html('<i class="fa fa-save"></i> Submit Scheme Request');
-            frappe.msgprint({
-                title: 'Error',
-                message: 'Failed to create scheme request',
-                indicator: 'red'
-            });
+            console.error(xhr.responseText);
+            if (typeof frappe.msgprint !== 'undefined') {
+                frappe.msgprint({
+                    title: 'Error',
+                    message: 'Failed to create scheme request',
+                    indicator: 'red'
+                });
+            } else {
+                alert('Failed to create scheme request');
+            }
         }
     });
 }
@@ -251,8 +288,8 @@ function getFormData() {
         schemenotes: $('textarea[name="schemenotes"]').val(),
         items: []
     };
-    
-    $('#items-tbody tr').each(function() {
+
+    $('#items-tbody tr').each(function () {
         let item = {
             productcode: $(this).find('select[name*="productcode"]').val(),
             quantity: parseInt($(this).find('input[name*="quantity"]').val()) || 0,
@@ -263,6 +300,6 @@ function getFormData() {
             data.items.push(item);
         }
     });
-    
+
     return data;
 }

@@ -1,27 +1,26 @@
-xml
 {% extends "templates/portal_base.html" %}
 
 {% block title %}Stock Statement Entry{% endblock %}
 
 {% block portal_content %}
-<div class="stock-statement-page">
-  <div class="page-header-section">
-    <div class="row align-items-center mb-4">
-      <div class="col-md-8">
-        <h2><i class="fa fa-file-invoice"></i> Stock Statement Entry</h2>
-        <p class="text-muted">AI-Powered Statement Extraction & Processing</p>
-      </div>
-      <div class="col-md-4 text-right">
-        <a href="/portal" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back to Portal</a>
-      </div>
+<div class="ss-page">
+
+  <!-- Page Header -->
+  <div class="ss-page-header">
+    <div>
+      <h1 class="page-title"><i class="fa fa-magic"></i> Stock Statement Entry</h1>
+      <p class="page-subtitle">AI-Powered Statement Extraction &amp; Processing</p>
     </div>
+    <a href="/portal/stock-statements-list" class="btn btn-secondary">
+      <i class="fa fa-list"></i> View All Statements
+    </a>
   </div>
 
-  <div class="card statement-entry-card" id="entry-card">
+  <!-- Entry Card -->
+  <div class="card ss-entry-card" id="entry-card">
     <div class="card-header">
-      <h4 class="mb-0"><i class="fa fa-edit"></i> Statement Details</h4>
+      <span><i class="fa fa-edit"></i> Statement Details</span>
     </div>
-
     <div class="card-body">
       <form id="statement-form">
         <div class="row">
@@ -32,86 +31,76 @@ xml
               <small class="form-text text-muted">Select the statement period</small>
             </div>
           </div>
-
-          <div class="col-md-4">
+          <div class="col-md-8">
             <div class="form-group position-relative">
               <label>Stockist <span class="text-danger">*</span></label>
-              <input type="text" class="form-control" id="stockist-search" placeholder="Search stockist..." autocomplete="off" required>
+              <input type="text" class="form-control" id="stockist-search" placeholder="Search by name or code…"
+                autocomplete="off" required>
               <input type="hidden" id="stockist-code">
-              <div class="autocomplete-results" id="stockist-results"></div>
               <small class="form-text text-muted" id="stockist-info"></small>
             </div>
           </div>
-
-          <div class="col-md-4">
-            <div class="form-group">
-              <label>Division</label>
-              <input type="text" class="form-control" id="division" readonly value="{{ division or 'Prima' }}">
-            </div>
-          </div>
         </div>
 
-        <div class="row">
+        <!-- Auto-populated read-only fields -->
+        <div class="row ss-meta-row" id="stockist-meta-row" style="display:none;">
           <div class="col-md-3">
             <div class="form-group">
               <label>HQ</label>
-              <input type="text" class="form-control" id="hq" readonly>
+              <input type="text" class="form-control ss-readonly" id="hq" readonly>
             </div>
           </div>
-
           <div class="col-md-3">
             <div class="form-group">
               <label>Team</label>
-              <input type="text" class="form-control" id="team" readonly>
+              <input type="text" class="form-control ss-readonly" id="team" readonly>
             </div>
           </div>
-
           <div class="col-md-3">
             <div class="form-group">
               <label>Region</label>
-              <input type="text" class="form-control" id="region" readonly>
+              <input type="text" class="form-control ss-readonly" id="region" readonly>
             </div>
           </div>
-
           <div class="col-md-3">
             <div class="form-group">
               <label>Zone</label>
-              <input type="text" class="form-control" id="zone" readonly>
+              <input type="text" class="form-control ss-readonly" id="zone" readonly>
             </div>
           </div>
         </div>
 
-        <div class="upload-section">
-          <div class="form-group">
-            <label>Upload Statement <span class="text-danger">*</span></label>
+        <!-- Upload Section -->
+        <div class="ss-upload-section">
+          <label class="upload-label">Upload Statement <span class="text-danger">*</span></label>
+          <div class="ss-dropzone" id="file-drop-zone">
+            <input type="file" id="statement-file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv,.txt" required>
 
-            <div class="custom-file-upload" id="file-drop-zone">
-              <input type="file" class="form-control-file" id="statement-file"
-                     accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv,.txt" required>
-
-              <div class="upload-placeholder">
-                <i class="fa fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
-                <h5 class="mb-1">Drag & Drop or Click to Upload</h5>
-                <p class="text-muted mb-3">Supports PDF, JPG, PNG, Excel, TXT</p>
-                <button type="button" class="btn btn-outline-primary" id="browse-btn">
-                  <i class="fa fa-folder-open"></i> Browse Files
-                </button>
+            <div class="ss-upload-placeholder" id="upload-placeholder">
+              <div class="upload-icon-ring">
+                <i class="fa fa-cloud-upload-alt"></i>
               </div>
-
-              <div class="file-preview" id="file-preview" style="display:none;">
-                <div class="file-info">
-                  <i class="fa fa-file-alt fa-2x text-success"></i>
-                  <div class="file-details">
-                    <strong id="file-name"></strong>
-                    <small id="file-size" class="text-muted d-block"></small>
-                  </div>
-                  <button type="button" class="btn btn-sm btn-danger" id="clear-file-btn">
-                    <i class="fa fa-times"></i>
-                  </button>
-                </div>
-              </div>
+              <h5 class="upload-title">Drag &amp; Drop your statement here</h5>
+              <p class="upload-hint">PDF, JPG, PNG, Excel, CSV, TXT supported</p>
+              <button type="button" class="btn ss-browse-btn" id="browse-btn">
+                <i class="fa fa-folder-open"></i> Browse Files
+              </button>
             </div>
 
+            <div class="ss-file-preview" id="file-preview" style="display:none;">
+              <div class="file-card">
+                <div class="file-card-icon">
+                  <i class="fa fa-file-alt"></i>
+                </div>
+                <div class="file-card-info">
+                  <strong id="file-name"></strong>
+                  <small id="file-size" class="text-muted"></small>
+                </div>
+                <button type="button" class="btn-icon-remove" id="clear-file-btn" title="Remove">
+                  <i class="fa fa-times"></i>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -119,251 +108,990 @@ xml
           <div class="col-md-12">
             <div class="form-group">
               <label>Remarks</label>
-              <textarea class="form-control" id="remarks" rows="2" placeholder="Optional notes..."></textarea>
+              <textarea class="form-control" id="remarks" rows="2" placeholder="Optional notes…"></textarea>
             </div>
           </div>
         </div>
 
-        <div class="action-bar">
-          <button type="submit" class="btn btn-extract btn-lg" id="extract-btn">
-            <i class="fa fa-magic"></i> Extract with AI <span class="magic-sparkle"></span>
+        <!-- Extract Button -->
+        <div class="ss-action-bar">
+          <button type="submit" class="btn ss-extract-btn" id="extract-btn">
+            <span class="btn-glow"></span>
+            <i class="fa fa-magic btn-icon"></i>
+            <span class="btn-text">Extract with AI</span>
+            <span class="btn-sparkles">✨</span>
           </button>
         </div>
       </form>
     </div>
   </div>
 
-    <!-- Loading Animation -->
-    <div class="extraction-loader" id="extraction-loader" style="display: none;">
-        <div class="loader-content">
-            <div class="ai-loader">
-                <div class="brain-icon">
-                    <i class="fa fa-brain fa-4x"></i>
-                </div>
-                <div class="loading-dots">
-                    <span></span><span></span><span></span>
-                </div>
+  <!-- Extraction Loader -->
+  <div class="ss-loader-overlay" id="extraction-loader" style="display:none;">
+    <div class="ss-loader-card">
+      <div class="ss-brain-wrapper">
+        <div class="ss-brain-ring"></div>
+        <div class="ss-brain-ring ss-ring-2"></div>
+        <i class="fa fa-brain ss-brain-icon"></i>
+      </div>
+      <h3 class="ss-loader-title">AI is Reading Your Statement</h3>
+      <p class="ss-loader-sub">Analysing products, matching codes &amp; computing quantities…</p>
+      <div class="ss-loader-dots">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <div class="ss-loader-steps" id="loader-steps">
+        <div class="ss-step active" id="step-upload"><i class="fa fa-upload"></i> Uploading file</div>
+        <div class="ss-step" id="step-create"><i class="fa fa-file-plus"></i> Creating document</div>
+        <div class="ss-step" id="step-ai"><i class="fa fa-robot"></i> Running AI extraction</div>
+        <div class="ss-step" id="step-enrich"><i class="fa fa-database"></i> Enriching product data</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results Section -->
+  <div id="results-section" style="display:none;">
+
+    <!-- Status Bar + Buttons -->
+    <div class="card ss-results-bar">
+      <div class="card-body">
+        <div class="ss-results-top">
+          <div class="ss-results-info">
+            <div class="ss-status-dot"></div>
+            <div>
+              <h5 class="mb-0">Extraction Completed</h5>
+              <small class="text-muted" id="extraction-info"></small>
             </div>
-            <h4 class="mt-4">AI is Extracting Data...</h4>
-            <p class="text-muted">Analyzing statement and matching products</p>
-            <div class="progress mt-3" style="width: 300px;">
-                <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                     role="progressbar" style="width: 100%"></div>
-            </div>
+          </div>
+          <div class="ss-results-actions">
+            <button class="btn btn-outline-secondary btn-sm" onclick="open_qc_screen()" id="btn-qc">
+              <i class="fa fa-clipboard-check"></i> QC Screen
+            </button>
+            <button class="btn btn-outline-primary btn-sm" onclick="open_fullscreen_table()">
+              <i class="fa fa-table"></i> Full Table
+            </button>
+            <button class="btn btn-success btn-sm" id="btn-save" onclick="save_statement(event)">
+              <i class="fa fa-paper-plane"></i> Submit &amp; Finalise
+            </button>
+          </div>
         </div>
+      </div>
     </div>
 
-    <!-- Results Section (Hidden until extraction) -->
-    <div id="results-section" style="display: none;">
-        <!-- Summary Cards -->
-        <div class="row stats-grid mb-4">
-            <div class="col-md-3">
-                <div class="stat-card blue">
-                    <div class="stat-icon"><i class="fa fa-box"></i></div>
-                    <div class="stat-value" id="total-products">0</div>
-                    <div class="stat-label">Products</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stat-card green">
-                    <div class="stat-icon"><i class="fa fa-cubes"></i></div>
-                    <div class="stat-value" id="total-opening">0</div>
-                    <div class="stat-label">Opening Qty</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stat-card orange">
-                    <div class="stat-icon"><i class="fa fa-shopping-cart"></i></div>
-                    <div class="stat-value" id="total-sales">0</div>
-                    <div class="stat-label">Sales Qty</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stat-card purple">
-                    <div class="stat-icon"><i class="fa fa-warehouse"></i></div>
-                    <div class="stat-value" id="total-closing">0</div>
-                    <div class="stat-label">Closing Qty</div>
-                </div>
-            </div>
+    <!-- Summary Stat Cards -->
+    <div class="ss-stats-row">
+      <div class="ss-stat-card ss-stat-blue">
+        <div class="ss-stat-inner">
+          <div class="ss-stat-icon"><i class="fa fa-box"></i></div>
+          <div class="ss-stat-body">
+            <div class="ss-stat-value" id="total-products">0</div>
+            <div class="ss-stat-label">Products</div>
+          </div>
         </div>
-
-        <!-- Action Buttons -->
-        <div class="card mb-3">
-            <div class="card-body">
-                <div class="row align-items-center">
-                    <div class="col-md-6">
-                        <h5 class="mb-0">
-                            <i class="fa fa-check-circle text-success"></i> 
-                            Extraction Completed
-                        </h5>
-                        <small class="text-muted" id="extraction-info"></small>
-                    </div>
-                    <div class="col-md-6 text-right">
-                        <button class="btn btn-primary" onclick="open_fullscreen_table()">
-                            <i class="fa fa-table"></i> View Full Table
-                        </button>
-                        <button class="btn btn-info" onclick="open_qc_screen()">
-                            <i class="fa fa-clipboard-check"></i> QC Screen
-                        </button>
-                        <button class="btn btn-success" onclick="save_statement()">
-                            <i class="fa fa-save"></i> Save Statement
-                        </button>
-                    </div>
-                </div>
-            </div>
+      </div>
+      <div class="ss-stat-card ss-stat-green">
+        <div class="ss-stat-inner">
+          <div class="ss-stat-icon"><i class="fa fa-cubes"></i></div>
+          <div class="ss-stat-body">
+            <div class="ss-stat-value" id="total-opening">0</div>
+            <div class="ss-stat-label">Opening Qty</div>
+          </div>
         </div>
-
-        <!-- Quick Preview Table -->
-        <div class="card">
-            <div class="card-header">
-                <h4><i class="fa fa-list"></i> Extracted Items Preview</h4>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
-                    <table class="table table-hover mb-0" id="preview-table">
-                        <thead class="sticky-header">
-                            <tr>
-                                <th>Product Code</th>
-                                <th>Product Name</th>
-                                <th>Pack</th>
-                                <th class="text-right">Opening</th>
-                                <th class="text-right">Purchase</th>
-                                <th class="text-right">Sales</th>
-                                <th class="text-right">Free</th>
-                                <th class="text-right">Closing</th>
-                                <th class="text-right">Value</th>
-                            </tr>
-                        </thead>
-                        <tbody id="preview-tbody">
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+      </div>
+      <div class="ss-stat-card ss-stat-orange">
+        <div class="ss-stat-inner">
+          <div class="ss-stat-icon"><i class="fa fa-shopping-cart"></i></div>
+          <div class="ss-stat-body">
+            <div class="ss-stat-value" id="total-sales">0</div>
+            <div class="ss-stat-label">Sales Qty</div>
+          </div>
         </div>
+      </div>
+      <div class="ss-stat-card ss-stat-purple">
+        <div class="ss-stat-inner">
+          <div class="ss-stat-icon"><i class="fa fa-warehouse"></i></div>
+          <div class="ss-stat-body">
+            <div class="ss-stat-value" id="total-closing">0</div>
+            <div class="ss-stat-label">Closing Qty</div>
+          </div>
+        </div>
+      </div>
     </div>
-</div>
 
-<!-- Fullscreen Table Modal -->
+    <!-- Preview Table -->
+    <div class="card">
+      <div class="card-header">
+        <span><i class="fa fa-list"></i> Extracted Items Preview</span>
+        <small class="text-muted">(showing first 30 rows)</small>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive" style="max-height:400px;overflow-y:auto;">
+          <table class="table table-hover mb-0" id="preview-table">
+            <thead class="ss-table-head">
+              <tr>
+                <th>Code</th>
+                <th>Product Name</th>
+                <th>Pack</th>
+                <th class="text-right">Opening</th>
+                <th class="text-right">Purchase</th>
+                <th class="text-right">Sales</th>
+                <th class="text-right">Free</th>
+                <th class="text-right">Closing</th>
+                <th class="text-right">Cls Val</th>
+              </tr>
+            </thead>
+            <tbody id="preview-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /results-section -->
+
+</div><!-- /ss-page -->
+
+<!-- ===================== FULL TABLE MODAL ===================== -->
 <div class="modal fade" id="fullscreen-modal" tabindex="-1" role="dialog">
-    <div class="modal-dialog modal-fullscreen">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="fa fa-table"></i> Complete Statement View
-                </h5>
-                <button type="button" class="close" data-dismiss="modal">&times;</button>
-            </div>
-            <div class="modal-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-bordered table-sm mb-0" id="full-table">
-                        <thead class="bg-primary text-white">
-                            <tr>
-                                <th>Product Code</th>
-                                <th>Product Name</th>
-                                <th>Pack</th>
-                                <th>Opening Qty</th>
-                                <th>Purchase Qty</th>
-                                <th>Sales Qty</th>
-                                <th>Free Qty</th>
-                                <th>Return Qty</th>
-                                <th>Misc Out</th>
-                                <th>Closing Qty</th>
-                                <th>PTS</th>
-                                <th>Opening Value</th>
-                                <th>Purchase Value</th>
-                                <th>Sales Value (PTS)</th>
-                                <th>Closing Value</th>
-                            </tr>
-                        </thead>
-                        <tbody id="full-tbody">
-                        </tbody>
-                        <tfoot class="bg-light font-weight-bold">
-                            <tr id="full-totals"></tr>
-                        </tfoot>
-                    </table>
-                </div>
-            </div>
-        </div>
+  <div class="modal-dialog ss-modal-fs" role="document">
+    <div class="modal-content ss-modal-content-fs">
+      <div class="ss-modal-header">
+        <h5><i class="fa fa-table"></i> Complete Statement — <span id="fs-title"></span></h5>
+        <button type="button" class="ss-modal-close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="ss-modal-body-fs">
+        <table class="table table-bordered table-sm ss-full-table" id="full-table">
+          <thead class="ss-full-thead">
+            <tr>
+              <th>Code</th>
+              <th>Product Name</th>
+              <th>Pack</th>
+              <th>PTS</th>
+              <th>Conv</th>
+              <th>Opening</th>
+              <th>Purchase</th>
+              <th>Sales</th>
+              <th>Free</th>
+              <th>Free(Sch)</th>
+              <th>Return</th>
+              <th>Sch Ded</th>
+              <th>Closing</th>
+              <th>Misc Out</th>
+              <th>Open Val</th>
+              <th>Purch Val</th>
+              <th>Sales(PTS)</th>
+              <th>Sales(PTR)</th>
+              <th>Cls Val</th>
+            </tr>
+          </thead>
+          <tbody id="full-tbody"></tbody>
+          <tfoot class="ss-full-tfoot">
+            <tr id="full-totals"></tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
+  </div>
 </div>
 
-<!-- QC Screen Modal -->
+<!-- ===================== QC SCREEN MODAL ===================== -->
 <div class="modal fade" id="qc-modal" tabindex="-1" role="dialog">
-    <div class="modal-dialog modal-fullscreen">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="fa fa-clipboard-check"></i> Quality Check Screen
-                </h5>
-                <button type="button" class="close" data-dismiss="modal">&times;</button>
-            </div>
-            <div class="modal-body p-0">
-                <div class="qc-container">
-                    <!-- Left: Document Viewer -->
-                    <div class="qc-document">
-                        <div class="document-header">
-                            <h6><i class="fa fa-file-pdf"></i> Original Statement</h6>
-                            <div class="document-controls">
-                                <button class="btn btn-sm btn-light" onclick="zoom_in()">
-                                    <i class="fa fa-search-plus"></i>
-                                </button>
-                                <button class="btn btn-sm btn-light" onclick="zoom_out()">
-                                    <i class="fa fa-search-minus"></i>
-                                </button>
-                                <button class="btn btn-sm btn-light" onclick="reset_zoom()">
-                                    <i class="fa fa-sync"></i>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="document-viewer" id="document-viewer">
-                            <iframe id="pdf-viewer" style="display: none;"></iframe>
-                            <img id="img-viewer" style="display: none;">
-                        </div>
-                    </div>
-
-                    <!-- Right: Data Table -->
-                    <div class="qc-data">
-                        <div class="qc-header">
-                            <h6><i class="fa fa-database"></i> Extracted Data</h6>
-                            <div class="column-selector">
-                                <label>Select Columns (Choose 5):</label>
-                                <div class="checkbox-group" id="column-checkboxes">
-                                    <label><input type="checkbox" value="productcode" checked disabled> Product Code</label>
-                                    <label><input type="checkbox" value="productname" checked> Product Name</label>
-                                    <label><input type="checkbox" value="pack"> Pack</label>
-                                    <label><input type="checkbox" value="openingqty" checked> Opening</label>
-                                    <label><input type="checkbox" value="purchaseqty"> Purchase</label>
-                                    <label><input type="checkbox" value="salesqty" checked> Sales</label>
-                                    <label><input type="checkbox" value="freeqty"> Free</label>
-                                    <label><input type="checkbox" value="returnqty"> Return</label>
-                                    <label><input type="checkbox" value="miscoutqty"> Misc Out</label>
-                                    <label><input type="checkbox" value="closingqty" checked> Closing</label>
-                                    <label><input type="checkbox" value="pts"> PTS</label>
-                                    <label><input type="checkbox" value="closingvalue"> Closing Value</label>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="qc-table-container">
-                            <table class="table table-bordered table-sm" id="qc-table">
-                                <thead id="qc-thead"></thead>
-                                <tbody id="qc-tbody"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
+  <div class="modal-dialog ss-modal-fs" role="document">
+    <div class="modal-content ss-modal-content-fs">
+      <div class="ss-modal-header">
+        <h5><i class="fa fa-clipboard-check"></i> Quality Check Screen</h5>
+        <div class="ss-qc-header-btns">
+          <button class="btn btn-success btn-sm" onclick="save_statement_from_qc(event)">
+            <i class="fa fa-paper-plane"></i> Submit &amp; Finalise
+          </button>
+          <button type="button" class="ss-modal-close" data-dismiss="modal">&times;</button>
         </div>
+      </div>
+      <div class="ss-qc-body">
+        <!-- Left: Document Viewer -->
+        <div class="ss-qc-left">
+          <div class="ss-qc-panel-header">
+            <h6><i class="fa fa-file-pdf"></i> Original Statement</h6>
+            <div class="ss-zoom-btns">
+              <button class="btn btn-sm btn-light" onclick="zoom_in()"><i class="fa fa-search-plus"></i></button>
+              <button class="btn btn-sm btn-light" onclick="zoom_out()"><i class="fa fa-search-minus"></i></button>
+              <button class="btn btn-sm btn-light" onclick="reset_zoom()"><i class="fa fa-sync"></i></button>
+            </div>
+          </div>
+          <div class="ss-doc-viewer" id="document-viewer">
+            <iframe id="pdf-viewer" style="display:none;width:100%;height:100%;border:none;"></iframe>
+            <img id="img-viewer" style="display:none;max-width:100%;height:auto;">
+          </div>
+        </div>
+        <!-- Right: Data Table -->
+        <div class="ss-qc-right">
+          <div class="ss-qc-panel-header">
+            <h6><i class="fa fa-database"></i> Extracted Data</h6>
+            <div class="ss-col-selector">
+              <label class="small text-muted mb-1 d-block">Columns (max 8):</label>
+              <div class="ss-col-chips" id="column-checkboxes">
+                <label class="ss-chip"><input type="checkbox" value="productcode" checked disabled> Code</label>
+                <label class="ss-chip"><input type="checkbox" value="productname" checked> Name</label>
+                <label class="ss-chip"><input type="checkbox" value="pack"> Pack</label>
+                <label class="ss-chip"><input type="checkbox" value="pts"> PTS</label>
+                <label class="ss-chip"><input type="checkbox" value="conversion_factor"> Conv</label>
+                <label class="ss-chip"><input type="checkbox" value="openingqty" checked> Opening</label>
+                <label class="ss-chip"><input type="checkbox" value="purchaseqty"> Purchase</label>
+                <label class="ss-chip"><input type="checkbox" value="salesqty" checked> Sales</label>
+                <label class="ss-chip"><input type="checkbox" value="freeqty"> Free</label>
+                <label class="ss-chip"><input type="checkbox" value="freeqtyscheme"> Appr Free</label>
+                <label class="ss-chip"><input type="checkbox" value="returnqty"> Return</label>
+                <label class="ss-chip"><input type="checkbox" value="schemedeductedqty"> Sch Ded</label>
+                <label class="ss-chip"><input type="checkbox" value="closingqty" checked> Closing</label>
+                <label class="ss-chip"><input type="checkbox" value="miscoutqty"> Misc Out</label>
+                <label class="ss-chip"><input type="checkbox" value="openingvalue"> Open Val</label>
+                <label class="ss-chip"><input type="checkbox" value="purchasevalue"> Purch Val</label>
+                <label class="ss-chip"><input type="checkbox" value="salesvaluepts"> Sales(PTS)</label>
+                <label class="ss-chip"><input type="checkbox" value="salesvalueptr"> Sales(PTR)</label>
+                <label class="ss-chip"><input type="checkbox" value="closingvalue" checked> Cls Val</label>
+              </div>
+            </div>
+          </div>
+          <div class="ss-qc-table-wrap">
+            <table class="table table-bordered table-sm ss-qc-table" id="qc-table">
+              <thead id="qc-thead" class="ss-full-thead"></thead>
+              <tbody id="qc-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
+  </div>
 </div>
+
 <style>
-  .action-bar{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:10px}
-  .custom-file-upload{border:1px dashed #cfd6e4;border-radius:12px;padding:18px;background:#fbfcff}
-  .custom-file-upload.drag-over{border-color:#2b7cff;background:#f0f6ff}
-  #stockist-results{position:absolute;z-index:50;width:100%}
-  .autocomplete-item{padding:10px 12px;cursor:pointer;border-bottom:1px solid #edf1f7;background:#fff}
-  .autocomplete-item:hover{background:#f6f9ff}
-  .file-info{display:flex;align-items:center;justify-content:space-between;gap:12px}
-  .file-details{flex:1;min-width:0}
+  /* ======== PAGE STRUCTURE ======== */
+  .ss-page {
+    padding: 0;
+  }
+
+  .ss-page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+  }
+
+  .ss-entry-card {
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  /* ======== META ROW ======== */
+  .ss-readonly {
+    background: #f8fafc !important;
+    color: #64748b;
+    font-size: 13px;
+  }
+
+  .ss-meta-row {
+    margin-top: 4px;
+  }
+
+  /* ======== FILE UPLOAD ======== */
+  .ss-upload-section {
+    margin: 1rem 0;
+  }
+
+  .upload-label {
+    font-weight: 600;
+    font-size: 14px;
+    color: #1e293b;
+    margin-bottom: 8px;
+    display: block;
+  }
+
+  .ss-dropzone {
+    border: 2px dashed #c7d2fe;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #f8f8ff 0%, #f0f4ff 100%);
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+  }
+
+  .ss-dropzone input[type="file"] {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 1;
+  }
+
+  .ss-dropzone:hover,
+  .ss-dropzone.drag-over {
+    border-color: #4f46e5;
+    background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+    box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.08);
+  }
+
+  .upload-icon-ring {
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 1rem;
+    background: linear-gradient(135deg, #4f46e5 0%, #818cf8 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    color: white;
+    box-shadow: 0 8px 24px rgba(79, 70, 229, 0.25);
+    transition: transform 0.3s;
+  }
+
+  .ss-dropzone:hover .upload-icon-ring {
+    transform: translateY(-4px) scale(1.05);
+  }
+
+  .upload-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 0.25rem;
+  }
+
+  .upload-hint {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    margin-bottom: 1rem;
+  }
+
+  .ss-browse-btn {
+    background: white;
+    border: 1.5px solid #c7d2fe;
+    color: #4f46e5;
+    padding: 0.45rem 1.25rem;
+    font-weight: 600;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    position: relative;
+    z-index: 2;
+    transition: all 0.2s;
+  }
+
+  .ss-browse-btn:hover {
+    background: #4f46e5;
+    color: white;
+    border-color: #4f46e5;
+  }
+
+  .ss-file-preview {
+    position: relative;
+    z-index: 2;
+  }
+
+  .file-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: white;
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+
+  .file-card-icon {
+    font-size: 2rem;
+    color: #4f46e5;
+    width: 40px;
+    text-align: center;
+  }
+
+  .file-card-info {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .btn-icon-remove {
+    background: #fee2e2;
+    color: #dc2626;
+    border: none;
+    border-radius: 8px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .btn-icon-remove:hover {
+    background: #dc2626;
+    color: white;
+  }
+
+  /* ======== EXTRACT BUTTON ======== */
+  .ss-action-bar {
+    display: flex;
+    justify-content: center;
+    padding: 1.5rem 0 0.5rem;
+  }
+
+  .ss-extract-btn {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    color: white;
+    border: none;
+    padding: 0.85rem 3rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    border-radius: 14px;
+    letter-spacing: 0.02em;
+    box-shadow: 0 8px 24px rgba(79, 70, 229, 0.35);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    gap: 0.6rem;
+  }
+
+  .ss-extract-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 32px rgba(79, 70, 229, 0.45);
+  }
+
+  .ss-extract-btn:active {
+    transform: translateY(0);
+  }
+
+  .btn-glow {
+    position: absolute;
+    inset: -2px;
+    background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.15) 50%, transparent 100%);
+    border-radius: inherit;
+    animation: glowSlide 2.5s linear infinite;
+    pointer-events: none;
+  }
+
+  @keyframes glowSlide {
+    0% {
+      transform: translateX(-100%);
+    }
+
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .btn-sparkles {
+    animation: sparkleAnim 1.5s ease-in-out infinite;
+    display: inline-block;
+  }
+
+  @keyframes sparkleAnim {
+
+    0%,
+    100% {
+      transform: scale(1) rotate(0deg);
+    }
+
+    50% {
+      transform: scale(1.3) rotate(15deg);
+    }
+  }
+
+  /* ======== EXTRACTION LOADER ======== */
+  .ss-loader-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ss-loader-card {
+    background: white;
+    border-radius: 24px;
+    padding: 3rem 2.5rem;
+    text-align: center;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 32px 64px rgba(0, 0, 0, 0.25);
+    animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  @keyframes popIn {
+    from {
+      transform: scale(0.85);
+      opacity: 0;
+    }
+
+    to {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  .ss-brain-wrapper {
+    position: relative;
+    width: 100px;
+    height: 100px;
+    margin: 0 auto 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ss-brain-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    border-top-color: #4f46e5;
+    border-right-color: rgba(79, 70, 229, 0.3);
+    animation: spinRing 1.2s linear infinite;
+  }
+
+  .ss-ring-2 {
+    inset: 8px;
+    border-top-color: #7c3aed;
+    animation-duration: 0.8s;
+    animation-direction: reverse;
+  }
+
+  @keyframes spinRing {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .ss-brain-icon {
+    font-size: 40px;
+    color: #4f46e5;
+    z-index: 1;
+  }
+
+  .ss-loader-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 0.5rem;
+  }
+
+  .ss-loader-sub {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin-bottom: 1.5rem;
+  }
+
+  .ss-loader-dots {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+  }
+
+  .ss-loader-dots span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4f46e5;
+    animation: dotBounce 1.2s ease-in-out infinite;
+  }
+
+  .ss-loader-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  .ss-loader-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+
+  .ss-loader-dots span:nth-child(4) {
+    animation-delay: 0.6s;
+  }
+
+  @keyframes dotBounce {
+
+    0%,
+    80%,
+    100% {
+      transform: translateY(0);
+      opacity: 0.4;
+    }
+
+    40% {
+      transform: translateY(-8px);
+      opacity: 1;
+    }
+  }
+
+  .ss-loader-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-align: left;
+  }
+
+  .ss-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #94a3b8;
+    background: #f8fafc;
+    transition: all 0.3s;
+  }
+
+  .ss-step i {
+    width: 16px;
+    text-align: center;
+  }
+
+  .ss-step.active {
+    background: #eef2ff;
+    color: #4f46e5;
+    font-weight: 600;
+  }
+
+  .ss-step.done {
+    background: #f0fdf4;
+    color: #059669;
+  }
+
+  .ss-step.done::after {
+    content: ' ✓';
+    font-weight: 700;
+  }
+
+  /* ======== RESULTS BAR ======== */
+  .ss-results-bar {
+    margin-bottom: 1rem;
+  }
+
+  .ss-results-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .ss-results-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .ss-status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+    flex-shrink: 0;
+  }
+
+  .ss-results-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* ======== STAT CARDS ======== */
+  .ss-stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 1.25rem;
+  }
+
+  @media(max-width: 768px) {
+    .ss-stats-row {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  .ss-stat-card {
+    background: white;
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .ss-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .ss-stat-inner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .ss-stat-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+
+  .ss-stat-blue .ss-stat-icon {
+    background: #dbeafe;
+    color: #2563eb;
+  }
+
+  .ss-stat-green .ss-stat-icon {
+    background: #d1fae5;
+    color: #059669;
+  }
+
+  .ss-stat-orange .ss-stat-icon {
+    background: #ffedd5;
+    color: #d97706;
+  }
+
+  .ss-stat-purple .ss-stat-icon {
+    background: #ede9fe;
+    color: #7c3aed;
+  }
+
+  .ss-stat-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #1e293b;
+    line-height: 1;
+  }
+
+  .ss-stat-label {
+    font-size: 12px;
+    color: #64748b;
+    margin-top: 2px;
+  }
+
+  /* ======== TABLE HEAD ======== */
+  .ss-table-head th {
+    background: #1e293b;
+    color: white;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  /* ======== FULLSCREEN MODAL ======== */
+  .ss-modal-fs {
+    width: 100vw;
+    max-width: 100vw;
+    margin: 0;
+    height: 100vh;
+  }
+
+  .ss-modal-content-fs {
+    height: 100vh;
+    border-radius: 0;
+    border: none;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ss-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #e2e8f0;
+    background: #1e293b;
+    color: white;
+    flex-shrink: 0;
+  }
+
+  .ss-modal-header h5 {
+    margin: 0;
+    font-size: 1rem;
+    color: white;
+  }
+
+  .ss-modal-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+  }
+
+  .ss-modal-close:hover {
+    opacity: 1;
+  }
+
+  .ss-modal-body-fs {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+  }
+
+  .ss-full-table {
+    font-size: 11px;
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .ss-full-thead th {
+    background: #1e293b;
+    color: white;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 8px 10px;
+    white-space: nowrap;
+    border: 1px solid #334155;
+  }
+
+  .ss-full-tfoot tr td {
+    position: sticky;
+    bottom: 0;
+    background: #d1fae5 !important;
+    font-weight: 700;
+    z-index: 5;
+  }
+
+  /* ======== QC MODAL ======== */
+  .ss-qc-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .ss-qc-left {
+    width: 45%;
+    flex-shrink: 0;
+    border-right: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ss-qc-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .ss-qc-panel-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .ss-qc-panel-header h6 {
+    margin: 0;
+    font-weight: 700;
+    color: #1e293b;
+    font-size: 13px;
+  }
+
+  .ss-zoom-btns {
+    display: flex;
+    gap: 4px;
+  }
+
+  .ss-doc-viewer {
+    flex: 1;
+    overflow: auto;
+    background: #f1f5f9;
+  }
+
+  .ss-col-selector {
+    text-align: right;
+  }
+
+  .ss-col-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: flex-end;
+  }
+
+  .ss-chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #334155;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .ss-chip input {
+    cursor: pointer;
+  }
+
+  .ss-chip:has(input:checked) {
+    background: #eef2ff;
+    border-color: #818cf8;
+    color: #4f46e5;
+  }
+
+  .ss-qc-table-wrap {
+    flex: 1;
+    overflow: auto;
+  }
+
+  .ss-qc-table {
+    font-size: 11px;
+  }
+
+  .ss-qc-header-btns {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* ======== AUTOCOMPLETE ======== */
+  .autocomplete-item {
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f1f5f9;
+    background: #fff;
+    transition: background 0.15s;
+  }
+
+  .autocomplete-item:hover {
+    background: #f8faff;
+  }
+
+  .link-dropdown {
+    border-radius: 8px;
+    overflow: hidden;
+  }
 </style>
+{% endblock %}
+
+{% block scripts %}
 <script src="/assets/scanify/js/stock-statements.js"></script>
 {% endblock %}

@@ -43,54 +43,5 @@ doc_events = {
 boot_session = "scanify.boot.boot_session"
 
 fixtures = [
-    # Export UI-built workspaces
-    {
-        "dt": "Workspace",
-        "filters": [["module", "in", ["Scanify"]]]
-    },
-
-    # Export dashboard charts used in Workspace
-    {
-        "dt": "Dashboard Chart",
-        "filters": [["module", "in", ["Scanify"]]]
-    },
-
-    # Export custom fields of your doctypes
-    {
-        "dt": "Custom Field",
-        "filters": [["module", "in", ["Scanify"]]]
-    },
-
-    # Export changes in field properties (like label, required, etc.)
-    {
-        "dt": "Property Setter",
-        "filters": [["module", "in", ["Scanify"]]]
-    },
-
-    # Export reports you create for charts and lists
-    {
-        "dt": "Report",
-        "filters": [["module", "in", ["Scanify"]]]
-    },
-
-    # Export any custom client-side code written in UI
-    {
-        "dt": "Client Script",
-        "filters": [["module", "in", ["Scanify"]]]
-    },
-
-    # Export pages (if you use desk pages)
-    {
-        "dt": "Page",
-        "filters": [["module", "in", ["Scanify"]]]
-    },
-    {
-        "doctype": "Role",
-        "filters": [["role_name", "=", "UATadmin"]]
-    },
-    {
-        "doctype": "Custom DocPerm",
-        "filters": [["role", "=", "UATadmin"]]
-    }
 ]
 

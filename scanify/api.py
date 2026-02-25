@@ -136,7 +136,7 @@ def extract_stockist_statement(doc_name, file_url):
     doc = None
     try:
         doc = frappe.get_doc("Stockist Statement", doc_name)
-        doc.extraction_data_status = "In Progress"
+        doc.extracted_data_status = "In Progress"
         doc.save()
         frappe.db.commit()
         
@@ -163,7 +163,7 @@ def extract_stockist_statement(doc_name, file_url):
         )
         
         if not extracted_data or len(extracted_data) == 0:
-            doc.extraction_data_status = "Failed"
+            doc.extracted_data_status = "Failed"
             doc.extraction_notes = "No data extracted - AI returned empty results"
             doc.save()
             frappe.db.commit()
@@ -189,13 +189,13 @@ def extract_stockist_statement(doc_name, file_url):
                 items_added += 1
         
         if items_added == 0:
-            doc.extraction_data_status = "Failed"
+            doc.extracted_data_status = "Failed"
             doc.extraction_notes = "No valid products found in extracted data"
             doc.save()
             frappe.db.commit()
             return {"success": False, "message": "No valid products found"}
         
-        doc.extraction_data_status = "Completed"
+        doc.extracted_data_status = "Completed"
         doc.extraction_notes = f"Successfully extracted {items_added} items using AI with product catalog"
         doc.populate_previous_month_closing()
         doc.calculate_closing_and_totals()
@@ -210,7 +210,7 @@ def extract_stockist_statement(doc_name, file_url):
         
         if doc:
             try:
-                doc.extraction_data_status = "Failed"
+                doc.extracted_data_status = "Failed"
                 doc.extraction_notes = f"Extraction failed: {error_msg}"
                 doc.save()
                 frappe.db.commit()
@@ -220,6 +220,124 @@ def extract_stockist_statement(doc_name, file_url):
         return {"success": False, "message": f"Extraction failed: {error_msg}"}
 
 
+@frappe.whitelist()
+def save_extracted_statement(doc_name, data):
+    """
+    Save the extracted and QC-verified data, then immediately submit the statement
+    (docstatus → 1). This is a one-way finalisation — no edits after this point.
+    Called from the portal after extraction + optional QC edits.
+    data: JSON array of product rows (same structure as extracted_data in JS)
+    """
+    try:
+        if isinstance(data, str):
+            data = json.loads(data)
+
+        doc = frappe.get_doc("Stockist Statement", doc_name)
+
+        if doc.docstatus == 1:
+            frappe.throw(_("This statement has already been submitted and cannot be changed."))
+
+        # Replace items in doc
+        doc.items = []
+        for row in data:
+            product_code = row.get("productcode") or row.get("product_code")
+            if not product_code:
+                continue
+            doc.append("items", {
+                "product_code": product_code,
+                "opening_qty": flt(row.get("openingqty") or row.get("opening_qty") or 0),
+                "purchase_qty": flt(row.get("purchaseqty") or row.get("purchase_qty") or 0),
+                "sales_qty": flt(row.get("salesqty") or row.get("sales_qty") or 0),
+                "free_qty": flt(row.get("freeqty") or row.get("free_qty") or 0),
+                "free_qty_scheme": flt(row.get("freeqtyscheme") or 0),
+                "return_qty": flt(row.get("returnqty") or row.get("return_qty") or 0),
+                "misc_out_qty": flt(row.get("miscoutqty") or row.get("misc_out_qty") or 0),
+                "closing_qty": flt(row.get("closingqty") or row.get("closing_qty") or 0),
+                "closing_value": flt(row.get("closingvalue") or row.get("closing_value") or 0),
+            })
+
+        doc.extracted_data_status = "Completed"
+        doc.calculate_closing_and_totals()
+        # Save first (persist items)
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        # Submit — sets docstatus = 1, locks the document permanently
+        doc.submit()
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": f"Statement submitted with {len(doc.items)} items.",
+            "doc_name": doc.name
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Save Extracted Statement Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_statement_for_view(doc_name):
+    """
+    Return full statement data for the portal view page.
+    """
+    try:
+        doc = frappe.get_doc("Stockist Statement", doc_name)
+        # Build items list enriched with product master info
+        items = []
+        for item in doc.items:
+            product = frappe.db.get_value(
+                "Product Master", item.product_code,
+                ["product_name", "pts", "ptr", "pack"], as_dict=True
+            ) or {}
+            items.append({
+                "productcode": item.product_code,
+                "productname": item.product_name or product.get("product_name", ""),
+                "pack": item.pack or product.get("pack", ""),
+                "pts": flt(item.pts or product.get("pts", 0)),
+                "ptr": flt(product.get("ptr", 0)),
+                "conversion_factor": flt(item.conversion_factor or 1),
+                "openingqty": flt(item.opening_qty),
+                "purchaseqty": flt(item.purchase_qty),
+                "salesqty": flt(item.sales_qty),
+                "freeqty": flt(item.free_qty),
+                "freeqtyscheme": flt(item.free_qty_scheme),
+                "returnqty": flt(item.return_qty),
+                "miscoutqty": flt(item.misc_out_qty),
+                "closingqty": flt(item.closing_qty),
+                "closingvalue": flt(item.closing_value),
+                "openingvalue": flt(item.opening_value),
+                "purchasevalue": flt(item.purchase_value),
+                "salesvaluepts": flt(item.sales_value_pts),
+                "salesvalueptr": flt(item.sales_value_ptr),
+                "schemedeductedqty": flt(item.scheme_deducted_qty_calc),
+            })
+
+        return {
+            "success": True,
+            "doc": {
+                "name": doc.name,
+                "stockist_code": doc.stockist_code,
+                "stockist_name": doc.stockist_name,
+                "statement_month": str(doc.statement_month),
+                "hq": doc.hq,
+                "team": doc.team,
+                "region": doc.region,
+                "zone": doc.zone,
+                "extracted_data_status": doc.extracted_data_status,
+                "uploaded_file": doc.uploaded_file,
+                "docstatus": doc.docstatus,
+                "total_opening_value": flt(doc.total_opening_value),
+                "total_purchase_value": flt(doc.total_purchase_value),
+                "total_closing_value": flt(doc.total_closing_value),
+                "total_sales_value_pts": flt(doc.total_sales_value_pts),
+                "total_sales_value_ptr": flt(doc.total_sales_value_ptr),
+            },
+            "items": items
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Statement For View Error")
+        return {"success": False, "message": str(e)}
 
 
 def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalog, products_list, model_name=None):
@@ -514,7 +632,7 @@ def process_bulk_extraction(docname, month, zip_file_url):
                         "stockist_code": stockist_code,
                         "statement_month": month,
                         "uploaded_file": file_doc.file_url,
-                        "extraction_data_status": "Pending"
+                        "extracted_data_status": "Pending"
                     })
                     statement.insert(ignore_permissions=True)
                     
@@ -546,10 +664,10 @@ def process_bulk_extraction(docname, month, zip_file_url):
                                 "misc_out_qty": flt(item_data.get("misc_out_qty"), 0),
                             })
                         
-                        statement.extraction_data_status = "Completed"
+                        statement.extracted_data_status = "Completed"
                         statement.extraction_notes = f"Extracted {len(extracted_data)} products successfully"
                     else:
-                        statement.extraction_data_status = "Failed"
+                        statement.extracted_data_status = "Failed"
                         statement.extraction_notes = "No data extracted from file"
                     
                     statement.calculate_closing_and_totals()
@@ -1983,12 +2101,17 @@ def create_scheme_request(data):
         }
 @frappe.whitelist()
 def get_master_data(doctype, division=None, status=None):
-    """Get all records from a master doctype (NO FILTERS)"""
+    """Get records for a master doctype.
+    Region Master and Team Master are SHARED across divisions (no division filter).
+    HQ Master, Product Master, Doctor Master, Stockist Master are division-specific.
+    """
     try:
         filters = {}
-       # Add division filter if applicable
-        if doctype in ["HQ Master", "Product Master", "Region Master", "Team Master", "Doctor Master","Stockist Master"]:
-            filters["division"] = ["in", [division, "Both"]]
+        # Division-specific masters: filter by current division
+        # Region and Team are SHARED masters — no division filter
+        if doctype in ["Region Master", "Team Master", "HQ Master", "Product Master", "Doctor Master", "Stockist Master"]:
+            if division:
+                filters["division"] = ["in", [division, "Both"]]
         meta = frappe.get_meta(doctype)
         excluded_fieldtypes = [
             "Table", "HTML", "Button", "Column Break", "Section Break",
@@ -2014,16 +2137,39 @@ def get_master_data(doctype, division=None, status=None):
 
 @frappe.whitelist()
 def save_master_record(doctype, name, data):
+    """
+    Save a master record.
+
+    Region Master and Team Master are now division-scoped composite-key masters.
+    Division MUST be injected for Region+Team (it's part of the autoname format).
+    Resolve Region/Team link fields correctly using the composite key lookup.
+    Rename support for composite-key doctypes rebuilds the composite name.
+    """
     try:
         data = frappe.parse_json(data) if isinstance(data, str) else data
 
-        # Auto division injection
-        division = get_user_division()
-        if doctype in ['HQ Master', 'Product Master', 'Region Master']:
-            data['division'] = division
+        current_user_division = get_user_division()
+
+        # Inject division for all division-scoped masters
+        # This includes HQ, Product, Doctor, Stockist, Region, and Team Masters
+        if doctype in ['HQ Master', 'Product Master', 'Doctor Master', 'Stockist Master', 'Region Master', 'Team Master']:
+            if not data.get('division'):
+                data['division'] = current_user_division
+
+        # Doctor Code is fully system-generated — backend handles it via autoname
+        if doctype == 'Doctor Master':
+            data.pop('doctor_code', None)
+
+        # Stockist Code is system-generated for new records
+        if doctype == 'Stockist Master' and not name:
+            data.pop('stockist_code', None)
+
+        # sanctioned_strength is auto-computed — never let frontend override it
+        if doctype == 'Team Master':
+            data.pop('sanctioned_strength', None)
 
         # -----------------------------
-        # CREATE OR LOAD DOC FIRST
+        # CREATE OR LOAD DOC
         # -----------------------------
         if name:
             doc = frappe.get_doc(doctype, name)
@@ -2031,74 +2177,292 @@ def save_master_record(doctype, name, data):
             doc = frappe.new_doc(doctype)
 
         # -----------------------------
-        # FIX LINK FIELDS (PORTAL SAFE)
+        # RESOLVE LINK FIELDS
+        # If the frontend sends a display label instead of the actual doc name, resolve it.
+        # For Region and Team, lookup needs to consider division as well.
         # -----------------------------
         meta = frappe.get_meta(doctype)
-
-        for field, value in data.items():
+        for field, value in list(data.items()):
             df = meta.get_field(field)
-            if not df or df.fieldtype != "Link":
+            if not df or df.fieldtype != 'Link' or not value:
                 continue
 
-            if not value:
+            linked_doctype = df.options
+            
+            # Skip if value is already a valid doc name
+            if frappe.db.exists(linked_doctype, value):
                 continue
 
-            # If label accidentally sent instead of name → resolve
-            if not frappe.db.exists(df.options, value):
-                label_field = next(
-                    (f.fieldname for f in frappe.get_meta(df.options).fields if f.fieldname.endswith("_name")),
-                    "name"
-                )
-
-                match = frappe.db.get_value(df.options, {label_field: value}, "name")
+            # Try to resolve by _name label field, considering division for composite keys
+            label_field = next(
+                (f.fieldname for f in frappe.get_meta(linked_doctype).fields
+                 if f.fieldname.endswith('_name')),
+                None
+            )
+            
+            if label_field:
+                lookup_filters = {label_field: value}
+                
+                # For Region Master and Team Master, also filter by division
+                if linked_doctype in ["Region Master", "Team Master"]:
+                    # Use the division from the current record being saved, or the user's session
+                    lookup_division = data.get('division') or current_user_division
+                    if lookup_division:
+                        lookup_filters["division"] = lookup_division
+                
+                match = frappe.db.get_value(linked_doctype, lookup_filters, 'name')
                 if match:
                     data[field] = match
 
         # -----------------------------
-        # AUTONAME RENAME SUPPORT
+        # RENAME SUPPORT (for field:xxx autoname doctypes)
+        # When the primary name field changes, rename the doc
         # -----------------------------
         if name:
-            if doctype == 'HQ Master' and 'hq_name' in data and data['hq_name'] != doc.hq_name:
-                frappe.rename_doc(doctype, name, data['hq_name'])
-                doc = frappe.get_doc(doctype, data['hq_name'])
+            rename_map = {
+                'HQ Master': 'hq_name',
+                'Team Master': 'team_name',
+                'Region Master': 'region_name',
+            }
+            name_field = rename_map.get(doctype)
+            if name_field and name_field in data:
+                old_val = getattr(doc, name_field, None)
+                new_val = data[name_field]
+                
+                if old_val and new_val and new_val != old_val:
+                    new_doc_name = new_val  # Default for simple field: autoname (e.g. HQ)
+                    division_for_rename = data.get('division') or getattr(doc, 'division', None) or current_user_division
 
-            elif doctype == 'Team Master' and 'team_name' in data and data['team_name'] != doc.team_name:
-                frappe.rename_doc(doctype, name, data['team_name'])
-                doc = frappe.get_doc(doctype, data['team_name'])
+                    # For composite-key doctypes (Region, Team), rebuild the composite name
+                    if doctype in ['Region Master', 'Team Master']:
+                        if not division_for_rename:
+                            return {'success': False, 'message': f"Cannot rename {doctype}: Division not found."}
+                        new_doc_name = f"{new_val}-{division_for_rename}"
 
-            elif doctype == 'Region Master' and 'region_name' in data and data['region_name'] != doc.region_name:
-                frappe.rename_doc(doctype, name, data['region_name'])
-                doc = frappe.get_doc(doctype, data['region_name'])
+                    # Check for name collision before renaming
+                    if frappe.db.exists(doctype, new_doc_name):
+                        div_hint = f" in division '{division_for_rename}'" if doctype in ['Region Master', 'Team Master'] else ''
+                        return {
+                            'success': False,
+                            'message': f"{doctype.replace(' Master', '')} '{new_val}' already exists{div_hint}."
+                        }
+
+                    frappe.rename_doc(doctype, name, new_doc_name)
+                    doc = frappe.get_doc(doctype, new_doc_name)
 
         # -----------------------------
-        # APPLY DATA
+        # APPLY DATA & SAVE
         # -----------------------------
         doc.update(data)
         doc.save(ignore_permissions=False)
         frappe.db.commit()
 
+        # After saving an HQ, recalculate the linked team's sanctioned strength
+        if doctype == 'HQ Master':
+            team_name = doc.get('team') or data.get('team')
+            if team_name:
+                _recalculate_team_sanctioned_strength(team_name)
+
         return {
-            "success": True,
-            "message": "Record saved successfully",
-            "name": doc.name
+            'success': True,
+            'message': 'Record saved successfully',
+            'name': doc.name
         }
 
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "Save Master Record Error")
-        return {"success": False, "message": str(e)}
+        frappe.log_error(frappe.get_traceback(), 'Save Master Record Error')
+        return {'success': False, 'message': str(e)}
 
 
 @frappe.whitelist()
 def delete_master_record(doctype, name):
     """Delete a master record"""
     try:
+        # Before deleting an HQ, capture its team so we can recalculate
+        team_name = None
+        if doctype == 'HQ Master':
+            team_name = frappe.db.get_value('HQ Master', name, 'team')
+
         frappe.delete_doc(doctype, name, ignore_permissions=False)
         frappe.db.commit()
+
+        # Recalculate team strength after HQ deletion
+        if team_name:
+            _recalculate_team_sanctioned_strength(team_name)
         
         return {"success": True, "message": "Record deleted successfully"}
     
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Delete Master Record Error")
+        return {"success": False, "message": str(e)}
+
+
+def _recalculate_team_sanctioned_strength(team_name):
+    """Sum per_capita across all HQ Masters linked to this team and update sanctioned_strength."""
+    try:
+        result = frappe.db.sql(
+            "SELECT COALESCE(SUM(per_capita), 0) FROM `tabHQ Master` WHERE team = %s",
+            team_name
+        )
+        total = int(result[0][0]) if result else 0
+        frappe.db.set_value('Team Master', team_name, 'sanctioned_strength', total)
+        frappe.db.commit()
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "Recalculate Team Sanctioned Strength Error")
+
+
+@frappe.whitelist()
+def recalculate_team_sanctioned_strength(team_name):
+    """Public API to trigger sanctioned_strength recalculation for a team."""
+    try:
+        _recalculate_team_sanctioned_strength(team_name)
+        strength = frappe.db.get_value('Team Master', team_name, 'sanctioned_strength') or 0
+        return {"success": True, "sanctioned_strength": strength}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_hq_list(division=None, search=""):
+    """Get HQ list filtered by division for dropdown selection in Stockist/Doctor forms."""
+    try:
+        filters = {"status": "Active"}
+        if division:
+            filters["division"] = ["in", [division, "Both"]]
+        if search:
+            filters["hq_name"] = ["like", f"%{search}%"]
+
+        hqs = frappe.get_all(
+            "HQ Master",
+            filters=filters,
+            fields=["name", "hq_name", "team", "region", "zone", "division"],
+            order_by="hq_name asc",
+            limit=50
+        )
+        return {"success": True, "data": hqs}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_region_list(division=None, search=""):
+    """Get Region list filtered by division for dropdown selection.
+    Returns composite name as value, region_name as label — no 'Chennai-Prima' exposed to users.
+    """
+    try:
+        filters = {"status": "Active"}
+        if division:
+            filters["division"] = ["in", [division, "Both"]]
+        if search:
+            filters["region_name"] = ["like", f"%{search}%"]
+
+        regions = frappe.get_all(
+            "Region Master",
+            filters=filters,
+            fields=["name", "region_name", "zone", "state", "division"],
+            order_by="region_name asc",
+            limit=100
+        )
+        return {"success": True, "data": regions}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_team_list(division=None, search=""):
+    """Get Team list filtered by division for dropdown selection in HQ form.
+    Returns composite name as value, team_name as label.
+    Also returns the linked region so the HQ form can auto-fill region.
+    """
+    try:
+        filters = {"status": "Active"}
+        if division:
+            filters["division"] = ["in", [division, "Both"]]
+        if search:
+            filters["team_name"] = ["like", f"%{search}%"]
+
+        teams = frappe.get_all(
+            "Team Master",
+            filters=filters,
+            fields=["name", "team_name", "region", "division"],
+            order_by="team_name asc",
+            limit=100
+        )
+
+        # Enrich each team with region_name and zone (from Region Master)
+        for team in teams:
+            if team.get("region"):
+                region_data = frappe.db.get_value(
+                    "Region Master", team["region"],
+                    ["region_name", "zone"], as_dict=True
+                )
+                team["region_name"] = region_data.get("region_name") if region_data else None
+                team["zone"] = region_data.get("zone") if region_data else None
+            else:
+                team["region_name"] = None
+                team["zone"] = None
+
+        return {"success": True, "data": teams}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_team_details(team_name):
+    """Get Team details including linked region and zone for HQ form auto-population."""
+    try:
+        if not team_name:
+            return {"success": False, "message": "Team name is required"}
+        doc = frappe.get_doc("Team Master", team_name)
+        region_name = None
+        zone = None
+        if doc.region:
+            region_data = frappe.db.get_value(
+                "Region Master", doc.region,
+                ["region_name", "zone"], as_dict=True
+            )
+            if region_data:
+                region_name = region_data.get("region_name")
+                zone = region_data.get("zone")
+        return {
+            "success": True,
+            "data": {
+                "team_name": doc.team_name,
+                "team_id": doc.name,
+                "region": doc.region,           # composite: "Chennai-Prima"
+                "region_name": region_name,     # display: "Chennai"
+                "zone": zone,
+                "division": doc.division
+            }
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_hq_details(hq_name):
+    """Get HQ details including linked team and region for auto-population in forms."""
+    try:
+        if not hq_name:
+            return {"success": False, "message": "HQ name is required"}
+        doc = frappe.get_doc("HQ Master", hq_name)
+        # Resolve display labels
+        team_label = frappe.db.get_value("Team Master", doc.team, "team_name") if doc.team else None
+        region_label = frappe.db.get_value("Region Master", doc.region, "region_name") if doc.region else None
+        return {
+            "success": True,
+            "data": {
+                "hq_name": doc.hq_name,
+                "hq_id": doc.name,
+                "team": doc.team,
+                "team_label": team_label or doc.team,
+                "region": doc.region,
+                "region_label": region_label or doc.region,
+                "zone": doc.zone,
+                "division": doc.division
+            }
+        }
+    except Exception as e:
         return {"success": False, "message": str(e)}
 
 @frappe.whitelist(allow_guest=True)
@@ -2125,23 +2489,184 @@ def portal_link_search(doctype=None, search=""):
 
     meta = frappe.get_meta(doctype)
 
-    # Find best display field
+    # Find best display field (e.g. region_name, team_name, hq_name)
     display_field = next(
         (f.fieldname for f in meta.fields if f.fieldname.endswith("_name")),
         "name"
     )
 
+    # Region Master and Team Master use composite keys (name = "Chennai-Prima").
+    # Filter by division so only the correct division's records appear in search.
+    # HQ Master also filtered by division.
+    filters = {display_field: ["like", f"%{search}%"]}
+    if doctype in ("Region Master", "Team Master", "HQ Master"):
+        try:
+            current_division = get_user_division()
+            if current_division:
+                filters["division"] = ["in", [current_division, "Both"]]
+        except Exception:
+            pass
+
     results = frappe.get_all(
         doctype,
-        filters={display_field: ["like", f"%{search}%"]},
+        filters=filters,
         fields=["name", display_field],
-        limit=10
+        limit=15
     )
 
+    # For Region/Team, label = display name (e.g. "Chennai"), value = composite name (e.g. "Chennai-Prima")
     return [
         {"label": r.get(display_field) or r.name, "value": r.name}
         for r in results
     ]
+
+@frappe.whitelist()
+def search_hq_targets(search="", division=None, limit=15):
+    """HQ search helper for Sales Target portal entry."""
+    search = (search or "").strip()
+
+    division = division or get_user_division()
+    limit = int(limit) if str(limit).isdigit() else 15
+    limit = min(max(limit, 1), 50)
+
+    filters = {"status": "Active"}
+    if division:
+        filters["division"] = ["in", [division, "Both"]]
+
+    hq_rows = frappe.get_all(
+        "HQ Master",
+        filters=filters,
+        or_filters=[
+            ["name", "like", f"%{search}%"],
+            ["hq_name", "like", f"%{search}%"],
+        ],
+        fields=["name", "hq_name", "team", "region", "zone"],
+        order_by="hq_name asc",
+        limit_page_length=limit,
+    )
+
+    team_ids = list({row.get("team") for row in hq_rows if row.get("team")})
+    region_ids = list({row.get("region") for row in hq_rows if row.get("region")})
+
+    team_map = {}
+    if team_ids:
+        team_map = {
+            d.name: d.team_name
+            for d in frappe.get_all("Team Master", filters={"name": ["in", team_ids]}, fields=["name", "team_name"])
+        }
+
+    region_map = {}
+    if region_ids:
+        region_map = {
+            d.name: d.region_name
+            for d in frappe.get_all("Region Master", filters={"name": ["in", region_ids]}, fields=["name", "region_name"])
+        }
+
+    for row in hq_rows:
+        row["team_name"] = team_map.get(row.get("team"), row.get("team"))
+        row["region_name"] = region_map.get(row.get("region"), row.get("region"))
+
+    return hq_rows
+
+@frappe.whitelist()
+def create_hq_yearly_target_from_portal(financial_year, start_date, end_date, status="Draft", hq_targets=None):
+    """Create HQ Yearly Target with HQ-wise monthly values from portal screen."""
+    try:
+        if not frappe.has_permission("HQ Yearly Target", "create"):
+            frappe.throw(_("Not permitted to create HQ Yearly Target"))
+
+        if isinstance(hq_targets, str):
+            hq_targets = frappe.parse_json(hq_targets)
+
+        if not hq_targets or not isinstance(hq_targets, list):
+            frappe.throw(_("At least one HQ target row is required"))
+
+        division = get_user_division()
+        unique_hqs = list({(row or {}).get("hq") for row in hq_targets if (row or {}).get("hq")})
+        if not unique_hqs:
+            frappe.throw(_("At least one valid HQ is required"))
+
+        hq_meta = frappe.get_all(
+            "HQ Master",
+            filters={"name": ["in", unique_hqs]},
+            fields=["name", "team", "region", "division"],
+            limit_page_length=0,
+        )
+        hq_map = {row.name: row for row in hq_meta}
+
+        parsed_rows = []
+        seen_hq = set()
+        region_set = set()
+
+        for row in hq_targets:
+            row = row or {}
+            hq = row.get("hq")
+            if not hq:
+                continue
+
+            if hq in seen_hq:
+                frappe.throw(_("Duplicate HQ found: {0}").format(hq))
+            seen_hq.add(hq)
+
+            meta = hq_map.get(hq)
+            if not meta:
+                frappe.throw(_("Invalid HQ selected: {0}").format(hq))
+
+            if division and meta.get("division") not in [division, "Both"]:
+                frappe.throw(_("HQ {0} does not belong to selected division {1}").format(hq, division))
+
+            region = meta.get("region")
+            if not region:
+                frappe.throw(_("Region is missing in HQ Master for {0}").format(hq))
+            region_set.add(region)
+
+            parsed_rows.append({
+                "hq": hq,
+                "team": meta.get("team"),
+                "apr": flt(row.get("apr")),
+                "may": flt(row.get("may")),
+                "jun": flt(row.get("jun")),
+                "jul": flt(row.get("jul")),
+                "aug": flt(row.get("aug")),
+                "sep": flt(row.get("sep")),
+                "oct": flt(row.get("oct")),
+                "nov": flt(row.get("nov")),
+                "dec": flt(row.get("dec")),
+                "jan": flt(row.get("jan")),
+                "feb": flt(row.get("feb")),
+                "mar": flt(row.get("mar")),
+            })
+
+        if not parsed_rows:
+            frappe.throw(_("At least one valid HQ target row is required"))
+        if len(region_set) != 1:
+            frappe.throw(_("All selected HQs must belong to one region"))
+
+        region = list(region_set)[0]
+        series = "HQT-.division.-.YYYY.-"
+        doc = frappe.get_doc({
+            "doctype": "HQ Yearly Target",
+            "naming_series": series,
+            "division": division,
+            "region": region,
+            "financial_year": financial_year,
+            "start_date": start_date,
+            "end_date": end_date,
+            "status": status or "Draft",
+            "hq_targets": parsed_rows,
+        })
+        doc.insert(ignore_permissions=False)
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "name": doc.name,
+            "total_hqs": doc.total_hqs,
+            "total_target_amount": doc.total_target_amount,
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Create HQ Yearly Target From Portal Error")
+        return {"success": False, "message": str(e)}
 
 
 @frappe.whitelist()
@@ -2223,55 +2748,71 @@ def get_column_mapping(doctype):
     """Get Excel column to field mapping for each doctype"""
     mappings = {
         "HQ Master": {
-            "HQ Code": "name",
             "HQ Name": "hq_name",
             "Team": "team",
             "Region": "region",
+            "Zone": "zone",
+            "Per Capita": "per_capita",
             "Division": "division",
             "Status": "status"
         },
         "Stockist Master": {
-            "Stockist Code": "stockist_code",
             "Stockist Name": "stockist_name",
             "HQ": "hq",
+            "Team": "team",
+            "Region": "region",
+            "Zone": "zone",
             "Address": "address",
-            "Contact": "contact",
+            "Contact Person": "contact_person",
+            "Phone": "phone",
             "Email": "email",
             "Status": "status"
         },
         "Product Master": {
             "Product Code": "product_code",
             "Product Name": "product_name",
+            "Product Group": "product_group",
+            "Category": "category",
             "Pack": "pack",
+            "Pack Conversion": "pack_conversion",
             "PTS": "pts",
             "PTR": "ptr",
+            "MRP": "mrp",
+            "GST Rate (%)": "gst_rate",
             "Division": "division",
-            "Product Type": "product_type",
             "Status": "status"
         },
         "Doctor Master": {
-            "Doctor Code": "doctor_code",
+            # Doctor Code is auto-generated — skip from import mapping
             "Doctor Name": "doctor_name",
-            "Place": "place",
+            "Qualification": "qualification",
+            "Doctor Category": "doctor_category",
             "Specialization": "specialization",
+            "Phone": "phone",
+            "Place": "place",
             "Hospital Address": "hospital_address",
+            "House Address": "house_address",
+            "Division": "division",
             "HQ": "hq",
             "Team": "team",
             "Region": "region",
+            "State": "state_name",
             "Zone": "zone",
+            "Chemist Name": "chemist_name",
             "Status": "status"
         },
         "Team Master": {
-            "Team Code": "name",
             "Team Name": "team_name",
             "Region": "region",
             "Division": "division",
             "Status": "status"
+            # sanctioned_strength is auto-computed - not in import
         },
         "Region Master": {
-            "Region Code": "name",
             "Region Name": "region_name",
             "Division": "division",
+            "Zone": "zone",
+            "State": "state",
             "Status": "status"
         }
     }
@@ -2280,25 +2821,26 @@ def get_column_mapping(doctype):
 
 def get_code_field(doctype):
     """Get the code/unique identifier field for each doctype"""
+    # Doctor and Stockist are now auto-named by the system (format:D{####} / format:S{####})
+    # Region is auto-named as region_name-division
+    # For import, we rely on frappe's autoname - no explicit code field needed for new records
     code_fields = {
-        "HQ Master": "name",
-        "Stockist Master": "stockist_code",
-        "Product Master": "product_code",
-        "Doctor Master": "doctor_code",
-        "Team Master": "name",
-        "Region Master": "name"
+        "HQ Master": "hq_name",
+        "Team Master": "team_name",
     }
     return code_fields.get(doctype)
+
 @frappe.whitelist()
 def searchstockists(searchterm=None, division=None, limit=20):
     searchterm = (searchterm or "").strip()
-    if len(searchterm) < 2:
-        return []
+
+    limit = int(limit) if str(limit).isdigit() else 20
+    limit = min(max(limit, 1), 50)
 
     # Basic filters
-    filters = {}
+    filters = {"status": "Active"}
     if division:
-        filters["division"] = division
+        filters["division"] = ["in", [division, "Both"]]
 
     # Match by code or name
     # NOTE: adapt fieldnames if your doctype uses stockist_code/stockist_name exactly
@@ -2310,8 +2852,8 @@ def searchstockists(searchterm=None, division=None, limit=20):
             ["stockist_code", "like", f"%{searchterm}%"],
             ["stockist_name", "like", f"%{searchterm}%"],
         ],
-        limit_page_length=int(limit),
-        order_by="modified desc"
+        limit_page_length=limit,
+        order_by="stockist_name asc"
     )
 
     # Enrich with hierarchy from HQ Master (if available)
@@ -2330,7 +2872,442 @@ def searchstockists(searchterm=None, division=None, limit=20):
     return stockists
 
 @frappe.whitelist()
+def get_scheme_detail(scheme_name):
+    """Get full scheme request details for portal view"""
+    try:
+        doc = frappe.get_doc("Scheme Request", scheme_name)
+        items = []
+        for item in doc.items:
+            items.append({
+                "product_code": item.product_code,
+                "product_name": item.product_name,
+                "pack": item.pack,
+                "quantity": flt(item.quantity),
+                "free_quantity": flt(item.free_quantity),
+                "product_rate": flt(item.product_rate),
+                "special_rate": flt(item.special_rate),
+                "scheme_percentage": flt(item.scheme_percentage),
+                "product_value": flt(item.product_value),
+            })
+        logs = []
+        for log in (doc.approval_log or []):
+            logs.append({
+                "approver": log.approver,
+                "action": log.action,
+                "action_date": str(log.action_date) if log.action_date else "",
+                "comments": log.comments,
+                "approval_level": log.approval_level,
+            })
+        return {
+            "success": True,
+            "name": doc.name,
+            "application_date": str(doc.application_date) if doc.application_date else "",
+            "doctor_code": doc.doctor_code,
+            "doctor_name": doc.doctor_name,
+            "doctor_place": doc.doctor_place,
+            "specialization": doc.specialization,
+            "hospital_address": doc.hospital_address,
+            "hq": doc.hq,
+            "region": doc.region,
+            "team": doc.team,
+            "stockist_code": doc.stockist_code,
+            "stockist_name": doc.stockist_name,
+            "approval_status": doc.approval_status,
+            "total_scheme_value": flt(doc.total_scheme_value),
+            "scheme_notes": doc.scheme_notes,
+            "division": doc.division,
+            "requested_by": doc.requested_by,
+            "proof_attachment_1": doc.proof_attachment_1,
+            "proof_attachment_2": doc.proof_attachment_2,
+            "proof_attachment_3": doc.proof_attachment_3,
+            "proof_attachment_4": doc.proof_attachment_4,
+            "items": items,
+            "approval_log": logs,
+            "docstatus": doc.docstatus,
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Scheme Detail Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_scheme_requests_for_deduction(division=None, search=""):
+    """Get approved+submitted scheme requests for deduction selection"""
+    try:
+        if not division:
+            division = get_user_division()
+        search = (search or "").strip()
+        rows = frappe.db.sql("""
+            SELECT
+                sr.name,
+                sr.application_date,
+                sr.doctor_name,
+                sr.doctor_code,
+                sr.stockist_code,
+                sr.stockist_name,
+                sr.hq,
+                sr.total_scheme_value,
+                sr.approval_status,
+                sr.division
+            FROM `tabScheme Request` sr
+            WHERE sr.docstatus = 1
+              AND sr.division = %(division)s
+              AND (
+                sr.name LIKE %(search)s
+                OR sr.doctor_name LIKE %(search)s
+                OR sr.stockist_name LIKE %(search)s
+              )
+            ORDER BY sr.application_date DESC
+            LIMIT 50
+        """, {"division": division, "search": f"%{search}%"}, as_dict=True)
+        return {"success": True, "data": rows}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Scheme Requests For Deduction Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_stockist_statements_for_deduction(stockist_code):
+    """Get stockist statements for a stockist for deduction"""
+    try:
+        statements = frappe.db.sql("""
+            SELECT
+                ss.name,
+                DATE_FORMAT(ss.statement_month, '%%b-%%Y') as month_label,
+                ss.statement_month,
+                sm.stockist_name
+            FROM `tabStockist Statement` ss
+            LEFT JOIN `tabStockist Master` sm ON ss.stockist_code = sm.name
+            WHERE ss.stockist_code = %(stockist_code)s
+              AND ss.docstatus != 2
+            ORDER BY ss.statement_month DESC
+            LIMIT 24
+        """, {"stockist_code": stockist_code}, as_dict=True)
+        return {"success": True, "data": statements}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Statements For Deduction Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def fetch_deduction_items_portal(scheme_request, stockist_statement):
+    """Fetch items for deduction from scheme + statement (portal version)"""
+    try:
+        scheme = frappe.get_doc("Scheme Request", scheme_request)
+        statement = frappe.get_doc("Stockist Statement", stockist_statement)
+
+        # Validate stockist match
+        if scheme.stockist_code != statement.stockist_code:
+            return {
+                "success": False,
+                "message": f"Stockist mismatch: Scheme ({scheme.stockist_code}) vs Statement ({statement.stockist_code})"
+            }
+
+        # Build statement product map
+        stmt_map = {item.product_code: flt(item.free_qty) for item in statement.items}
+
+        items = []
+        skipped = []
+        for scheme_item in scheme.items:
+            if scheme_item.product_code not in stmt_map:
+                skipped.append(scheme_item.product_code)
+                continue
+            product = frappe.get_doc("Product Master", scheme_item.product_code)
+            scheme_free_qty = flt(scheme_item.free_quantity)
+            current_free_qty = stmt_map[scheme_item.product_code]
+            items.append({
+                "product_code": scheme_item.product_code,
+                "product_name": product.product_name,
+                "pack": product.pack,
+                "scheme_free_qty": scheme_free_qty,
+                "current_free_qty": current_free_qty,
+                "deduct_qty": scheme_free_qty,
+                "pts": flt(product.pts),
+                "deducted_value": scheme_free_qty * flt(product.pts),
+            })
+
+        return {
+            "success": True,
+            "items": items,
+            "skipped": skipped,
+            "scheme_doctor": scheme.doctor_name,
+            "scheme_hq": scheme.hq,
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Fetch Deduction Items Portal Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def create_scheme_deduction_portal(scheme_request, stockist_statement, items):
+    """Create a Scheme Deduction document from portal"""
+    try:
+        if isinstance(items, str):
+            items = json.loads(items)
+
+        scheme = frappe.get_doc("Scheme Request", scheme_request)
+
+        # Check if deduction already exists
+        existing = frappe.db.exists("Scheme Deduction", {
+            "scheme_request": scheme_request,
+            "stockist_statement": stockist_statement,
+            "docstatus": ["!=", 2]
+        })
+        if existing:
+            return {"success": False, "message": f"Deduction already exists: {existing}"}
+
+        doc = frappe.new_doc("Scheme Deduction")
+        doc.scheme_request = scheme_request
+        doc.stockist_statement = stockist_statement
+        doc.stockist_code = scheme.stockist_code
+        doc.doctor_code = scheme.doctor_code
+        doc.scheme_date = scheme.application_date
+
+        total_qty = 0
+        total_value = 0
+        for item in items:
+            deduct_qty = flt(item.get("deduct_qty", 0))
+            pts = flt(item.get("pts", 0))
+            deducted_value = deduct_qty * pts
+            doc.append("items", {
+                "product_code": item.get("product_code"),
+                "product_name": item.get("product_name"),
+                "pack": item.get("pack"),
+                "scheme_free_qty": flt(item.get("scheme_free_qty", 0)),
+                "current_free_qty": flt(item.get("current_free_qty", 0)),
+                "deduct_qty": deduct_qty,
+                "pts": pts,
+                "deducted_value": deducted_value,
+            })
+            total_qty += deduct_qty
+            total_value += deducted_value
+
+        doc.total_deducted_qty = total_qty
+        doc.total_deducted_value = total_value
+        doc.insert(ignore_permissions=False)
+        frappe.db.commit()
+
+        return {"success": True, "name": doc.name, "message": "Scheme deduction created successfully"}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Create Scheme Deduction Portal Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def portal_repeat_scheme_request(source_name):
+    """Repeat an approved scheme request from portal"""
+    try:
+        source_doc = frappe.get_doc("Scheme Request", source_name)
+        if source_doc.approval_status != "Approved":
+            return {"success": False, "message": "Only approved scheme requests can be repeated"}
+
+        new_doc = frappe.new_doc("Scheme Request")
+        new_doc.application_date = nowdate()
+        new_doc.requested_by = frappe.session.user
+        new_doc.team = source_doc.team
+        new_doc.region = source_doc.region
+        new_doc.hq = source_doc.hq
+        new_doc.stockist_code = source_doc.stockist_code
+        new_doc.stockist_name = source_doc.stockist_name
+        new_doc.doctor_code = source_doc.doctor_code
+        new_doc.doctor_name = source_doc.doctor_name
+        new_doc.doctor_place = source_doc.doctor_place
+        new_doc.specialization = source_doc.specialization
+        new_doc.hospital_address = source_doc.hospital_address
+        new_doc.scheme_notes = f"Repeated from {source_doc.name}"
+        new_doc.approval_status = "Pending"
+
+        for item in source_doc.items:
+            new_doc.append("items", {
+                "product_code": item.product_code,
+                "product_name": item.product_name,
+                "pack": item.pack,
+                "quantity": item.quantity,
+                "free_quantity": item.free_quantity,
+                "product_rate": item.product_rate,
+                "special_rate": item.special_rate,
+                "product_value": item.product_value,
+            })
+
+        new_doc.insert()
+        frappe.db.commit()
+        return {"success": True, "name": new_doc.name, "message": "New scheme request created successfully"}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Portal Repeat Scheme Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_doctor_monthly_limit_info(doctor_code, application_date=None):
+    """Get per-product monthly request count for a doctor"""
+    try:
+        from frappe.utils import getdate, get_first_day, get_last_day
+        if not application_date:
+            application_date = nowdate()
+        app_date = getdate(application_date)
+        first_day = get_first_day(app_date)
+        last_day = get_last_day(app_date)
+        month_name = app_date.strftime("%B %Y")
+
+        rows = frappe.db.sql("""
+            SELECT sri.product_code, COUNT(DISTINCT sr.name) as request_count
+            FROM `tabScheme Request` sr
+            INNER JOIN `tabScheme Request Item` sri ON sr.name = sri.parent
+            WHERE sr.doctor_code = %(doctor_code)s
+              AND sr.application_date BETWEEN %(first_day)s AND %(last_day)s
+              AND sr.docstatus != 2
+            GROUP BY sri.product_code
+        """, {"doctor_code": doctor_code, "first_day": first_day, "last_day": last_day}, as_dict=True)
+
+        product_counts = {row.product_code: row.request_count for row in rows}
+        total_requests = frappe.db.count("Scheme Request", {
+            "doctor_code": doctor_code,
+            "application_date": ["between", [first_day, last_day]],
+            "docstatus": ["!=", 2]
+        })
+
+        return {
+            "success": True,
+            "month": month_name,
+            "total_requests": total_requests,
+            "product_counts": product_counts,
+            "limit_per_product": 3,
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Doctor Monthly Limit Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def create_scheme_request_v2(data):
+    """Create a new scheme request from portal (robust version)"""
+    try:
+        if isinstance(data, str):
+            data = json.loads(data)
+
+        doc = frappe.new_doc("Scheme Request")
+        doc.application_date = data.get("application_date") or nowdate()
+        doc.requested_by = frappe.session.user
+        doc.hq = data.get("hq")
+        doc.doctor_code = data.get("doctor_code")
+        doc.doctor_name = data.get("doctor_name")
+        doc.doctor_place = data.get("doctor_place")
+        doc.specialization = data.get("specialization")
+        doc.hospital_address = data.get("hospital_address")
+        doc.team = data.get("team")
+        doc.region = data.get("region")
+        doc.stockist_code = data.get("stockist_code")
+        doc.stockist_name = data.get("stockist_name")
+        doc.scheme_notes = data.get("scheme_notes")
+        doc.approval_status = "Pending"
+
+        for item in data.get("items", []):
+            if not item.get("product_code"):
+                continue
+            qty = flt(item.get("quantity", 0))
+            free_qty = flt(item.get("free_quantity", 0))
+            rate = flt(item.get("product_rate", 0))
+            special_rate = flt(item.get("special_rate", 0))
+
+            # Calculate scheme %
+            scheme_pct = 0
+            if special_rate > 0 and rate > 0:
+                scheme_pct = ((rate - special_rate) / rate) * 100
+            elif free_qty > 0 and qty > 0:
+                scheme_pct = (free_qty / qty) * 100
+
+            effective_rate = special_rate if special_rate > 0 else rate
+            product_value = qty * effective_rate
+
+            doc.append("items", {
+                "product_code": item.get("product_code"),
+                "product_name": item.get("product_name"),
+                "pack": item.get("pack"),
+                "quantity": qty,
+                "free_quantity": free_qty,
+                "product_rate": rate,
+                "special_rate": special_rate,
+                "scheme_percentage": round(scheme_pct, 2),
+                "product_value": product_value,
+            })
+
+        doc.insert(ignore_permissions=False)
+        frappe.db.commit()
+
+        return {"success": True, "name": doc.name, "message": "Scheme request created successfully"}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Create Scheme Request V2 Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_scheme_list_portal(division=None, filters=None):
+    """Get schemes for portal list view with division filter"""
+    try:
+        if not division:
+            division = get_user_division()
+        if isinstance(filters, str):
+            filters = json.loads(filters) if filters else {}
+        if not filters:
+            filters = {}
+
+        where_clauses = ["sr.division = %(division)s"]
+        params = {"division": division}
+
+        if filters.get("status"):
+            where_clauses.append("sr.approval_status = %(status)s")
+            params["status"] = filters["status"]
+        if filters.get("from_date") and filters.get("to_date"):
+            where_clauses.append("sr.application_date BETWEEN %(from_date)s AND %(to_date)s")
+            params["from_date"] = filters["from_date"]
+            params["to_date"] = filters["to_date"]
+        elif filters.get("from_date"):
+            where_clauses.append("sr.application_date >= %(from_date)s")
+            params["from_date"] = filters["from_date"]
+        elif filters.get("to_date"):
+            where_clauses.append("sr.application_date <= %(to_date)s")
+            params["to_date"] = filters["to_date"]
+        if filters.get("search"):
+            where_clauses.append(
+                "(sr.name LIKE %(search)s OR sr.doctor_name LIKE %(search)s "
+                "OR sr.stockist_name LIKE %(search)s OR sr.hq LIKE %(search)s)"
+            )
+            params["search"] = f"%{filters['search']}%"
+
+        where_sql = " AND ".join(where_clauses)
+
+        rows = frappe.db.sql(f"""
+            SELECT
+                sr.name,
+                sr.application_date,
+                sr.doctor_name,
+                sr.doctor_code,
+                sr.hq,
+                sr.stockist_name,
+                sr.stockist_code,
+                sr.approval_status,
+                sr.total_scheme_value,
+                sr.requested_by,
+                sr.docstatus,
+                COUNT(sri.name) as product_count
+            FROM `tabScheme Request` sr
+            LEFT JOIN `tabScheme Request Item` sri ON sr.name = sri.parent
+            WHERE {where_sql}
+            GROUP BY sr.name
+            ORDER BY sr.application_date DESC, sr.creation DESC
+            LIMIT 200
+        """, params, as_dict=True)
+
+        return {"success": True, "data": rows, "division": division}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Scheme List Portal Error")
+        return {"success": False, "message": str(e)}
+
+
+
+@frappe.whitelist()
 def get_stockist_details(stockist_code):
+
     if not stockist_code:
         frappe.throw(_("Stockist code is required"))
 

@@ -1,0 +1,812 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Scheme Request - {{ scheme_name }}{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page scheme-detail-page">
+
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="text-center py-5">
+        <i class="fa fa-spinner fa-spin fa-3x text-muted"></i>
+        <p class="mt-3 text-muted">Loading scheme details...</p>
+    </div>
+
+    <!-- Main content (hidden until loaded) -->
+    <div id="mainContent" style="display:none;">
+
+        <!-- Header -->
+        <div class="page-header d-flex justify-content-between align-items-center mb-4" id="pageHeader">
+            <div>
+                <h1 class="page-title" id="headerTitle"><i class="fa fa-file-alt"></i> Scheme Request</h1>
+                <p class="page-subtitle text-muted" id="headerSubtitle"></p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="/portal/scheme-list" class="btn btn-outline-secondary">
+                    <i class="fa fa-arrow-left"></i> Back to List
+                </a>
+                <!-- Action buttons (rendered by JS) -->
+                <div id="actionButtons"></div>
+            </div>
+        </div>
+
+        <!-- Status Banner -->
+        <div id="statusBanner" class="alert mb-4"></div>
+
+        <!-- Details Row -->
+        <div class="row mb-4">
+            <!-- Doctor Details -->
+            <div class="col-md-6">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header bg-success text-white py-2 px-3">
+                        <i class="fa fa-user-md"></i> <strong>Doctor Details</strong>
+                        {% if is_manager %}
+                        <button class="btn btn-sm btn-light float-right" id="viewDoctorHistoryBtn"
+                            onclick="viewDoctorHistory()" title="View Doctor History">
+                            <i class="fa fa-history"></i> History
+                        </button>
+                        {% endif %}
+                    </div>
+                    <div class="card-body py-2">
+                        <table class="table table-sm mb-0 table-borderless">
+                            <tr>
+                                <th width="40%">Doctor Code</th>
+                                <td id="d-code">-</td>
+                            </tr>
+                            <tr>
+                                <th>Doctor Name</th>
+                                <td id="d-name">-</td>
+                            </tr>
+                            <tr>
+                                <th>Place</th>
+                                <td id="d-place">-</td>
+                            </tr>
+                            <tr>
+                                <th>Specialization</th>
+                                <td id="d-spec">-</td>
+                            </tr>
+                            <tr>
+                                <th>Hospital/Clinic</th>
+                                <td id="d-hospital">-</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Request & Stockist Details -->
+            <div class="col-md-6">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header bg-info text-white py-2 px-3">
+                        <i class="fa fa-building"></i> <strong>Request &amp; Stockist</strong>
+                    </div>
+                    <div class="card-body py-2">
+                        <table class="table table-sm mb-0 table-borderless">
+                            <tr>
+                                <th width="40%">Scheme ID</th>
+                                <td id="d-schemeId">-</td>
+                            </tr>
+                            <tr>
+                                <th>Application Date</th>
+                                <td id="d-appDate">-</td>
+                            </tr>
+                            <tr>
+                                <th>HQ</th>
+                                <td id="d-hq">-</td>
+                            </tr>
+                            <tr>
+                                <th>Stockist</th>
+                                <td id="d-stockist">-</td>
+                            </tr>
+                            <tr>
+                                <th>Division</th>
+                                <td id="d-division">-</td>
+                            </tr>
+                            <tr>
+                                <th>Requested By</th>
+                                <td id="d-requestedBy">-</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Products Table -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center">
+                <div><i class="fa fa-cubes"></i> <strong>Products &amp; Quantities</strong></div>
+                {% if is_manager %}
+                <button class="btn btn-sm btn-outline-primary" onclick="viewProductHistory()"
+                    title="View Product History">
+                    <i class="fa fa-chart-bar"></i> Product History
+                </button>
+                {% endif %}
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="bg-light">
+                            <tr>
+                                <th>Product</th>
+                                <th>Pack</th>
+                                <th>Order Qty</th>
+                                <th>Free Qty</th>
+                                <th>Rate (PTS)</th>
+                                <th>Special Rate</th>
+                                <th>Scheme %</th>
+                                <th class="text-right">Value (₹)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="productsBody"></tbody>
+                        <tfoot>
+                            <tr class="table-active">
+                                <td colspan="7" class="text-right"><strong>Total Scheme Value:</strong></td>
+                                <td class="text-right"><strong id="d-totalValue">₹ 0.00</strong></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Attachments -->
+        <div id="attachmentsSection" class="card shadow-sm border-0 mb-4" style="display:none;">
+            <div class="card-header py-2 px-3">
+                <i class="fa fa-paperclip"></i> <strong>Attached Documents</strong>
+            </div>
+            <div class="card-body" id="attachmentsBody"></div>
+        </div>
+
+        <!-- Scheme Notes -->
+        <div id="notesSection" class="card shadow-sm border-0 mb-4" style="display:none;">
+            <div class="card-header py-2 px-3"><i class="fa fa-sticky-note"></i> <strong>Scheme Notes</strong></div>
+            <div class="card-body">
+                <p id="schemeNotesText" class="mb-0"></p>
+            </div>
+        </div>
+
+        <!-- Approval Log -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header py-2 px-3">
+                <i class="fa fa-history"></i> <strong>Approval History</strong>
+            </div>
+            <div class="card-body p-0">
+                <div id="approvalLogBody">
+                    <div class="text-center py-3 text-muted"><small>No approval history yet</small></div>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /mainContent -->
+
+    <!-- Product History Modal -->
+    <div class="modal fade" id="productHistoryModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="fa fa-chart-bar"></i> Product History</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body" id="productHistoryContent">
+                    <div class="text-center py-4"><i class="fa fa-spinner fa-spin fa-2x text-muted"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Doctor History Modal -->
+    <div class="modal fade" id="doctorHistoryModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title"><i class="fa fa-user-md"></i> Doctor History</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body" id="doctorHistoryContent">
+                    <div class="text-center py-4"><i class="fa fa-spinner fa-spin fa-2x text-muted"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Approve Modal -->
+    <div class="modal fade" id="approveModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title"><i class="fa fa-check"></i> Approve Scheme</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label><strong>Approval Comments <span class="text-danger">*</span></strong></label>
+                        <textarea id="approveComments" class="form-control" rows="3"
+                            placeholder="Enter approval comments..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="confirmApprove()">
+                        <i class="fa fa-check"></i> Approve
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reject Modal -->
+    <div class="modal fade" id="rejectModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title"><i class="fa fa-times"></i> Reject Scheme</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label><strong>Rejection Reason <span class="text-danger">*</span></strong></label>
+                        <textarea id="rejectComments" class="form-control" rows="3"
+                            placeholder="Enter rejection reason..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" onclick="confirmReject()">
+                        <i class="fa fa-times"></i> Reject
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reroute Modal -->
+    <div class="modal fade" id="rerouteModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header" style="background:#fd7e14; color:white;">
+                    <h5 class="modal-title"><i class="fa fa-redo"></i> Reroute Scheme</h5>
+                    <button type="button" class="close" style="color:white;" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label><strong>Reroute Reason <span class="text-danger">*</span></strong></label>
+                        <textarea id="rerouteComments" class="form-control" rows="3"
+                            placeholder="Enter reroute reason..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-warning" onclick="confirmReroute()">
+                        <i class="fa fa-redo"></i> Reroute
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div><!-- /portal-page -->
+
+<style>
+    .scheme-detail-page table.table-borderless td,
+    .scheme-detail-page table.table-borderless th {
+        padding: 4px 8px;
+        border: none;
+    }
+
+    .scheme-detail-page .status-badge {
+        padding: 6px 16px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 700;
+        display: inline-block;
+        letter-spacing: 0.5px;
+    }
+
+    .scheme-detail-page .status-Pending {
+        background: #fff3cd;
+        color: #856404;
+    }
+
+    .scheme-detail-page .status-Approved {
+        background: #d1e7dd;
+        color: #0a5e36;
+    }
+
+    .scheme-detail-page .status-Rejected {
+        background: #f8d7da;
+        color: #842029;
+    }
+
+    .scheme-detail-page .status-Rerouted {
+        background: #cff4fc;
+        color: #055160;
+    }
+
+    .scheme-detail-page .attachment-card {
+        border: 2px solid #dee2e6;
+        border-radius: 8px;
+        padding: 12px;
+        text-align: center;
+        background: #f8f9fa;
+    }
+
+    .approval-log-item {
+        padding: 10px 16px;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .approval-log-item:last-child {
+        border-bottom: none;
+    }
+
+    .gap-2 {
+        gap: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const SCHEME_NAME = "{{ scheme_name }}";
+    const IS_MANAGER = {{ 'true' if is_manager else 'false' }};
+    let schemeData = null;
+
+    $(document).ready(function () {
+        loadSchemeDetail();
+    });
+
+    function loadSchemeDetail() {
+        $.ajax({
+            url: '/api/method/scanify.api.get_scheme_detail',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: {
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            data: JSON.stringify({ scheme_name: SCHEME_NAME }),
+            success: function (r) {
+                if (r.message && r.message.success) {
+                    schemeData = r.message;
+                    renderSchemeDetail(schemeData);
+                    $('#loadingOverlay').hide();
+                    $('#mainContent').show();
+                } else {
+                    $('#loadingOverlay').html(`
+                    <div class="alert alert-danger">
+                        <i class="fa fa-exclamation-triangle"></i> 
+                        ${r.message && r.message.message ? r.message.message : 'Failed to load scheme details'}
+                    </div>
+                `);
+                }
+            },
+            error: function (xhr) {
+                console.error(xhr.responseText);
+                $('#loadingOverlay').html('<div class="alert alert-danger">Error loading scheme details</div>');
+            }
+        });
+    }
+
+    function renderSchemeDetail(d) {
+        // Header
+        $('#headerTitle').html(`<i class="fa fa-file-alt"></i> ${d.name}`);
+        $('#headerSubtitle').text(`Application Date: ${d.application_date || '-'} | Division: ${d.division || '-'}`);
+
+        // Status banner
+        const statusColors = { Approved: 'success', Pending: 'warning', Rejected: 'danger', Rerouted: 'info' };
+        const sc = statusColors[d.approval_status] || 'secondary';
+        $('#statusBanner').removeClass().addClass(`alert alert-${sc} mb-4`).html(`
+        <i class="fa fa-circle"></i> <strong>Status: ${d.approval_status}</strong>
+        &nbsp;|&nbsp; Total Value: <strong>₹ ${formatCurrency(d.total_scheme_value)}</strong>
+        ${d.docstatus === 1 ? '&nbsp;|&nbsp; <span class="badge badge-dark">Submitted</span>' : ''}
+    `);
+
+        // Doctor details
+        $('#d-code').text(d.doctor_code || '-');
+        $('#d-name').html(`<strong>${d.doctor_name || '-'}</strong>`);
+        $('#d-place').text(d.doctor_place || '-');
+        $('#d-spec').text(d.specialization || '-');
+        $('#d-hospital').text(d.hospital_address || '-');
+
+        // Request / stockist
+        $('#d-schemeId').html(`<strong>${d.name}</strong>`);
+        $('#d-appDate').text(d.application_date || '-');
+        $('#d-hq').text(d.hq || '-');
+        $('#d-stockist').html(`${d.stockist_name || '-'} <small class="text-muted">(${d.stockist_code || ''})</small>`);
+        $('#d-division').text(d.division || '-');
+        $('#d-requestedBy').text(d.requested_by || '-');
+
+        // Products
+        let prodHtml = '';
+        (d.items || []).forEach(function (item) {
+            prodHtml += `<tr>
+            <td><strong>${item.product_name || '-'}</strong><br><small class="text-muted">${item.product_code}</small></td>
+            <td>${item.pack || '-'}</td>
+            <td>${item.quantity || 0}</td>
+            <td>${item.free_quantity || 0}</td>
+            <td>₹ ${formatCurrency(item.product_rate)}</td>
+            <td>${item.special_rate > 0 ? '₹ ' + formatCurrency(item.special_rate) : '-'}</td>
+            <td>${item.scheme_percentage ? item.scheme_percentage.toFixed(2) + '%' : '-'}</td>
+            <td class="text-right"><strong>₹ ${formatCurrency(item.product_value)}</strong></td>
+        </tr>`;
+        });
+        $('#productsBody').html(prodHtml || '<tr><td colspan="8" class="text-center text-muted py-3">No products</td></tr>');
+        $('#d-totalValue').text('₹ ' + formatCurrency(d.total_scheme_value));
+
+        // Attachments
+        const attachments = [d.proof_attachment_1, d.proof_attachment_2, d.proof_attachment_3, d.proof_attachment_4].filter(Boolean);
+        if (attachments.length > 0) {
+            let attHtml = '<div class="row">';
+            attachments.forEach(function (url, i) {
+                const isImg = /\.(jpg|jpeg|png|gif)$/i.test(url);
+                const filename = url.split('/').pop();
+                attHtml += `<div class="col-md-3 mb-2">
+                <div class="attachment-card">
+                    <div class="mb-1"><i class="fa fa-${isImg ? 'image' : 'file'} fa-2x text-muted"></i></div>
+                    <div class="small text-muted mb-2">Document ${i + 1}: ${filename}</div>
+                    ${isImg ? `<img src="${url}" class="img-fluid rounded mb-2" style="max-height:100px;cursor:pointer;" onclick="window.open('${url}','_blank')">` : ''}
+                    <a href="${url}" target="_blank" class="btn btn-sm btn-outline-primary d-block">
+                        <i class="fa fa-external-link-alt"></i> View/Download
+                    </a>
+                </div>
+            </div>`;
+            });
+            attHtml += '</div>';
+            $('#attachmentsBody').html(attHtml);
+            $('#attachmentsSection').show();
+        }
+
+        // Notes
+        if (d.scheme_notes) {
+            $('#schemeNotesText').text(d.scheme_notes);
+            $('#notesSection').show();
+        }
+
+        // Approval log
+        if (d.approval_log && d.approval_log.length > 0) {
+            let logHtml = '';
+            d.approval_log.forEach(function (log) {
+                const actionColors = { Approved: '#28a745', Rejected: '#dc3545', Rerouted: '#fd7e14', Pending: '#6c757d' };
+                const clr = actionColors[log.action] || '#6c757d';
+                logHtml += `<div class="approval-log-item">
+                <div class="d-flex justify-content-between">
+                    <span><strong style="color:${clr};">${log.action}</strong> by ${log.approver}</span>
+                    <span class="text-muted small">${log.action_date || ''}</span>
+                </div>
+                ${log.comments ? `<div class="text-muted small mt-1">${log.comments}</div>` : ''}
+            </div>`;
+            });
+            $('#approvalLogBody').html(logHtml);
+        }
+
+        // Action buttons
+        renderActionButtons(d);
+    }
+
+    function renderActionButtons(d) {
+        let html = '';
+
+        // Repeat (if approved)
+        if (d.approval_status === 'Approved') {
+            html += `<button class="btn btn-info ml-1" onclick="repeatScheme()">
+            <i class="fa fa-redo"></i> Repeat Request
+        </button>`;
+        }
+
+        // Manager actions (if pending and not submitted)
+        if (IS_MANAGER && d.approval_status === 'Pending' && d.docstatus !== 1) {
+            html += `
+        <button class="btn btn-success ml-1" onclick="$('#approveModal').modal('show')">
+            <i class="fa fa-check"></i> Approve
+        </button>
+        <button class="btn btn-danger ml-1" onclick="$('#rejectModal').modal('show')">
+            <i class="fa fa-times"></i> Reject
+        </button>
+        <button class="btn btn-warning ml-1" onclick="$('#rerouteModal').modal('show')">
+            <i class="fa fa-redo"></i> Reroute
+        </button>`;
+        }
+
+        $('#actionButtons').html(html);
+    }
+
+    // ===================== ACTIONS =====================
+
+    function confirmApprove() {
+        const comments = $('#approveComments').val().trim();
+        if (!comments) { showAlert('Please enter approval comments', 'warning'); return; }
+        callAction('scanify.api.approve_scheme_request', { doc_name: SCHEME_NAME, comments: comments }, 'Scheme approved successfully', 'success');
+        $('#approveModal').modal('hide');
+    }
+
+    function confirmReject() {
+        const comments = $('#rejectComments').val().trim();
+        if (!comments) { showAlert('Please enter rejection reason', 'warning'); return; }
+        callAction('scanify.api.reject_scheme_request', { doc_name: SCHEME_NAME, comments: comments }, 'Scheme rejected', 'danger');
+        $('#rejectModal').modal('hide');
+    }
+
+    function confirmReroute() {
+        const comments = $('#rerouteComments').val().trim();
+        if (!comments) { showAlert('Please enter reroute reason', 'warning'); return; }
+        callAction('scanify.api.reroute_scheme_request', { doc_name: SCHEME_NAME, comments: comments }, 'Scheme rerouted for revision', 'warning');
+        $('#rerouteModal').modal('hide');
+    }
+
+    function callAction(method, args, successMsg, type) {
+        $.ajax({
+            url: '/api/method/' + method,
+            type: 'POST',
+            contentType: 'application/json',
+            headers: {
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            data: JSON.stringify(args),
+            success: function (r) {
+                if (r.message || r.exc === undefined) {
+                    showAlert(successMsg, type);
+                    setTimeout(() => loadSchemeDetail(), 1000);
+                } else {
+                    showAlert('Action failed. Please try again.', 'danger');
+                }
+            },
+            error: function (xhr) {
+                console.error(xhr.responseText);
+                showAlert('Error performing action', 'danger');
+            }
+        });
+    }
+
+    function repeatScheme() {
+        if (!confirm('Create a new scheme request based on ' + SCHEME_NAME + '?')) return;
+        $.ajax({
+            url: '/api/method/scanify.api.portal_repeat_scheme_request',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: {
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            data: JSON.stringify({ source_name: SCHEME_NAME }),
+            success: function (r) {
+                if (r.message && r.message.success) {
+                    showAlert('New scheme request created: ' + r.message.name, 'success');
+                    setTimeout(() => window.location.href = '/portal/scheme-detail?name=' + r.message.name, 1500);
+                } else {
+                    showAlert((r.message && r.message.message) || 'Failed to repeat scheme', 'danger');
+                }
+            },
+            error: function (xhr) {
+                console.error(xhr.responseText);
+                showAlert('Error repeating scheme', 'danger');
+            }
+        });
+    }
+
+    // ===================== HISTORY MODALS =====================
+
+    function viewProductHistory() {
+        if (!schemeData || !schemeData.items || schemeData.items.length === 0) {
+            showAlert('No products in this scheme', 'warning');
+            return;
+        }
+        // If multiple products, create a selector
+        if (schemeData.items.length === 1) {
+            loadProductHistory(schemeData.items[0].product_code);
+        } else {
+            let html = '<div class="list-group">';
+            schemeData.items.forEach(function (item) {
+                html += `<button type="button" class="list-group-item list-group-item-action" onclick="loadProductHistory('${item.product_code}'); $('#productSelectModal').modal('hide');">
+                <strong>${item.product_name || item.product_code}</strong>
+                <span class="badge badge-secondary float-right">${item.pack || ''}</span>
+            </button>`;
+            });
+            html += '</div>';
+            // Show inline product picker
+            $('#productHistoryContent').html(`
+            <h6>Select product to view history:</h6>
+            ${html}
+        `);
+            $('#productHistoryModal').modal('show');
+            return;
+        }
+    }
+
+    function loadProductHistory(productCode) {
+        $('#productHistoryContent').html('<div class="text-center py-4"><i class="fa fa-spinner fa-spin fa-2x text-muted"></i><p class="mt-2 text-muted">Loading product history...</p></div>');
+        $('#productHistoryModal').modal('show');
+
+        $.ajax({
+            url: '/api/method/scanify.api.get_product_history_for_scheme',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: {
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            data: JSON.stringify({
+                product_code: productCode,
+                doctor_code: schemeData.doctor_code,
+                hq: schemeData.hq
+            }),
+            success: function (r) {
+                if (r.message && r.message.success) {
+                    renderProductHistory(r.message);
+                } else {
+                    $('#productHistoryContent').html('<div class="alert alert-warning">No history data found for this product</div>');
+                }
+            },
+            error: function (xhr) {
+                console.error(xhr.responseText);
+                $('#productHistoryContent').html('<div class="alert alert-danger">Error loading product history</div>');
+            }
+        });
+    }
+
+    function renderProductHistory(data) {
+        let html = `
+    <div class="row">
+        <div class="col-md-6">
+            <h6><i class="fa fa-cube"></i> Product Details</h6>
+            <table class="table table-bordered table-sm">
+                <tr><th>Product Code</th><td>${data.product_code || '-'}</td></tr>
+                <tr><th>Product Name</th><td><strong>${data.product_name || '-'}</strong></td></tr>
+                <tr><th>Pack</th><td>${data.pack || '-'}</td></tr>
+                <tr><th>PTS Rate</th><td><strong>₹ ${formatCurrency(data.pts)}</strong></td></tr>
+            </table>
+        </div>
+        <div class="col-md-6">
+            <h6><i class="fa fa-bar-chart"></i> Last 6 Months Summary</h6>
+            <table class="table table-bordered table-sm">
+                <tr><th>Total Schemes</th><td><strong>${data.total_schemes || 0}</strong></td></tr>
+                <tr><th>Total Quantity</th><td><strong>${data.total_quantity || 0}</strong></td></tr>
+                <tr><th>Total Value</th><td><strong>₹ ${formatCurrency(data.total_value)}</strong></td></tr>
+                <tr><th>Last Ordered</th><td>${data.last_order_date || 'Never'}</td></tr>
+            </table>
+        </div>
+    </div>
+    
+    <h6 class="mt-3"><i class="fa fa-list"></i> Recent Scheme Requests</h6>
+    <div class="table-responsive" style="max-height:300px; overflow-y:auto;">
+        <table class="table table-bordered table-striped table-sm table-hover">
+            <thead class="bg-light">
+                <tr><th>Scheme ID</th><th>Date</th><th>Doctor</th><th>Qty</th><th>Value</th><th>Status</th></tr>
+            </thead>
+            <tbody>`;
+
+        if (data.recent_schemes && data.recent_schemes.length > 0) {
+            data.recent_schemes.forEach(function (s) {
+                const sc = { Approved: 'success', Pending: 'warning', Rejected: 'danger', Rerouted: 'info' }[s.approval_status] || 'secondary';
+                html += `<tr>
+                <td><a href="/portal/scheme-detail?name=${s.name}" target="_blank">${s.name}</a></td>
+                <td>${s.application_date || '-'}</td>
+                <td>${s.doctor_name || '-'}</td>
+                <td>${s.quantity || 0}</td>
+                <td>₹ ${formatCurrency(s.product_value)}</td>
+                <td><span class="badge badge-${sc}">${s.approval_status}</span></td>
+            </tr>`;
+            });
+        } else {
+            html += '<tr><td colspan="6" class="text-center text-muted">No recent schemes</td></tr>';
+        }
+
+        html += '</tbody></table></div>';
+        $('#productHistoryContent').html(html);
+    }
+
+    function viewDoctorHistory() {
+        if (!schemeData || !schemeData.doctor_code) return;
+        $('#doctorHistoryContent').html('<div class="text-center py-4"><i class="fa fa-spinner fa-spin fa-2x text-muted"></i><p class="mt-2 text-muted">Loading doctor history...</p></div>');
+        $('#doctorHistoryModal').modal('show');
+
+        $.ajax({
+            url: '/api/method/scanify.api.get_doctor_history_for_scheme',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: {
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            data: JSON.stringify({ doctor_code: schemeData.doctor_code, hq: schemeData.hq }),
+            success: function (r) {
+                if (r.message && r.message.success) {
+                    renderDoctorHistory(r.message);
+                } else {
+                    $('#doctorHistoryContent').html('<div class="alert alert-warning">No history data found for this doctor</div>');
+                }
+            },
+            error: function (xhr) {
+                console.error(xhr.responseText);
+                $('#doctorHistoryContent').html('<div class="alert alert-danger">Error loading doctor history</div>');
+            }
+        });
+    }
+
+    function renderDoctorHistory(data) {
+        let html = `
+    <div class="row">
+        <div class="col-md-6">
+            <h6><i class="fa fa-user-md"></i> Doctor Details</h6>
+            <table class="table table-bordered table-sm">
+                <tr><th>Doctor Code</th><td><strong>${data.doctor_code || '-'}</strong></td></tr>
+                <tr><th>Doctor Name</th><td><strong>${data.doctor_name || '-'}</strong></td></tr>
+                <tr><th>Place</th><td>${data.place || '-'}</td></tr>
+                <tr><th>Specialization</th><td>${data.specialization || '-'}</td></tr>
+                <tr><th>HQ</th><td>${data.hq || '-'}</td></tr>
+            </table>
+        </div>
+        <div class="col-md-6">
+            <h6><i class="fa fa-bar-chart"></i> Last 12 Months Summary</h6>
+            <table class="table table-bordered table-sm">
+                <tr><th>Total Schemes</th><td><strong>${data.total_schemes || 0}</strong></td></tr>
+                <tr><th>Approved</th><td><span class="badge badge-success">${data.total_approved || 0}</span></td></tr>
+                <tr><th>Pending</th><td><span class="badge badge-warning">${data.total_pending || 0}</span></td></tr>
+                <tr><th>Rejected</th><td><span class="badge badge-danger">${data.total_rejected || 0}</span></td></tr>
+                <tr><th>Total Value</th><td><strong>₹ ${formatCurrency(data.total_value)}</strong></td></tr>
+                <tr><th>Last Scheme</th><td>${data.last_scheme_date || 'Never'}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <h6 class="mt-3"><i class="fa fa-cubes"></i> Top Products (Approved)</h6>
+    <div class="table-responsive" style="max-height:200px; overflow-y:auto;">
+        <table class="table table-bordered table-sm table-hover">
+            <thead class="bg-light"><tr><th>Product</th><th>Total Qty</th><th>Free Qty</th><th>Value</th><th>Schemes</th></tr></thead>
+            <tbody>`;
+
+        if (data.product_summary && data.product_summary.length > 0) {
+            data.product_summary.forEach(function (p) {
+                html += `<tr>
+                <td><strong>${p.product_name || '-'}</strong><br><small>${p.product_code}</small></td>
+                <td>${p.total_quantity || 0}</td>
+                <td>${p.total_free_quantity || 0}</td>
+                <td>₹ ${formatCurrency(p.total_value)}</td>
+                <td>${p.scheme_count || 0}</td>
+            </tr>`;
+            });
+        } else {
+            html += '<tr><td colspan="5" class="text-center text-muted">No approved products</td></tr>';
+        }
+
+        html += `</tbody></table></div>
+
+    <h6 class="mt-3"><i class="fa fa-list"></i> Recent Requests</h6>
+    <div class="table-responsive" style="max-height:250px; overflow-y:auto;">
+        <table class="table table-bordered table-sm table-hover">
+            <thead class="bg-light"><tr><th>Scheme ID</th><th>Date</th><th>Stockist</th><th>HQ</th><th>Products</th><th>Value</th><th>Status</th></tr></thead>
+            <tbody>`;
+
+        if (data.recent_schemes && data.recent_schemes.length > 0) {
+            data.recent_schemes.forEach(function (s) {
+                const sc = { Approved: 'success', Pending: 'warning', Rejected: 'danger', Rerouted: 'info' }[s.approval_status] || 'secondary';
+                html += `<tr>
+                <td><a href="/portal/scheme-detail?name=${s.name}" target="_blank">${s.name}</a></td>
+                <td>${s.application_date || '-'}</td>
+                <td>${s.stockist_name || '-'}</td>
+                <td>${s.hq || '-'}</td>
+                <td>${s.product_count || 0}</td>
+                <td>₹ ${formatCurrency(s.total_scheme_value)}</td>
+                <td><span class="badge badge-${sc}">${s.approval_status}</span></td>
+            </tr>`;
+            });
+        } else {
+            html += '<tr><td colspan="7" class="text-center text-muted">No recent schemes</td></tr>';
+        }
+
+        html += '</tbody></table></div>';
+        $('#doctorHistoryContent').html(html);
+    }
+
+
+    // ===================== UTILITIES =====================
+
+    function formatCurrency(v) {
+        return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0);
+    }
+
+    function showAlert(msg, type) {
+        let a = $(`<div class="alert alert-${type} alert-dismissible fade show" role="alert" 
+        style="position:fixed;top:70px;right:20px;z-index:9999;min-width:350px;box-shadow:0 4px 6px rgba(0,0,0,.15);">
+        <strong>${msg}</strong>
+        <button type="button" class="close" data-dismiss="alert">&times;</button></div>`);
+        $('body').append(a);
+        setTimeout(() => a.fadeOut(() => a.remove()), 5000);
+    }
+</script>
+{% endblock %}

@@ -78,56 +78,62 @@
 </div>
 
 <script>
-$(document).ready(function() {
-    loadSchemes();
-
-    $('#scheme-filter-form').on('submit', function(e) {
-        e.preventDefault();
+    $(document).ready(function () {
         loadSchemes();
-    });
-});
 
-function loadSchemes() {
-    $('#schemes-list').html(`
+        $('#scheme-filter-form').on('submit', function (e) {
+            e.preventDefault();
+            loadSchemes();
+        });
+    });
+
+    function loadSchemes() {
+        $('#schemes-list').html(`
         <div class="text-center p-5">
             <i class="fa fa-spinner fa-spin fa-3x text-muted"></i>
             <p class="mt-3 text-muted">Loading schemes...</p>
         </div>
     `);
 
-    let filters = {
-        status: $('select[name="status"]').val(),
-        from_date: $('input[name="from_date"]').val(),
-        to_date: $('input[name="to_date"]').val()
-    };
+        let filters = {
+            status: $('select[name="status"]').val(),
+            from_date: $('input[name="from_date"]').val(),
+            to_date: $('input[name="to_date"]').val()
+        };
 
-    frappe.call({
-        method: 'scanify.api.get_user_schemes',
-        args: { filters: JSON.stringify(filters) },
-        callback: function(r) {
-            if (r.message) {
-                renderSchemes(r.message);
-            }
-        },
-        error: function(r) {
-            $('#schemes-list').html(`
+        $.ajax({
+            url: '/api/method/scanify.api.get_user_schemes',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: {
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            data: JSON.stringify({ filters: JSON.stringify(filters) }),
+            success: function (r) {
+                if (r.message) {
+                    renderSchemes(r.message);
+                }
+            },
+            error: function (xhr) {
+                console.error(xhr.responseText);
+                $('#schemes-list').html(`
                 <div class="alert alert-danger m-3">
                     <i class="fa fa-exclamation-triangle"></i> Error loading schemes
                 </div>
             `);
-        }
-    });
-}
+            }
+        });
+    }
 
-function renderSchemes(schemes) {
-    let html = '';
-    
-    if (schemes.length === 0) {
-        html = `<div class="alert alert-info m-3">
+    function renderSchemes(schemes) {
+        let html = '';
+
+        if (schemes.length === 0) {
+            html = `<div class="alert alert-info m-3">
             <i class="fa fa-info-circle"></i> No schemes found
         </div>`;
-    } else {
-        html = `<div class="table-responsive">
+        } else {
+            html = `<div class="table-responsive">
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
@@ -142,16 +148,16 @@ function renderSchemes(schemes) {
                     </tr>
                 </thead>
                 <tbody>`;
-        
-        schemes.forEach(function(scheme) {
-            let statusClass = {
-                'Approved': 'success',
-                'Pending': 'warning',
-                'Rejected': 'danger',
-                'Rerouted': 'info'
-            }[scheme.approvalstatus] || 'secondary';
 
-            html += `<tr>
+            schemes.forEach(function (scheme) {
+                let statusClass = {
+                    'Approved': 'success',
+                    'Pending': 'warning',
+                    'Rejected': 'danger',
+                    'Rerouted': 'info'
+                }[scheme.approvalstatus] || 'secondary';
+
+                html += `<tr>
                 <td><strong>${scheme.name}</strong></td>
                 <td>${frappe.datetime.str_to_user(scheme.applicationdate)}</td>
                 <td>${scheme.doctorname || '-'}</td>
@@ -165,19 +171,19 @@ function renderSchemes(schemes) {
                     </a>
                 </td>
             </tr>`;
-        });
-        
-        html += `</tbody></table></div>`;
-    }
-    
-    $('#schemes-list').html(html);
-}
+            });
 
-function format_currency(value) {
-    return new Intl.NumberFormat('en-IN', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-    }).format(value);
-}
+            html += `</tbody></table></div>`;
+        }
+
+        $('#schemes-list').html(html);
+    }
+
+    function format_currency(value) {
+        return new Intl.NumberFormat('en-IN', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }).format(value);
+    }
 </script>
 {% endblock %}

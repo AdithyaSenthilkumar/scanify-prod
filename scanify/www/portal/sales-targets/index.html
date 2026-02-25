@@ -1,0 +1,191 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Sales Target Entry{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page sales-target-page">
+    <div class="page-header">
+        <h1 class="page-title"><i class="fa fa-chart-line"></i> Sales Target Entry</h1>
+        <p class="page-subtitle">Create HQ-wise yearly sales targets for {{ division }} division (figures in Lakhs)</p>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row">
+                <!-- Division is removed; backend depends on logged-in user or division is hidden since the user didn't want it -->
+                <input type="hidden" id="division" value="{{ division or 'Prima' }}">
+                <div class="col-md-3">
+                    <label><strong>Financial Year <span class="text-danger">*</span></strong></label>
+                    <input type="text" class="form-control" id="financial-year" placeholder="e.g. 2025-26">
+                </div>
+                <div class="col-md-3">
+                    <label><strong>Start Date <span class="text-danger">*</span></strong></label>
+                    <input type="date" class="form-control" id="start-date">
+                </div>
+                <div class="col-md-3">
+                    <label><strong>End Date <span class="text-danger">*</span></strong></label>
+                    <input type="date" class="form-control" id="end-date">
+                </div>
+                <div class="col-md-3">
+                    <label><strong>Status</strong></label>
+                    <select class="form-control" id="target-status">
+                        <option value="Draft">Draft</option>
+                        <option value="Active">Active</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Cancelled">Cancelled</option>
+                    </select>
+                </div>
+                <input type="hidden" id="detected-region">
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <span><i class="fa fa-list"></i> HQ Target Rows</span>
+            <button class="btn btn-sm btn-primary" type="button" id="add-row-btn">
+                <i class="fa fa-plus"></i> Add HQ Row
+            </button>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" id="targets-table">
+                    <thead>
+                        <tr>
+                            <th>HQ</th>
+                            <th>Apr</th>
+                            <th>May</th>
+                            <th>Jun</th>
+                            <th>Q1</th>
+                            <th>Jul</th>
+                            <th>Aug</th>
+                            <th>Sep</th>
+                            <th>Q2</th>
+                            <th>Oct</th>
+                            <th>Nov</th>
+                            <th>Dec</th>
+                            <th>Q3</th>
+                            <th>Jan</th>
+                            <th>Feb</th>
+                            <th>Mar</th>
+                            <th>Q4</th>
+                            <th>Total</th>
+                            <th class="text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="targets-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-body">
+            <div class="row align-items-center">
+                <div class="col-md-3">
+                    <div class="summary-box">
+                        <div class="summary-label">Total HQs</div>
+                        <div class="summary-value" id="total-hqs">0</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="summary-box">
+                        <div class="summary-label">Total Target (Lakhs)</div>
+                        <div class="summary-value" id="grand-total">0.00</div>
+                    </div>
+                </div>
+                <div class="col-md-6 text-right">
+                    <button class="btn btn-secondary" type="button" id="reset-btn">
+                        <i class="fa fa-undo"></i> Reset
+                    </button>
+                    <button class="btn btn-primary" type="button" id="save-btn">
+                        <i class="fa fa-save"></i> Save Sales Target
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .sales-target-page {
+        animation: fadeIn 0.3s ease;
+    }
+
+    .sales-target-page .card {
+        border-radius: 16px;
+    }
+
+    .sales-target-page .card-header {
+        background: #fff;
+        border-bottom: 1px solid var(--color-border);
+    }
+
+    .sales-target-page .table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: var(--color-bg);
+        white-space: nowrap;
+    }
+
+    .sales-target-page .table td {
+        vertical-align: middle;
+        min-width: 92px;
+    }
+
+    .sales-target-page .table tbody tr {
+        transition: all 0.2s ease;
+    }
+
+    .sales-target-page .table tbody tr:hover {
+        transform: translateX(2px);
+    }
+
+    .sales-target-page .table td.col-hq {
+        min-width: 260px;
+    }
+
+    .sales-target-page .hq-cell-wrap {
+        position: relative;
+    }
+
+    .sales-target-page .month-input,
+    .sales-target-page .calc-input {
+        min-width: 78px;
+        text-align: right;
+    }
+
+    .sales-target-page .calc-input {
+        background: #f8f9fa;
+        font-weight: 600;
+    }
+
+    .sales-target-page .summary-box {
+        background: #f8fbff;
+        border: 1px solid #dbe7f3;
+        border-radius: 8px;
+        padding: 10px 12px;
+    }
+
+    .sales-target-page .summary-label {
+        color: #637282;
+        font-size: 12px;
+    }
+
+    .sales-target-page .summary-value {
+        color: #2c3e50;
+        font-size: 20px;
+        font-weight: 700;
+    }
+
+    .sales-target-page #save-btn,
+    .sales-target-page #add-row-btn {
+        box-shadow: var(--shadow-sm);
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/scanify/js/sales-targets.js"></script>
+{% endblock %}

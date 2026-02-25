@@ -1,0 +1,284 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}New Scheme Request{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page scheme-new-page">
+    <div class="page-header d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="page-title"><i class="fa fa-plus-circle"></i> New Scheme Request</h1>
+            <p class="page-subtitle text-muted">Create a scheme request for <strong>{{ division }}</strong> division</p>
+        </div>
+        <a href="/portal/scheme-list" class="btn btn-outline-secondary">
+            <i class="fa fa-arrow-left"></i> Back to List
+        </a>
+    </div>
+
+    <!-- Monthly Limit Info Banner -->
+    <div id="limitBanner" class="alert d-none mb-3"></div>
+
+    <form id="schemeForm" autocomplete="off">
+        <!-- Section 1: Request Details -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-primary text-white py-2 px-4">
+                <i class="fa fa-info-circle"></i> <strong>Request Information</strong>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label class="form-label"><strong>Application Date <span
+                                        class="text-danger">*</span></strong></label>
+                            <input type="date" id="applicationDate" class="form-control" required>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label class="form-label"><strong>Division</strong></label>
+                            <input type="text" class="form-control bg-light" value="{{ division }}" readonly>
+                            <input type="hidden" id="division" value="{{ division }}">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label class="form-label"><strong>Requested By</strong></label>
+                            <input type="text" class="form-control bg-light" value="{{ frappe.session.user }}" readonly>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 2: Doctor Details -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-success text-white py-2 px-4">
+                <i class="fa fa-user-md"></i> <strong>Doctor Details</strong>
+            </div>
+            <div class="card-body">
+                <!-- Doctor Search -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label class="form-label"><strong>Search Doctor <span
+                                        class="text-danger">*</span></strong></label>
+                            <div class="position-relative">
+                                <div class="input-group">
+                                    <div class="input-group-prepend">
+                                        <span class="input-group-text bg-white"><i
+                                                class="fa fa-search text-muted"></i></span>
+                                    </div>
+                                    <input type="text" id="doctorSearch" class="form-control"
+                                        placeholder="Type doctor name, place, or code (min 2 chars)..."
+                                        autocomplete="off">
+                                </div>
+                                <div id="doctorResults" class="dropdown-menu w-100 shadow-sm"
+                                    style="max-height:300px;overflow-y:auto;display:none; z-index:1055;">
+                                </div>
+                            </div>
+                            <input type="hidden" id="doctorCode" required>
+                        </div>
+                    </div>
+                    <div class="col-md-6" id="doctorInfoPanel" style="display:none;">
+                        <div class="alert alert-info py-2 px-3 mb-0">
+                            <div id="doctorInfoContent"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Doctor Fields (auto-filled) -->
+                <div class="row" id="doctorFieldsRow" style="display:none;">
+                    <div class="col-md-3">
+                        <div class="form-group">
+                            <label class="form-label text-muted">Doctor Name</label>
+                            <input type="text" id="doctorName" class="form-control bg-light" readonly>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-group">
+                            <label class="form-label text-muted">Place</label>
+                            <input type="text" id="doctorPlace" class="form-control bg-light" readonly>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-group">
+                            <label class="form-label text-muted">Specialization</label>
+                            <input type="text" id="doctorSpecialization" class="form-control bg-light" readonly>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label class="form-label text-muted">Hospital/Clinic</label>
+                            <input type="text" id="doctorHospital" class="form-control bg-light" readonly>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Monthly limit info for selected doctor -->
+                <div id="doctorLimitInfo" class="mt-2" style="display:none;">
+                    <span class="badge badge-info" id="limitBadgeText"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 3: HQ & Stockist Selection -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-info text-white py-2 px-4">
+                <i class="fa fa-building"></i> <strong>HQ &amp; Stockist</strong>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label class="form-label"><strong>HQ <span class="text-danger">*</span></strong></label>
+                            <select id="hqSelect" class="form-control" required>
+                                <option value="">-- Select HQ --</option>
+                            </select>
+                            <small class="text-muted">Stockists will be filtered by HQ</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label class="form-label"><strong>Stockist <span
+                                        class="text-danger">*</span></strong></label>
+                            <select id="stockistSelect" class="form-control" required>
+                                <option value="">-- Select HQ first --</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label class="form-label"><strong>Scheme Notes</strong></label>
+                            <textarea id="schemeNotes" class="form-control" rows="2"
+                                placeholder="Optional reason/notes..."></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 4: Products -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header py-2 px-4 d-flex justify-content-between align-items-center">
+                <div><i class="fa fa-cubes"></i> <strong>Products &amp; Quantities</strong></div>
+                <button type="button" class="btn btn-sm btn-success" onclick="addItemRow()">
+                    <i class="fa fa-plus"></i> Add Product
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-bordered mb-0" id="itemsTable">
+                        <thead class="bg-light">
+                            <tr>
+                                <th style="min-width:220px;">Product <span class="text-danger">*</span></th>
+                                <th style="min-width:80px;">Pack</th>
+                                <th style="min-width:90px;">Order Qty <span class="text-danger">*</span></th>
+                                <th style="min-width:80px;">Free Qty</th>
+                                <th style="min-width:90px;">Rate (PTS)</th>
+                                <th style="min-width:90px;">Special Rate</th>
+                                <th style="min-width:80px;">Scheme %</th>
+                                <th style="min-width:100px;">Value (₹)</th>
+                                <th style="min-width:50px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="itemsTbody"></tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="7" class="text-right"><strong>Total Scheme Value:</strong></td>
+                                <td><strong id="totalValue">₹ 0.00</strong></td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 5: Attachments -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header py-2 px-4">
+                <i class="fa fa-paperclip"></i> <strong>Supporting Documents (Optional)</strong>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="form-group">
+                            <label class="form-label">Order Copy</label>
+                            <input type="file" class="form-control-file" id="attachment1" accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-group">
+                            <label class="form-label">Supply Proof</label>
+                            <input type="file" class="form-control-file" id="attachment2" accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-group">
+                            <label class="form-label">Additional Document 1</label>
+                            <input type="file" class="form-control-file" id="attachment3" accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-group">
+                            <label class="form-label">Additional Document 2</label>
+                            <input type="file" class="form-control-file" id="attachment4" accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Submit -->
+        <div class="d-flex justify-content-end gap-2 mb-4">
+            <a href="/portal/scheme-list" class="btn btn-outline-secondary">
+                <i class="fa fa-times"></i> Cancel
+            </a>
+            <button type="submit" class="btn btn-primary btn-lg px-5" id="submitBtn">
+                <i class="fa fa-save"></i> Submit Scheme Request
+            </button>
+        </div>
+    </form>
+</div>
+
+<style>
+    .scheme-new-page .card-header {
+        font-size: 14px;
+    }
+
+    .scheme-new-page .table th {
+        font-size: 12px;
+        text-transform: uppercase;
+        color: #555;
+    }
+
+    .scheme-new-page .table td input {
+        font-size: 13px;
+    }
+
+    .scheme-new-page .table td select {
+        font-size: 13px;
+    }
+
+    .scheme-new-page .product-select {
+        min-width: 180px;
+    }
+
+    .scheme-new-page .doctor-result-item {
+        padding: 8px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .scheme-new-page .doctor-result-item:hover {
+        background: #f8f9fa;
+    }
+
+    .gap-2 {
+        gap: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/scanify/js/scheme-new.js"></script>
+{% endblock %}

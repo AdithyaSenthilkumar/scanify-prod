@@ -1,75 +1,78 @@
 {
- "actions": [],
- "allow_rename": 1,
- "autoname": "field:region_name",
- "creation": "2025-11-28 22:00:00.000000",
- "doctype": "DocType",
- "custom": 1,
- "engine": "InnoDB",
- "field_order": [
-  "region_name",
-  "zone",
-  "state",
-  "status"
- ],
- "fields": [
-  {
-   "fieldname": "region_name",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Region Name",
-   "reqd": 1,
-   "unique": 1
-  },
-  {
-   "fieldname": "zone",
-   "fieldtype": "Data",
-   "label": "Zone"
-  },
-  {
-   "default": "Maharashtra",
-   "fieldname": "state",
-   "fieldtype": "Data",
-   "label": "State"
-  },
-          {
-   "fieldname": "division",
-   "fieldtype": "Link",
-   "label": "Division",
-   "options": "Division"
-  },
-  {
-   "default": "Active",
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "label": "Status",
-   "options": "Active\nInactive"
-  }
- ],
- "index_web_pages_for_search": 1,
- "links": [],
- "modified": "2025-11-28 22:00:00.000000",
- "modified_by": "Administrator",
- "module": "Scanify",
- "name": "Region Master",
- "naming_rule": "By fieldname",
- "owner": "Administrator",
- "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
-  }
- ],
- "sort_field": "modified",
- "sort_order": "DESC",
- "states": [],
- "track_changes": 1
+        "actions": [],
+        "allow_rename": 1,
+        "autoname": "format:{region_name}-{division}",
+        "creation": "2025-11-28 22:00:00.000000",
+        "doctype": "DocType",
+        "custom": 1,
+        "engine": "InnoDB",
+        "title_field": "region_name",
+        "field_order": [
+                "region_name",
+                "division",
+                "zone",
+                "state",
+                "status"
+        ],
+        "fields": [
+                {
+                        "fieldname": "region_name",
+                        "fieldtype": "Data",
+                        "in_list_view": 1,
+                        "label": "Region Name",
+                        "reqd": 1
+                },
+                {
+                        "fieldname": "division",
+                        "fieldtype": "Link",
+                        "label": "Division",
+                        "options": "Division",
+                        "reqd": 1,
+                        "in_list_view": 1
+                },
+                {
+                        "fieldname": "zone",
+                        "fieldtype": "Data",
+                        "label": "Zone"
+                },
+                {
+                        "default": "Maharashtra",
+                        "fieldname": "state",
+                        "fieldtype": "Data",
+                        "label": "State"
+                },
+                {
+                        "default": "Active",
+                        "fieldname": "status",
+                        "fieldtype": "Select",
+                        "label": "Status",
+                        "options": "Active\nInactive"
+                }
+        ],
+        "index_web_pages_for_search": 1,
+        "links": [],
+        "modified": "2026-02-25 04:37:00.000000",
+        "modified_by": "Administrator",
+        "module": "Scanify",
+        "name": "Region Master",
+        "naming_rule": "Expression",
+        "owner": "Administrator",
+        "permissions": [
+                {
+                        "create": 1,
+                        "delete": 1,
+                        "email": 1,
+                        "export": 1,
+                        "print": 1,
+                        "read": 1,
+                        "report": 1,
+                        "role": "System Manager",
+                        "share": 1,
+                        "write": 1
+                }
+        ],
+        "sort_field": "modified",
+        "sort_order": "DESC",
+        "states": [],
+        "track_changes": 1
 }

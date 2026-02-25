@@ -1,0 +1,960 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Statement View{% endblock %}
+
+{% block portal_content %}
+<div class="sv-page">
+
+    <!-- Page Header -->
+    <div class="sv-header">
+        <div>
+            <h1 class="page-title" id="sv-page-title">
+                <i class="fa fa-file-invoice"></i> Statement Details
+            </h1>
+            <p class="page-subtitle" id="sv-page-sub">Loading…</p>
+        </div>
+        <div class="sv-header-actions">
+            <a href="/portal/stock-statements-list" class="btn btn-secondary btn-sm">
+                <i class="fa fa-arrow-left"></i> Back to List
+            </a>
+        </div>
+    </div>
+
+    <!-- Loading state -->
+    <div id="sv-loading" class="sv-loading-card">
+        <div class="sv-spin"><i class="fa fa-spinner fa-spin fa-2x text-muted"></i></div>
+        <p class="text-muted mt-3">Loading statement data…</p>
+    </div>
+
+    <!-- Error state -->
+    <div id="sv-error" style="display:none;" class="alert alert-danger">
+        <i class="fa fa-exclamation-circle"></i> <span id="sv-error-msg"></span>
+    </div>
+
+    <!-- Main content (hidden until loaded) -->
+    <div id="sv-content" style="display:none;">
+
+        <!-- Info + Actions Bar -->
+        <div class="card sv-info-bar">
+            <div class="card-body">
+                <div class="sv-info-top">
+                    <!-- Left: stockist info -->
+                    <div class="sv-info-left">
+                        <div class="sv-info-grid">
+                            <div class="sv-info-item">
+                                <label>Stockist</label>
+                                <span id="sv-stockist"></span>
+                            </div>
+                            <div class="sv-info-item">
+                                <label>Month</label>
+                                <span id="sv-month"></span>
+                            </div>
+                            <div class="sv-info-item">
+                                <label>HQ</label>
+                                <span id="sv-hq">—</span>
+                            </div>
+                            <div class="sv-info-item">
+                                <label>Team</label>
+                                <span id="sv-team">—</span>
+                            </div>
+                            <div class="sv-info-item">
+                                <label>Status</label>
+                                <span id="sv-status-badge"></span>
+                            </div>
+                            <div class="sv-info-item">
+                                <label>Statement Status</label>
+                                <span id="sv-docstatus"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Right: Actions -->
+                    <div class="sv-info-right" id="sv-actions-bar">
+                        <button class="btn btn-outline-primary btn-sm" onclick="sv_open_full_table()">
+                            <i class="fa fa-table"></i> Full Table
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="sv_open_qc()">
+                            <i class="fa fa-clipboard-check"></i> QC Screen
+                        </button>
+                        <!-- Only shown for draft (not yet submitted) statements -->
+                        <button class="btn btn-success btn-sm" id="sv-submit-btn" onclick="sv_submit_statement(this)"
+                            style="display:none;">
+                            <i class="fa fa-paper-plane"></i> Submit &amp; Finalise
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stat cards -->
+        <div class="sv-stats-row">
+            <div class="sv-stat-card sv-stat-blue">
+                <div class="sv-stat-inner">
+                    <div class="sv-stat-icon"><i class="fa fa-box"></i></div>
+                    <div>
+                        <div class="sv-stat-value" id="sv-total-products">0</div>
+                        <div class="sv-stat-label">Products</div>
+                    </div>
+                </div>
+            </div>
+            <div class="sv-stat-card sv-stat-indigo">
+                <div class="sv-stat-inner">
+                    <div class="sv-stat-icon"><i class="fa fa-cubes"></i></div>
+                    <div>
+                        <div class="sv-stat-value" id="sv-open-val">0</div>
+                        <div class="sv-stat-label">Opening Value</div>
+                    </div>
+                </div>
+            </div>
+            <div class="sv-stat-card sv-stat-green">
+                <div class="sv-stat-inner">
+                    <div class="sv-stat-icon"><i class="fa fa-shopping-cart"></i></div>
+                    <div>
+                        <div class="sv-stat-value" id="sv-sales-val">0</div>
+                        <div class="sv-stat-label">Sales Value (PTS)</div>
+                    </div>
+                </div>
+            </div>
+            <div class="sv-stat-card sv-stat-purple">
+                <div class="sv-stat-inner">
+                    <div class="sv-stat-icon"><i class="fa fa-warehouse"></i></div>
+                    <div>
+                        <div class="sv-stat-value" id="sv-close-val">0</div>
+                        <div class="sv-stat-label">Closing Value</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preview Table -->
+        <div class="card">
+            <div class="card-header">
+                <span><i class="fa fa-list"></i> Statement Items</span>
+                <small class="text-muted" id="sv-item-count"></small>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                    <table class="table table-hover mb-0 sv-preview-table">
+                        <thead class="sv-table-head">
+                            <tr>
+                                <th>Code</th>
+                                <th>Product Name</th>
+                                <th>Pack</th>
+                                <th class="text-right sv-prev-col">Prev Cls</th>
+                                <th class="text-right">Opening</th>
+                                <th class="text-right">Purchase</th>
+                                <th class="text-right">Sales</th>
+                                <th class="text-right">Free</th>
+                                <th class="text-right">Closing</th>
+                                <th class="text-right">Cls Val</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sv-preview-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Totals Section -->
+        <div class="card sv-totals-card" id="sv-totals-section" style="display:none;">
+            <div class="card-header">
+                <span><i class="fa fa-calculator"></i> Statement Totals</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="sv-totals-grid">
+                    <div class="sv-total-item sv-total-indigo">
+                        <div class="sv-total-label"><i class="fa fa-cubes"></i> Total Opening Value</div>
+                        <div class="sv-total-value" id="svt-opening">₹0.00</div>
+                    </div>
+                    <div class="sv-total-item sv-total-blue">
+                        <div class="sv-total-label"><i class="fa fa-truck"></i> Total Purchase Value</div>
+                        <div class="sv-total-value" id="svt-purchase">₹0.00</div>
+                    </div>
+                    <div class="sv-total-item sv-total-orange">
+                        <div class="sv-total-label"><i class="fa fa-shopping-cart"></i> Total Sales Value (PTR)</div>
+                        <div class="sv-total-value" id="svt-sales-ptr">₹0.00</div>
+                    </div>
+                    <div class="sv-total-item sv-total-green">
+                        <div class="sv-total-label"><i class="fa fa-shopping-bag"></i> Total Sales Value (PTS)</div>
+                        <div class="sv-total-value" id="svt-sales-pts">₹0.00</div>
+                    </div>
+                    <div class="sv-total-item sv-total-purple">
+                        <div class="sv-total-label"><i class="fa fa-warehouse"></i> Total Closing Value</div>
+                        <div class="sv-total-value" id="svt-closing">₹0.00</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /sv-content -->
+</div><!-- /sv-page -->
+
+<!-- ================== FULL TABLE MODAL ================== -->
+<div class="modal fade" id="sv-full-modal" tabindex="-1">
+    <div class="modal-dialog ss-modal-fs">
+        <div class="modal-content ss-modal-content-fs">
+            <div class="ss-modal-header">
+                <h5><i class="fa fa-table"></i> Complete Statement</h5>
+                <button class="ss-modal-close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="ss-modal-body-fs">
+                <table class="table table-bordered table-sm ss-full-table" id="sv-full-table">
+                    <thead class="ss-full-thead">
+                        <tr>
+                            <th>Code</th>
+                            <th>Name</th>
+                            <th>Pack</th>
+                            <th>PTS</th>
+                            <th>Conv</th>
+                            <th>Prev Cls</th>
+                            <th>Opening</th>
+                            <th>Purchase</th>
+                            <th>Sales</th>
+                            <th>Free</th>
+                            <th>Free(Sch)</th>
+                            <th>Return</th>
+                            <th>Sch Ded</th>
+                            <th>Closing</th>
+                            <th>Misc Out</th>
+                            <th>Open Val</th>
+                            <th>Purch Val</th>
+                            <th>Sales(PTS)</th>
+                            <th>Sales(PTR)</th>
+                            <th>Cls Val</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sv-full-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================== QC MODAL ================== -->
+<div class="modal fade" id="sv-qc-modal" tabindex="-1">
+    <div class="modal-dialog ss-modal-fs">
+        <div class="modal-content ss-modal-content-fs">
+            <div class="ss-modal-header">
+                <h5><i class="fa fa-clipboard-check"></i> QC Screen</h5>
+                <button class="ss-modal-close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="ss-qc-body">
+                <div class="ss-qc-left">
+                    <div class="ss-qc-panel-header">
+                        <h6><i class="fa fa-file-pdf"></i> Original Statement</h6>
+                        <div class="ss-zoom-btns">
+                            <button class="btn btn-sm btn-light" onclick="sv_zoom_in()"><i
+                                    class="fa fa-search-plus"></i></button>
+                            <button class="btn btn-sm btn-light" onclick="sv_zoom_out()"><i
+                                    class="fa fa-search-minus"></i></button>
+                            <button class="btn btn-sm btn-light" onclick="sv_reset_zoom()"><i
+                                    class="fa fa-sync"></i></button>
+                        </div>
+                    </div>
+                    <div class="ss-doc-viewer" id="sv-doc-viewer">
+                        <iframe id="sv-pdf-viewer" style="display:none;width:100%;height:100%;border:none;"></iframe>
+                        <img id="sv-img-viewer" style="display:none;max-width:100%;">
+                    </div>
+                </div>
+                <div class="ss-qc-right">
+                    <div class="ss-qc-panel-header">
+                        <h6><i class="fa fa-database"></i> Extracted Data</h6>
+                    </div>
+                    <div class="ss-qc-table-wrap">
+                        <table class="table table-bordered table-sm ss-qc-table" id="sv-qc-table">
+                            <thead class="ss-full-thead">
+                                <tr>
+                                    <th>Code</th>
+                                    <th>Name</th>
+                                    <th>Opening</th>
+                                    <th>Purchase</th>
+                                    <th>Sales</th>
+                                    <th>Free</th>
+                                    <th>Closing</th>
+                                    <th>Cls Val</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sv-qc-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .sv-page {
+        padding: 0;
+    }
+
+    .sv-totals-card {
+        margin-top: 1.25rem;
+    }
+
+    .sv-totals-grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 0;
+    }
+
+    @media(max-width: 992px) {
+        .sv-totals-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @media(max-width: 576px) {
+        .sv-totals-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .sv-total-item {
+        padding: 1rem 1.25rem;
+        border-right: 1px solid #e2e8f0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .sv-total-item:last-child {
+        border-right: none;
+    }
+
+    .sv-total-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .sv-total-value {
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #1e293b;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .sv-total-indigo .sv-total-label {
+        color: #4f46e5;
+    }
+
+    .sv-total-indigo .sv-total-value {
+        color: #4f46e5;
+    }
+
+    .sv-total-blue .sv-total-label {
+        color: #2563eb;
+    }
+
+    .sv-total-blue .sv-total-value {
+        color: #2563eb;
+    }
+
+    .sv-total-orange .sv-total-label {
+        color: #d97706;
+    }
+
+    .sv-total-orange .sv-total-value {
+        color: #d97706;
+    }
+
+    .sv-total-green .sv-total-label {
+        color: #059669;
+    }
+
+    .sv-total-green .sv-total-value {
+        color: #059669;
+    }
+
+    .sv-total-purple .sv-total-label {
+        color: #7c3aed;
+    }
+
+    .sv-total-purple .sv-total-value {
+        color: #7c3aed;
+    }
+
+    .sv-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1.5rem;
+    }
+
+    .sv-header-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .sv-loading-card {
+        text-align: center;
+        padding: 4rem;
+        background: white;
+        border-radius: 14px;
+        border: 1px solid #e2e8f0;
+    }
+
+    .sv-info-bar {
+        margin-bottom: 1rem;
+    }
+
+    .sv-info-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .sv-info-left {
+        flex: 1;
+    }
+
+    .sv-info-right {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        padding-top: 4px;
+    }
+
+    .sv-info-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px 24px;
+    }
+
+    @media(max-width: 768px) {
+        .sv-info-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    .sv-info-item {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .sv-info-item label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 2px;
+    }
+
+    .sv-info-item span {
+        font-size: 13px;
+        font-weight: 600;
+        color: #1e293b;
+    }
+
+    .sv-stats-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-bottom: 1.25rem;
+    }
+
+    @media(max-width: 768px) {
+        .sv-stats-row {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    .sv-stat-card {
+        background: white;
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    }
+
+    .sv-stat-inner {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .sv-stat-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    .sv-stat-blue .sv-stat-icon {
+        background: #dbeafe;
+        color: #2563eb;
+    }
+
+    .sv-stat-indigo .sv-stat-icon {
+        background: #e0e7ff;
+        color: #4f46e5;
+    }
+
+    .sv-stat-green .sv-stat-icon {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .sv-stat-purple .sv-stat-icon {
+        background: #ede9fe;
+        color: #7c3aed;
+    }
+
+    .sv-stat-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #1e293b;
+        line-height: 1;
+    }
+
+    .sv-stat-label {
+        font-size: 11px;
+        color: #64748b;
+        margin-top: 2px;
+    }
+
+    .sv-table-head th {
+        background: #1e293b;
+        color: white;
+        font-size: 11px;
+        white-space: nowrap;
+    }
+
+    .sv-preview-table td {
+        font-size: 12px;
+    }
+
+
+    /* All shared .ss-* styles are fully defined below */
+    .ss-modal-fs {
+        width: 100vw;
+        max-width: 100vw;
+        margin: 0;
+        height: 100vh;
+    }
+
+    .ss-modal-content-fs {
+        height: 100vh;
+        border-radius: 0;
+        border: none;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .ss-modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #e2e8f0;
+        background: #1e293b;
+        color: white;
+        flex-shrink: 0;
+    }
+
+    .ss-modal-header h5 {
+        margin: 0;
+        font-size: 1rem;
+        color: white;
+    }
+
+    .ss-modal-close {
+        background: none;
+        border: none;
+        color: white;
+        font-size: 1.5rem;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0 4px;
+    }
+
+    .ss-modal-body-fs {
+        flex: 1;
+        overflow: auto;
+        padding: 0;
+    }
+
+    .ss-full-table {
+        font-size: 11px;
+        width: max-content;
+        min-width: 100%;
+    }
+
+    .ss-full-thead th {
+        background: #1e293b;
+        color: white;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        padding: 8px 10px;
+        white-space: nowrap;
+        border: 1px solid #334155;
+    }
+
+    .ss-full-tfoot tr td {
+        position: sticky;
+        bottom: 0;
+        background: #d1fae5 !important;
+        font-weight: 700;
+        z-index: 5;
+    }
+
+    .ss-qc-body {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .ss-qc-left {
+        width: 45%;
+        flex-shrink: 0;
+        border-right: 1px solid #e2e8f0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .ss-qc-right {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .ss-qc-panel-header {
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #e2e8f0;
+        background: #f8fafc;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+
+    .ss-qc-panel-header h6 {
+        margin: 0;
+        font-weight: 700;
+        color: #1e293b;
+        font-size: 13px;
+    }
+
+    .ss-zoom-btns {
+        display: flex;
+        gap: 4px;
+    }
+
+    .ss-doc-viewer {
+        flex: 1;
+        overflow: auto;
+        background: #f1f5f9;
+    }
+
+    .ss-qc-table-wrap {
+        flex: 1;
+        overflow: auto;
+    }
+
+    .ss-qc-table {
+        font-size: 11px;
+    }
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const DOC_NAME = {{ doc_name | tojson }};
+    let sv_items = [];
+    let sv_doc = {};
+    let sv_zoom = 1;
+
+    function sv_fmt(v, currency) {
+        const n = parseFloat(v || 0);
+        if (isNaN(n)) return '0.00';
+        if (currency) return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return n.toFixed(2);
+    }
+
+    function sv_escape(s) {
+        return String(s || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
+    }
+
+    function get_csrf() {
+        return window.csrftoken || window.csrf_token || (window.frappe && frappe.csrf_token) || '';
+    }
+
+    function sv_call(method, args) {
+        return new Promise((resolve, reject) => {
+            $.ajax({
+                url: '/api/method/' + method,
+                type: 'POST',
+                contentType: 'application/json',
+                headers: { 'X-Frappe-CSRF-Token': get_csrf() },
+                data: JSON.stringify(args || {}),
+                success: r => resolve(r.message),
+                error: xhr => reject(new Error((xhr.responseJSON && xhr.responseJSON.message) || 'API error'))
+            });
+        });
+    }
+
+    $(document).ready(async function () {
+        try {
+            const result = await sv_call('scanify.api.get_statement_for_view', { doc_name: DOC_NAME });
+
+            if (!result || !result.success) {
+                throw new Error((result && result.message) || 'Failed to load statement');
+            }
+
+            sv_doc = result.doc;
+            sv_items = result.items || [];
+
+            // Fetch previous month closing and merge into items
+            await sv_load_prev_closing();
+
+            render_sv_page();
+
+        } catch (e) {
+            $('#sv-loading').hide();
+            $('#sv-error').show();
+            $('#sv-error-msg').text(e.message || 'Unknown error loading statement');
+        }
+    });
+
+    // Build a map of product_code → prev_closing_qty from last month's submitted statement
+    async function sv_load_prev_closing() {
+        if (!sv_doc.stockist_code || !sv_doc.statement_month) return;
+        try {
+            const prev = await sv_call('scanify.api.fetch_previous_month_closing', {
+                stockist_code: sv_doc.stockist_code,
+                current_month: sv_doc.statement_month
+            });
+            if (prev && prev.length) {
+                const prevMap = {};
+                prev.forEach(p => { prevMap[p.product_code] = p.closing_qty || 0; });
+                sv_items.forEach(item => {
+                    item.prev_closing_qty = prevMap[item.productcode] || 0;
+                });
+            }
+        } catch (e) {
+            // Non-critical — silently skip if prev month data unavailable
+            console.warn('Could not load previous month closing:', e.message);
+        }
+    }
+
+    function sv_calc_totals() {
+        let t_open = 0, t_purch = 0, t_sales_ptr = 0, t_sales_pts = 0, t_close = 0;
+        sv_items.forEach(r => {
+            t_open += parseFloat(r.openingvalue || 0);
+            t_purch += parseFloat(r.purchasevalue || 0);
+            t_sales_ptr += parseFloat(r.salesvalueptr || 0);
+            t_sales_pts += parseFloat(r.salesvaluepts || 0);
+            t_close += parseFloat(r.closingvalue || 0);
+        });
+        return { t_open, t_purch, t_sales_ptr, t_sales_pts, t_close };
+    }
+
+    function sv_refresh_totals() {
+        const t = sv_calc_totals();
+        $('#svt-opening').text('₹' + sv_fmt(t.t_open, true));
+        $('#svt-purchase').text('₹' + sv_fmt(t.t_purch, true));
+        $('#svt-sales-ptr').text('₹' + sv_fmt(t.t_sales_ptr, true));
+        $('#svt-sales-pts').text('₹' + sv_fmt(t.t_sales_pts, true));
+        $('#svt-closing').text('₹' + sv_fmt(t.t_close, true));
+        $('#sv-totals-section').show();
+    }
+
+    function render_sv_page() {
+        // Update page title
+        const monthStr = sv_doc.statement_month ? sv_doc.statement_month.substring(0, 7) : '';
+        document.title = `${sv_doc.stockist_name || sv_doc.stockist_code} — ${monthStr}`;
+        $('#sv-page-title').html('<i class="fa fa-file-invoice"></i> ' + sv_escape(sv_doc.stockist_name || sv_doc.stockist_code));
+        $('#sv-page-sub').text(`Statement for ${monthStr}`);
+
+        // Info bar
+        $('#sv-stockist').text(`${sv_doc.stockist_code} — ${sv_doc.stockist_name || ''}`);
+        const [y, m] = (sv_doc.statement_month || '').split('-');
+        const monthLabel = m && y ? new Date(y, m - 1).toLocaleString('default', { month: 'long', year: 'numeric' }) : sv_doc.statement_month;
+        $('#sv-month').text(monthLabel);
+        $('#sv-hq').text(sv_doc.hq || '—');
+        $('#sv-team').text(sv_doc.team || '—');
+
+        // Extraction status badge
+        const statusColors = { Completed: 'success', Failed: 'danger', 'In Progress': 'info', Pending: 'secondary' };
+        const statusStr = sv_doc.extracted_data_status || 'Unknown';
+        const badgeColor = statusColors[statusStr] || 'secondary';
+        $('#sv-status-badge').html(`<span class="badge badge-${badgeColor}">${sv_escape(statusStr)}</span>`);
+
+        // Statement status (docstatus)
+        const docstatusLabels = {
+            0: '<span class="badge badge-warning"><i class="fa fa-pencil-alt"></i> Draft</span>',
+            1: '<span class="badge badge-success"><i class="fa fa-lock"></i> Submitted</span>',
+            2: '<span class="badge badge-danger"><i class="fa fa-ban"></i> Cancelled</span>'
+        };
+        $('#sv-docstatus').html(docstatusLabels[sv_doc.docstatus] || `<span class="badge badge-secondary">${sv_doc.docstatus}</span>`);
+
+        // Show Submit button only for draft statements with completed extraction
+        if (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed') {
+            $('#sv-submit-btn').show();
+        }
+
+        // Stat cards
+        $('#sv-total-products').text(sv_items.length);
+        $('#sv-open-val').text('₹' + sv_fmt(sv_doc.total_opening_value, true));
+        $('#sv-sales-val').text('₹' + sv_fmt(sv_doc.total_sales_value_pts, true));
+        $('#sv-close-val').text('₹' + sv_fmt(sv_doc.total_closing_value, true));
+
+        // Preview table — includes Prev Cls column
+        const $tbody = $('#sv-preview-tbody');
+        $tbody.empty();
+        sv_items.forEach(row => {
+            const prevCls = row.prev_closing_qty != null ? sv_fmt(row.prev_closing_qty) : '—';
+            const prevClass = row.prev_closing_qty != null && parseFloat(row.openingqty) !== parseFloat(row.prev_closing_qty)
+                ? 'text-right text-warning' : 'text-right text-muted';
+            $tbody.append(`<tr>
+      <td><strong>${sv_escape(row.productcode)}</strong></td>
+      <td>${sv_escape(row.productname || '')}</td>
+      <td>${sv_escape(row.pack || '')}</td>
+      <td class="${prevClass}">${prevCls}</td>
+      <td class="text-right">${sv_fmt(row.openingqty)}</td>
+      <td class="text-right">${sv_fmt(row.purchaseqty)}</td>
+      <td class="text-right">${sv_fmt(row.salesqty)}</td>
+      <td class="text-right">${sv_fmt(row.freeqty)}</td>
+      <td class="text-right">${sv_fmt(row.closingqty)}</td>
+      <td class="text-right">${sv_fmt(row.closingvalue)}</td>
+    </tr>`);
+        });
+        $('#sv-item-count').text(`${sv_items.length} products`);
+
+        // Totals section
+        sv_refresh_totals();
+
+        // Show content
+        $('#sv-loading').hide();
+        $('#sv-content').show();
+    }
+
+    // ---- Submit & Finalise (for draft statements) ----
+    window.sv_submit_statement = function (btn) {
+        const $btn = $(btn);
+        if (!confirm('Submit this statement? This action cannot be undone.')) return;
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Submitting…');
+
+        // Pass current sv_items as the data payload (same format as the entry screen)
+        sv_call('scanify.api.save_extracted_statement', {
+            doc_name: DOC_NAME,
+            data: sv_items.map(r => ({
+                productcode: r.productcode,
+                openingqty: r.openingqty,
+                purchaseqty: r.purchaseqty,
+                salesqty: r.salesqty,
+                freeqty: r.freeqty,
+                freeqtyscheme: r.freeqtyscheme || 0,
+                returnqty: r.returnqty || 0,
+                miscoutqty: r.miscoutqty || 0,
+                closingqty: r.closingqty,
+                closingvalue: r.closingvalue
+            }))
+        }).then(r => {
+            if (r && r.success) {
+                $btn.html('<i class="fa fa-check"></i> Submitted');
+                // Update UI to reflect submitted state
+                sv_doc.docstatus = 1;
+                $('#sv-docstatus').html('<span class="badge badge-success"><i class="fa fa-lock"></i> Submitted</span>');
+                $btn.hide();
+                setTimeout(() => { window.location.href = '/portal/stock-statements-list'; }, 1200);
+            } else {
+                $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit & Finalise');
+                alert('Submission failed: ' + ((r && r.message) || 'Unknown error'));
+            }
+        }).catch(e => {
+            $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit & Finalise');
+            alert('Error: ' + e.message);
+        });
+    };
+
+    // ---- Full Table ----
+    window.sv_open_full_table = function () {
+        const $tbody = $('#sv-full-tbody');
+        $tbody.empty();
+
+        const cols = [
+            'productcode', 'productname', 'pack', 'pts', 'conversion_factor', 'prev_closing_qty',
+            'openingqty', 'purchaseqty', 'salesqty', 'freeqty', 'freeqtyscheme',
+            'returnqty', 'schemedeductedqty', 'closingqty', 'miscoutqty',
+            'openingvalue', 'purchasevalue', 'salesvaluepts', 'salesvalueptr', 'closingvalue'
+        ];
+        const currCols = ['pts', 'openingvalue', 'purchasevalue', 'salesvaluepts', 'salesvalueptr', 'closingvalue'];
+        const textCols = ['productcode', 'productname', 'pack'];
+
+        sv_items.forEach(row => {
+            let tr = '<tr>';
+            cols.forEach(c => {
+                const v = row[c];
+                const isText = textCols.includes(c);
+                const isCurr = currCols.includes(c);
+                const display = isText ? sv_escape(v || '') : (isCurr ? sv_fmt(v, true) : (v != null ? sv_fmt(v) : '—'));
+                const align = isText ? '' : 'text-right';
+                tr += `<td class="${align}">${display}</td>`;
+            });
+            tr += '</tr>';
+            $tbody.append(tr);
+        });
+
+        $('#sv-full-modal').modal('show');
+    };
+
+    // ---- QC Screen ----
+    window.sv_open_qc = function () {
+        const $tbody = $('#sv-qc-tbody');
+        $tbody.empty();
+        sv_items.forEach(row => {
+            $tbody.append(`<tr>
+      <td>${sv_escape(row.productcode)}</td>
+      <td>${sv_escape(row.productname || '')}</td>
+      <td class="text-right">${sv_fmt(row.openingqty)}</td>
+      <td class="text-right">${sv_fmt(row.purchaseqty)}</td>
+      <td class="text-right">${sv_fmt(row.salesqty)}</td>
+      <td class="text-right">${sv_fmt(row.freeqty)}</td>
+      <td class="text-right">${sv_fmt(row.closingqty)}</td>
+      <td class="text-right">${sv_fmt(row.closingvalue)}</td>
+    </tr>`);
+        });
+
+        // Show uploaded file
+        const file = sv_doc.uploaded_file;
+        if (file) {
+            const ext = file.split('.').pop().toLowerCase();
+            if (ext === 'pdf') {
+                $('#sv-pdf-viewer').attr('src', file).show();
+                $('#sv-img-viewer').hide();
+            } else if (['jpg', 'jpeg', 'png'].includes(ext)) {
+                $('#sv-img-viewer').attr('src', file).show();
+                $('#sv-pdf-viewer').hide();
+            }
+        }
+
+        $('#sv-qc-modal').modal('show');
+    };
+
+    // Zoom
+    window.sv_zoom_in = function () { sv_zoom = Math.min(sv_zoom + 0.2, 3); sv_apply_zoom(); };
+    window.sv_zoom_out = function () { sv_zoom = Math.max(sv_zoom - 0.2, 0.4); sv_apply_zoom(); };
+    window.sv_reset_zoom = function () { sv_zoom = 1; sv_apply_zoom(); };
+    function sv_apply_zoom() {
+        $('#sv-doc-viewer img, #sv-doc-viewer iframe').css('transform', `scale(${sv_zoom})`);
+    }
+</script>
+{% endblock %}

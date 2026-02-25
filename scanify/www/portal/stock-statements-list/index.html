@@ -1,0 +1,168 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Stockist Statements List{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page">
+    <div class="page-header d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="page-title"><i class="fa fa-file-invoice"></i> Stockist Statements List</h1>
+            <p class="page-subtitle text-muted">View all stockist statements for {{ division }} division</p>
+        </div>
+        <a href="/portal/stock-statements" class="btn btn-primary"><i class="fa fa-plus"></i> New Statement</a>
+    </div>
+
+    <!-- Filters -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body bg-light rounded px-4 py-3 border">
+            <div class="row align-items-center">
+                <div class="col-md-6 mb-3 mb-md-0">
+                    <div class="input-group">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text bg-white"><i class="fa fa-search text-muted"></i></span>
+                        </div>
+                        <input type="text" id="searchInput" class="form-control"
+                            placeholder="Search by Stockist Name or Code...">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <select id="statusFilter" class="form-control custom-select">
+                        <option value="">All Statuses</option>
+                        <option value="Pending">Pending</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Failed">Failed</option>
+                    </select>
+                </div>
+                <div class="col-md-2 text-md-right mt-3 mt-md-0">
+                    <button class="btn btn-outline-secondary w-100" onclick="clearFilters()"><i class="fa fa-times"></i>
+                        Clear</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0 border">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" id="statementsTable">
+                    <thead class="bg-light">
+                        <tr>
+                            <th>Statement ID</th>
+                            <th>Stockist</th>
+                            <th>Month</th>
+                            <th>Created On</th>
+                            <th>Extraction Status</th>
+                            <th>Statement Status</th>
+                            <th class="text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if statements %}
+                        {% for row in statements %}
+                        <tr class="statement-row"
+                            data-stockist="{{ row.stockist_name|lower }} {{ row.stockist_code|lower }}"
+                            data-status="{{ row.extracted_data_status }}">
+                            <td><strong>{{ row.name }}</strong></td>
+                            <td>
+                                <div>{{ row.stockist_name }}</div>
+                                <small class="text-muted">{{ row.stockist_code }}</small>
+                            </td>
+                            <td>{{ frappe.utils.formatdate(row.statement_month, "MM-yyyy") }}</td>
+                            <td>{{ frappe.utils.formatdate(row.creation) }}</td>
+                            <td>
+                                {% if row.extracted_data_status == 'Pending' %}
+                                <span class="badge badge-secondary">{{ row.extracted_data_status }}</span>
+                                {% elif row.extracted_data_status == 'In Progress' %}
+                                <span class="badge badge-info">{{ row.extracted_data_status }}</span>
+                                {% elif row.extracted_data_status == 'Completed' %}
+                                <span class="badge badge-success">{{ row.extracted_data_status }}</span>
+                                {% elif row.extracted_data_status == 'Failed' %}
+                                <span class="badge badge-danger">{{ row.extracted_data_status }}</span>
+                                {% else %}
+                                <span class="badge badge-light border">{{ row.extracted_data_status or "Unknown"
+                                    }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row.docstatus == 0 %}
+                                <span class="badge badge-warning"><i class="fa fa-pencil-alt"></i> Draft</span>
+                                {% elif row.docstatus == 1 %}
+                                <span class="badge badge-success"><i class="fa fa-lock"></i> Submitted</span>
+                                {% else %}
+                                <span class="badge badge-secondary">{{ row.docstatus }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                <a href="/portal/statement-view?name={{ row.name }}"
+                                    class="btn btn-sm btn-primary shadow-sm" title="View Statement">
+                                    <i class="fa fa-eye"></i> View
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr id="emptyRow">
+                            <td colspan="7" class="text-center py-5 text-muted">
+                                <i class="fa fa-folder-open fa-3x mb-3 text-light"></i>
+                                <h5>No stockist statements found for {{ division }}</h5>
+                                <p>Click 'New Statement' to upload one.</p>
+                            </td>
+                        </tr>
+                        {% endif %}
+                        <tr id="noMatchesRow" style="display: none;">
+                            <td colspan="7" class="text-center py-4 text-muted">No statements matching the filters.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const searchInput = document.getElementById("searchInput");
+        const statusFilter = document.getElementById("statusFilter");
+        const rows = document.querySelectorAll(".statement-row");
+        const noMatchesRow = document.getElementById("noMatchesRow");
+
+        function filterTable() {
+            const searchTerm = searchInput.value.toLowerCase();
+            const statusTerm = statusFilter.value;
+            let anyVisible = false;
+
+            rows.forEach(row => {
+                const stockistData = row.getAttribute("data-stockist");
+                const rowStatus = row.getAttribute("data-status");
+
+                const matchesSearch = stockistData.includes(searchTerm);
+                const matchesStatus = statusTerm === "" || rowStatus === statusTerm;
+
+                if (matchesSearch && matchesStatus) {
+                    row.style.display = "";
+                    anyVisible = true;
+                } else {
+                    row.style.display = "none";
+                }
+            });
+
+            if (rows.length > 0) {
+                noMatchesRow.style.display = anyVisible ? "none" : "";
+            }
+        }
+
+        searchInput.addEventListener("input", filterTable);
+        statusFilter.addEventListener("change", filterTable);
+
+        window.clearFilters = function () {
+            searchInput.value = "";
+            statusFilter.value = "";
+            filterTable();
+        };
+    });
+</script>
+{% endblock %}

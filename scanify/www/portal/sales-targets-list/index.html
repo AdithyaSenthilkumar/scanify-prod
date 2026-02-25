@@ -1,0 +1,104 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Sales Targets List{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page sales-target-list-page">
+    <div class="page-header d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="page-title"><i class="fa fa-list-alt"></i> Sales Targets List</h1>
+            <p class="page-subtitle text-muted">HQ-wise target rows for {{ division }} division</p>
+        </div>
+        <a href="/portal/sales-targets" class="btn btn-primary"><i class="fa fa-plus"></i> New Target</a>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0 border">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Target ID</th>
+                            <th>HQ</th>
+                            <th>Team</th>
+                            <th>Financial Year</th>
+                            <th>Yearly Target (Lakhs)</th>
+                            <th>Start Date</th>
+                            <th>End Date</th>
+                            <th>Status</th>
+                            <th>Created On</th>
+                            <th class="text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if target_rows %}
+                        {% for row in target_rows %}
+                        <tr>
+                            <td><strong>{{ row.target_id }}</strong></td>
+                            <td>
+                                <div class="font-weight-600">{{ row.hq_name or row.hq }}</div>
+                                <small class="text-muted">{{ row.hq }}</small>
+                            </td>
+                            <td>{{ row.team or '-' }}</td>
+                            <td>{{ row.financial_year }}</td>
+                            <td class="font-weight-600">{{ "{:,.2f}".format(row.yearly_total or 0) }}</td>
+                            <td>{{ frappe.utils.formatdate(row.start_date) }}</td>
+                            <td>{{ frappe.utils.formatdate(row.end_date) }}</td>
+                            <td>
+                                {% if row.status == 'Draft' %}
+                                <span class="badge badge-warning">{{ row.status }}</span>
+                                {% elif row.status == 'Active' %}
+                                <span class="badge badge-success">{{ row.status }}</span>
+                                {% else %}
+                                <span class="badge badge-secondary">{{ row.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ frappe.utils.formatdate(row.creation) }}</td>
+                            <td class="text-center">
+                                <a href="/app/hq-yearly-target/{{ row.target_id }}" target="_blank"
+                                    class="btn btn-sm btn-outline-primary"
+                                    title="View Target Details in Desk">
+                                    <i class="fa fa-external-link-alt"></i> View details
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="10" class="text-center py-4 text-muted">No sales targets found. Click 'New
+                                Target' to create one.</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .sales-target-list-page {
+        animation: fadeIn 0.3s ease;
+    }
+
+    .sales-target-list-page .table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: var(--color-bg);
+        white-space: nowrap;
+    }
+
+    .sales-target-list-page .table tbody tr {
+        transition: all 0.2s ease;
+    }
+
+    .sales-target-list-page .table tbody tr:hover {
+        transform: translateX(2px);
+    }
+
+    .sales-target-list-page .font-weight-600 {
+        font-weight: 600;
+    }
+</style>
+{% endblock %}
