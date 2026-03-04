@@ -7,13 +7,13 @@ import os
 import base64
 import mimetypes
 from frappe import _
-import google.generativeai as genai
+from google import genai as genai_sdk
+from google.genai import types as genai_types
 from PIL import Image
 import io
 import zipfile
 import tempfile
 import time
-from google.api_core.exceptions import ResourceExhausted
 from frappe.utils import flt, cstr
 from frappe.utils.background_jobs import enqueue
 import re
@@ -131,7 +131,7 @@ def extract_stockist_statement(doc_name, file_url):
     Extract stockist statement data using Gemini AI - ENHANCED WITH PRODUCT CATALOG
     """
     api_key, model_name, is_enabled = get_gemini_settings()
-    genai.configure(api_key=api_key)
+    genai_client = genai_sdk.Client(api_key=api_key)
     
     doc = None
     try:
@@ -159,7 +159,8 @@ def extract_stockist_statement(doc_name, file_url):
             doc.stockist_code,
             product_catalog,
             products_list,
-            model_name
+            model_name,
+            genai_client
         )
         
         if not extracted_data or len(extracted_data) == 0:
@@ -340,14 +341,14 @@ def get_statement_for_view(doc_name):
         return {"success": False, "message": str(e)}
 
 
-def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalog, products_list, model_name=None):
+def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalog, products_list, model_name=None, genai_client=None):
     """
     Enhanced extraction that sends the full product catalog to Gemini
     Gemini does the matching directly using product codes
     """
-    if not model_name:
+    if not genai_client:
         api_key, model_name, is_enabled = get_gemini_settings()
-        genai.configure(api_key=api_key)
+        genai_client = genai_sdk.Client(api_key=api_key)
     
     try:
         # Determine file type
@@ -412,57 +413,68 @@ IMPORTANT:
 """
         
         frappe.logger().info(f"Using Gemini model: {model_name}")
-        model = genai.GenerativeModel(model_name)
-        
+
         # Retry logic for rate limiting
         max_retries = 3
         base_delay = 2
         response = None
-        
+
         for attempt in range(max_retries):
             try:
                 if file_ext in [".pdf", ".jpg", ".jpeg", ".png"]:
                     with open(file_path, "rb") as f:
                         file_data = f.read()
-                    
+
                     if file_ext == ".pdf":
                         import fitz  # PyMuPDF
                         pdf = fitz.open(file_path)
                         page = pdf[0]
-                        pix = page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))  # Higher quality for better extraction
+                        pix = page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))
                         img_data = pix.tobytes("png")
-                        image_part = {"mime_type": "image/png", "data": img_data}
+                        image_part = genai_types.Part.from_bytes(data=img_data, mime_type="image/png")
                     else:
-                        image_part = {"mime_type": mime_type or "image/jpeg", "data": file_data}
-                    
-                    response = model.generate_content([prompt, image_part])
-                
+                        image_part = genai_types.Part.from_bytes(
+                            data=file_data, mime_type=mime_type or "image/jpeg"
+                        )
+
+                    response = genai_client.models.generate_content(
+                        model=model_name,
+                        contents=[prompt, image_part]
+                    )
+
                 elif file_ext in [".csv", ".txt"]:
                     with open(file_path, "r", encoding="utf-8") as f:
                         file_content = f.read()
-                    response = model.generate_content(f"{prompt}\n\nCONTENT:\n{file_content}")
-                
+                    response = genai_client.models.generate_content(
+                        model=model_name,
+                        contents=f"{prompt}\n\nCONTENT:\n{file_content}"
+                    )
+
                 elif file_ext in [".xls", ".xlsx"]:
                     import pandas as pd
                     df = pd.read_excel(file_path)
                     file_content = df.to_string()
-                    response = model.generate_content(f"{prompt}\n\nCONTENT:\n{file_content}")
-                
+                    response = genai_client.models.generate_content(
+                        model=model_name,
+                        contents=f"{prompt}\n\nCONTENT:\n{file_content}"
+                    )
+
                 else:
                     frappe.throw(f"Unsupported file type: {file_ext}")
-                
+
                 break  # Success
-                
-            except ResourceExhausted as e:
-                if attempt == max_retries - 1:
-                    frappe.throw(f"Gemini API rate limit exceeded after {max_retries} retries. Please try again later.")
-                
-                delay = base_delay * (2 ** attempt)
-                frappe.logger().warning(f"Rate limit hit (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
-                time.sleep(delay)
-            
+
             except Exception as e:
-                raise e
+                err_str = str(e).lower()
+                is_rate_limit = "quota" in err_str or "rate" in err_str or "429" in err_str or "resource_exhausted" in err_str
+                if is_rate_limit and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    frappe.logger().warning(f"Rate limit hit (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
+                    time.sleep(delay)
+                elif is_rate_limit:
+                    frappe.throw(f"Gemini API rate limit exceeded after {max_retries} retries. Please try again later.")
+                else:
+                    raise e
         
         # Parse response
         try:
@@ -508,6 +520,218 @@ IMPORTANT:
         frappe.throw(f"Extraction failed: {str(e)}")
 
 
+@frappe.whitelist()
+def map_filenames_to_stockists_via_gemini(filenames):
+    """
+    Use Gemini to map a list of filenames to stockist codes in a single call.
+    Much more accurate than pure fuzzy matching.
+    filenames: JSON string or list of filename strings
+    Returns: dict mapping filename -> stockist_code (or null)
+    """
+    try:
+        if isinstance(filenames, str):
+            filenames = json.loads(filenames)
+
+        if not filenames:
+            return {"success": True, "mapping": {}}
+
+        # Fetch stockist catalog (name + code only to minimize tokens)
+        stockists = frappe.get_all(
+            "Stockist Master",
+            filters={"status": "Active"},
+            fields=["name", "stockist_name"],
+            order_by="stockist_name asc"
+        )
+
+        if not stockists:
+            return {"success": False, "message": "No active stockists found"}
+
+        # Build compact catalog
+        catalog_lines = [f"{s['name']}|{s['stockist_name']}" for s in stockists]
+        catalog_text = "\n".join(catalog_lines)
+
+        filenames_text = "\n".join([f"{i+1}. {f}" for i, f in enumerate(filenames)])
+
+        prompt = f"""You are matching pharmaceutical stockist statement filenames to stockist records.
+
+STOCKIST CATALOG (format: CODE|NAME):
+{catalog_text}
+
+FILENAMES TO MATCH:
+{filenames_text}
+
+TASK: Match each filename to the most likely stockist code from the catalog above.
+- The filename may contain part of the stockist name (possibly misspelled or abbreviated)
+- Ignore date parts, month names, years, numbers, extensions
+- Look for the distinctive name portion
+
+Return a JSON object where keys are the exact filenames and values are the matched stockist CODE (or null if no good match):
+{{
+  "filename1.pdf": "CODE1",
+  "filename2.jpg": null,
+  ...
+}}
+
+IMPORTANT:
+- Return ONLY valid JSON, no explanation
+- Use exact filenames as keys (including extension)
+- Use exact stockist CODEs from the catalog as values
+- Return null if confidence is low
+"""
+
+        api_key, model_name, _ = get_gemini_settings()
+        client = genai_sdk.Client(api_key=api_key)
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
+
+        resp_text = response.text.strip()
+        if resp_text.startswith("```"):
+            resp_text = resp_text.split("```", 1)[1]
+        if resp_text.lower().startswith("json"):
+            resp_text = resp_text[4:]
+        if resp_text.endswith("```"):
+            resp_text = resp_text.rsplit("```", 1)[0]
+        resp_text = resp_text.strip()
+
+        mapping = json.loads(resp_text)
+
+        # Validate that returned codes actually exist
+        valid_codes = {s["name"] for s in stockists}
+        validated = {}
+        for fname, code in mapping.items():
+            if code and code in valid_codes:
+                validated[fname] = code
+            else:
+                validated[fname] = None
+
+        return {"success": True, "mapping": validated}
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Filename→Stockist Gemini Mapping Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def start_bulk_ocr_job(docname):
+    """
+    Portal entry point: validates the doc, then enqueues the background job.
+    """
+    try:
+        doc = frappe.get_doc("Bulk Statement Upload", docname)
+
+        if doc.status not in ("Pending", "Failed"):
+            return {"success": False, "message": f"Job is already {doc.status}. Cannot restart."}
+
+        if not doc.zip_file:
+            return {"success": False, "message": "No ZIP file attached to this job."}
+
+        job = enqueue(
+            method="scanify.api.process_bulk_extraction",
+            queue="long",
+            timeout=7200,
+            job_name=f"bulk_ocr_{docname}",
+            docname=docname,
+            month=str(doc.statement_month),
+            zip_file_url=doc.zip_file,
+        )
+
+        doc.status = "Queued"
+        doc.job_id = job.id
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {"success": True, "message": "Bulk OCR job queued successfully", "job_id": job.id}
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Start Bulk OCR Job Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_bulk_job_status(docname):
+    """
+    Return current status/progress of a bulk job for live polling.
+    """
+    try:
+        doc = frappe.get_doc("Bulk Statement Upload", docname)
+        log_data = []
+        if doc.extraction_log:
+            try:
+                log_data = json.loads(doc.extraction_log)
+            except Exception:
+                log_data = []
+        return {
+            "success": True,
+            "status": doc.status,
+            "progress": flt(doc.progress),
+            "total_files": doc.total_files or 0,
+            "success_count": doc.success_count or 0,
+            "failed_count": doc.failed_count or 0,
+            "skipped_count": doc.skipped_count or 0,
+            "log": log_data,
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_bulk_jobs_list(division=None):
+    """
+    Return list of bulk OCR jobs for the portal list page.
+    """
+    try:
+        user_division = division
+        if not user_division:
+            user_division = frappe.db.get_value("User", frappe.session.user, "division") or "Prima"
+
+        filters = {"docstatus": ["in", [0, 1]]}
+        if user_division:
+            filters["division"] = user_division
+
+        jobs = frappe.get_all(
+            "Bulk Statement Upload",
+            filters=filters,
+            fields=["name", "statement_month", "status", "progress", "total_files",
+                    "success_count", "failed_count", "skipped_count", "creation", "modified"],
+            order_by="creation desc",
+            limit_page_length=100,
+        )
+
+        return {"success": True, "jobs": jobs}
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Bulk Jobs List Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def create_bulk_ocr_job(statement_month, zip_file_url, division=None):
+    """
+    Create a new Bulk Statement Upload document from portal.
+    Returns the created doc name.
+    """
+    try:
+        if not division:
+            division = frappe.db.get_value("User", frappe.session.user, "division") or "Prima"
+
+        doc = frappe.get_doc({
+            "doctype": "Bulk Statement Upload",
+            "statement_month": statement_month,
+            "zip_file": zip_file_url,
+            "division": division,
+            "status": "Pending",
+        })
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return {"success": True, "docname": doc.name}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Create Bulk OCR Job Error")
+        return {"success": False, "message": str(e)}
+
+
 # ========== REST OF THE API FILE (UNCHANGED) ==========
 @frappe.whitelist()
 def bulk_extract_statements_async(docname):
@@ -524,7 +748,7 @@ def bulk_extract_statements_async(docname):
         job_name=f"bulk_extract_{docname}",
         docname=docname,
         month=doc.statement_month,
-        zip_file_url=doc.zipfile
+        zip_file_url=doc.zip_file
     )
     
     # Update status
@@ -588,11 +812,59 @@ def process_bulk_extraction(docname, month, zip_file_url):
             
             # Build product catalog once (reuse for all files)
             product_catalog, products_list = build_product_catalog_for_prompt()
-            
+
+            # Initialize Gemini client once for the entire batch
+            bulk_api_key, model_name, _ = get_gemini_settings()
+            bulk_genai_client = genai_sdk.Client(api_key=bulk_api_key)
+
+            # --- STEP 1: Batch filename -> stockist mapping via Gemini (single call) ---
+            all_filenames = [f for f, _, _ in all_files]
+            gemini_mapping = {}
+            try:
+                filters = {"status": "Active"}
+                if doc.division:
+                    filters["division"] = doc.division
+                    
+                stockists_cat = frappe.get_all(
+                    "Stockist Master",
+                    filters=filters,
+                    fields=["name", "stockist_name"],
+                    order_by="stockist_name asc"
+                )
+                catalog_lines = [f"{s['name']}|{s['stockist_name']}" for s in stockists_cat]
+                filenames_text = "\n".join([f"{i+1}. {f}" for i, f in enumerate(all_filenames)])
+                map_prompt = (
+                    "Match pharmaceutical statement filenames to stockist codes.\n\n"
+                    "STOCKIST CATALOG (CODE|NAME):\n" + "\n".join(catalog_lines) + "\n\n"
+                    "FILENAMES:\n" + filenames_text + "\n\n"
+                    "Return JSON object: filename -> CODE (or null). Use exact filenames as keys.\n"
+                    "Return ONLY valid JSON."
+                )
+                map_resp = bulk_genai_client.models.generate_content(
+                    model=model_name,
+                    contents=map_prompt
+                )
+                resp_text = map_resp.text.strip()
+                if resp_text.startswith("```"):
+                    resp_text = resp_text.split("```", 1)[1]
+                if resp_text.lower().startswith("json"):
+                    resp_text = resp_text[4:]
+                if resp_text.endswith("```"):
+                    resp_text = resp_text.rsplit("```", 1)[0]
+                raw_map = json.loads(resp_text.strip())
+                valid_codes = {s["name"] for s in stockists_cat}
+                for fname, code in raw_map.items():
+                    gemini_mapping[fname] = code if (code and code in valid_codes) else None
+                frappe.logger().info(f"Gemini batch mapping completed: {len(gemini_mapping)} entries")
+            except Exception as map_err:
+                frappe.logger().warning(f"Gemini batch mapping failed, using fuzzy fallback: {map_err}")
+
             for idx, (file, file_full_path, file_ext) in enumerate(all_files, 1):
                 try:
-                    # Identify stockist
-                    stockist_code = identify_stockist_from_filename(file)
+                    # Identify stockist - Gemini mapping first, fuzzy fallback
+                    stockist_code = gemini_mapping.get(file) if gemini_mapping else None
+                    if not stockist_code:
+                        stockist_code = identify_stockist_from_filename(file)
                     
                     if not stockist_code:
                         results.append({
@@ -640,16 +912,14 @@ def process_bulk_extraction(docname, month, zip_file_url):
                     file_doc.attached_to_name = statement.name
                     file_doc.save(ignore_permissions=True)
                     
-                    # Extract data using enhanced method
-                    api_key, model_name, _ = get_gemini_settings()
-                    genai.configure(api_key=api_key)
-                    
+                    # Extract data using enhanced method (reuse already-configured client)
                     extracted_data = call_gemini_extraction_with_catalog(
                         file_full_path,
                         stockist_code,
                         product_catalog,
                         products_list,
-                        model_name
+                        model_name,
+                        bulk_genai_client
                     )
                     
                     if extracted_data and len(extracted_data) > 0:
@@ -2101,15 +2371,11 @@ def create_scheme_request(data):
         }
 @frappe.whitelist()
 def get_master_data(doctype, division=None, status=None):
-    """Get records for a master doctype.
-    Region Master and Team Master are SHARED across divisions (no division filter).
-    HQ Master, Product Master, Doctor Master, Stockist Master are division-specific.
-    """
+    """Get records for a master doctype, all filtered by division where applicable."""
     try:
         filters = {}
-        # Division-specific masters: filter by current division
-        # Region and Team are SHARED masters — no division filter
-        if doctype in ["Region Master", "Team Master", "HQ Master", "Product Master", "Doctor Master", "Stockist Master"]:
+        # All masters (Region, Team, Zone, State, HQ, Product, Doctor, Stockist) are division-scoped
+        if doctype in ["Region Master", "Team Master", "Zone Master", "State Master", "HQ Master", "Product Master", "Doctor Master", "Stockist Master"]:
             if division:
                 filters["division"] = ["in", [division, "Both"]]
         meta = frappe.get_meta(doctype)
@@ -2129,6 +2395,22 @@ def get_master_data(doctype, division=None, status=None):
             fields=fields,
             order_by="modified desc"
         )
+
+        # Enrich link codes into human-readable labels for the frontend list view table
+        for r in data:
+            if "hq" in r and r["hq"]:
+                r["hq_label"] = frappe.db.get_value("HQ Master", r["hq"], "hq_name") or r["hq"]
+            if "team" in r and r["team"]:
+                r["team_label"] = frappe.db.get_value("Team Master", r["team"], "team_name") or r["team"]
+            if "region" in r and r["region"]:
+                r["region_label"] = frappe.db.get_value("Region Master", r["region"], "region_name") or r["region"]
+            if "zone" in r and r["zone"]:
+                zone_val = frappe.db.get_value("Zone Master", r["zone"], "zone_name")
+                r["zone_label"] = zone_val if zone_val else r["zone"]
+            if "state" in r and r["state"]:
+                state_val = frappe.db.get_value("State Master", r["state"], "state_name")
+                r["state_label"] = state_val if state_val else r["state"]
+
         return {"success": True, "data": data}
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Get Master Data Error")
@@ -2140,10 +2422,9 @@ def save_master_record(doctype, name, data):
     """
     Save a master record.
 
-    Region Master and Team Master are now division-scoped composite-key masters.
-    Division MUST be injected for Region+Team (it's part of the autoname format).
-    Resolve Region/Team link fields correctly using the composite key lookup.
-    Rename support for composite-key doctypes rebuilds the composite name.
+    Region/Team/Zone/State Masters now use auto-generated codes (R0001, T0001, Z0001, ST0001).
+    Division is injected from session when not provided.
+    HQ Master is renamed when hq_name changes (field:hq_name naming).
     """
     try:
         data = frappe.parse_json(data) if isinstance(data, str) else data
@@ -2151,14 +2432,20 @@ def save_master_record(doctype, name, data):
         current_user_division = get_user_division()
 
         # Inject division for all division-scoped masters
-        # This includes HQ, Product, Doctor, Stockist, Region, and Team Masters
-        if doctype in ['HQ Master', 'Product Master', 'Doctor Master', 'Stockist Master', 'Region Master', 'Team Master']:
+        if doctype in ['HQ Master', 'Product Master', 'Doctor Master', 'Stockist Master', 'Region Master', 'Team Master', 'Zone Master', 'State Master']:
             if not data.get('division'):
                 data['division'] = current_user_division
 
-        # Doctor Code is fully system-generated — backend handles it via autoname
-        if doctype == 'Doctor Master':
-            data.pop('doctor_code', None)
+        # Strip auto-generated code fields — backend sets them via before_save hook
+        for _dt, _cf in [
+            ('Doctor Master', 'doctor_code'),
+            ('Region Master', 'region_code'),
+            ('Team Master', 'team_code'),
+            ('Zone Master', 'zone_code'),
+            ('State Master', 'state_code'),
+        ]:
+            if doctype == _dt:
+                data.pop(_cf, None)
 
         # Stockist Code is system-generated for new records
         if doctype == 'Stockist Master' and not name:
@@ -2168,6 +2455,14 @@ def save_master_record(doctype, name, data):
         if doctype == 'Team Master':
             data.pop('sanctioned_strength', None)
 
+        # Division uses autoname=prompt.
+        # Frontend sends the user-provided name as data['name'] — extract it.
+        _prompt_name = None
+        if doctype == 'Division' and not name:
+            _prompt_name = data.pop('name', None)
+            if not _prompt_name:
+                return {'success': False, 'message': "Division Name is required"}
+
         # -----------------------------
         # CREATE OR LOAD DOC
         # -----------------------------
@@ -2175,12 +2470,17 @@ def save_master_record(doctype, name, data):
             doc = frappe.get_doc(doctype, name)
         else:
             doc = frappe.new_doc(doctype)
+            # For prompt autoname doctypes, set the name before insert
+            if _prompt_name:
+                doc.name = _prompt_name
+                doc.__newname = _prompt_name
 
         # -----------------------------
         # RESOLVE LINK FIELDS
         # If the frontend sends a display label instead of the actual doc name, resolve it.
         # For Region and Team, lookup needs to consider division as well.
         # -----------------------------
+
         meta = frappe.get_meta(doctype)
         for field, value in list(data.items()):
             df = meta.get_field(field)
@@ -2202,53 +2502,34 @@ def save_master_record(doctype, name, data):
             
             if label_field:
                 lookup_filters = {label_field: value}
-                
-                # For Region Master and Team Master, also filter by division
-                if linked_doctype in ["Region Master", "Team Master"]:
-                    # Use the division from the current record being saved, or the user's session
+
+                # For division-scoped doctypes, also filter by division for accurate match
+                if linked_doctype in ["Region Master", "Team Master", "Zone Master", "State Master", "HQ Master"]:
                     lookup_division = data.get('division') or current_user_division
                     if lookup_division:
                         lookup_filters["division"] = lookup_division
-                
+
                 match = frappe.db.get_value(linked_doctype, lookup_filters, 'name')
                 if match:
                     data[field] = match
 
         # -----------------------------
-        # RENAME SUPPORT (for field:xxx autoname doctypes)
-        # When the primary name field changes, rename the doc
+        # RENAME SUPPORT
+        # Only HQ Master (autoname=field:hq_name) needs rename when hq_name changes.
+        # Region/Team/Zone/State use auto-generated codes — their name (R0001) never changes.
         # -----------------------------
-        if name:
-            rename_map = {
-                'HQ Master': 'hq_name',
-                'Team Master': 'team_name',
-                'Region Master': 'region_name',
-            }
-            name_field = rename_map.get(doctype)
-            if name_field and name_field in data:
-                old_val = getattr(doc, name_field, None)
-                new_val = data[name_field]
-                
+        if name and doctype == 'HQ Master':
+            if 'hq_name' in data:
+                old_val = getattr(doc, 'hq_name', None)
+                new_val = data['hq_name']
                 if old_val and new_val and new_val != old_val:
-                    new_doc_name = new_val  # Default for simple field: autoname (e.g. HQ)
-                    division_for_rename = data.get('division') or getattr(doc, 'division', None) or current_user_division
-
-                    # For composite-key doctypes (Region, Team), rebuild the composite name
-                    if doctype in ['Region Master', 'Team Master']:
-                        if not division_for_rename:
-                            return {'success': False, 'message': f"Cannot rename {doctype}: Division not found."}
-                        new_doc_name = f"{new_val}-{division_for_rename}"
-
-                    # Check for name collision before renaming
-                    if frappe.db.exists(doctype, new_doc_name):
-                        div_hint = f" in division '{division_for_rename}'" if doctype in ['Region Master', 'Team Master'] else ''
+                    if frappe.db.exists('HQ Master', new_val):
                         return {
                             'success': False,
-                            'message': f"{doctype.replace(' Master', '')} '{new_val}' already exists{div_hint}."
+                            'message': f"HQ '{new_val}' already exists."
                         }
-
-                    frappe.rename_doc(doctype, name, new_doc_name)
-                    doc = frappe.get_doc(doctype, new_doc_name)
+                    frappe.rename_doc('HQ Master', name, new_val)
+                    doc = frappe.get_doc('HQ Master', new_val)
 
         # -----------------------------
         # APPLY DATA & SAVE
@@ -2339,6 +2620,16 @@ def get_hq_list(division=None, search=""):
             order_by="hq_name asc",
             limit=50
         )
+
+        # Resolve zone code (Z0001) to zone_name for display in text fields
+        for hq in hqs:
+            zone_code = hq.get("zone")
+            if zone_code:
+                # Check if zone_code looks like a Zone Master auto-code (starts with Z)
+                zone_name = frappe.db.get_value("Zone Master", zone_code, "zone_name")
+                if zone_name:
+                    hq["zone"] = zone_name  # replace code with display name
+
         return {"success": True, "data": hqs}
     except Exception as e:
         return {"success": False, "message": str(e)}
@@ -2347,7 +2638,8 @@ def get_hq_list(division=None, search=""):
 @frappe.whitelist()
 def get_region_list(division=None, search=""):
     """Get Region list filtered by division for dropdown selection.
-    Returns composite name as value, region_name as label — no 'Chennai-Prima' exposed to users.
+    Returns auto-code as value, region_name as label.
+    Also resolves zone/state codes to display names for the list view.
     """
     try:
         filters = {"status": "Active"}
@@ -2359,10 +2651,22 @@ def get_region_list(division=None, search=""):
         regions = frappe.get_all(
             "Region Master",
             filters=filters,
-            fields=["name", "region_name", "zone", "state", "division"],
+            fields=["name", "region_name", "region_code", "zone", "state", "division"],
             order_by="region_name asc",
             limit=100
         )
+
+        # Resolve zone/state codes to display names for the list table
+        for region in regions:
+            if region.get("zone"):
+                region["zone_name"] = frappe.db.get_value("Zone Master", region["zone"], "zone_name") or region["zone"]
+            else:
+                region["zone_name"] = None
+            if region.get("state"):
+                region["state_name"] = frappe.db.get_value("State Master", region["state"], "state_name") or region["state"]
+            else:
+                region["state_name"] = None
+
         return {"success": True, "data": regions}
     except Exception as e:
         return {"success": False, "message": str(e)}
@@ -2371,8 +2675,8 @@ def get_region_list(division=None, search=""):
 @frappe.whitelist()
 def get_team_list(division=None, search=""):
     """Get Team list filtered by division for dropdown selection in HQ form.
-    Returns composite name as value, team_name as label.
-    Also returns the linked region so the HQ form can auto-fill region.
+    Returns auto-code name as value, team_name as label.
+    Also returns the linked region so the HQ form can auto-fill region and zone.
     """
     try:
         filters = {"status": "Active"}
@@ -2389,7 +2693,7 @@ def get_team_list(division=None, search=""):
             limit=100
         )
 
-        # Enrich each team with region_name and zone (from Region Master)
+        # Enrich each team with region_name and zone_name (from Region Master / Zone Master)
         for team in teams:
             if team.get("region"):
                 region_data = frappe.db.get_value(
@@ -2397,10 +2701,14 @@ def get_team_list(division=None, search=""):
                     ["region_name", "zone"], as_dict=True
                 )
                 team["region_name"] = region_data.get("region_name") if region_data else None
-                team["zone"] = region_data.get("zone") if region_data else None
+                zone_code = region_data.get("zone") if region_data else None
+                # Resolve zone code -> zone_name for display in text fields
+                team["zone"] = zone_code  # Z0001 — used by zone_select dropdown
+                team["zone_name"] = frappe.db.get_value("Zone Master", zone_code, "zone_name") if zone_code else None
             else:
                 team["region_name"] = None
                 team["zone"] = None
+                team["zone_name"] = None
 
         return {"success": True, "data": teams}
     except Exception as e:
@@ -2415,7 +2723,8 @@ def get_team_details(team_name):
             return {"success": False, "message": "Team name is required"}
         doc = frappe.get_doc("Team Master", team_name)
         region_name = None
-        zone = None
+        zone_code = None
+        zone_name = None
         if doc.region:
             region_data = frappe.db.get_value(
                 "Region Master", doc.region,
@@ -2423,15 +2732,17 @@ def get_team_details(team_name):
             )
             if region_data:
                 region_name = region_data.get("region_name")
-                zone = region_data.get("zone")
+                zone_code = region_data.get("zone")
+                zone_name = frappe.db.get_value("Zone Master", zone_code, "zone_name") if zone_code else None
         return {
             "success": True,
             "data": {
                 "team_name": doc.team_name,
                 "team_id": doc.name,
-                "region": doc.region,           # composite: "Chennai-Prima"
-                "region_name": region_name,     # display: "Chennai"
-                "zone": zone,
+                "region": doc.region,           # auto-code: "R0001"
+                "region_name": region_name,     # display: "South Region"
+                "zone": zone_code,              # auto-code: "Z0001" (for zone_select dropdown)
+                "zone_name": zone_name,         # display text for Data zone fields
                 "division": doc.division
             }
         }
@@ -2449,6 +2760,12 @@ def get_hq_details(hq_name):
         # Resolve display labels
         team_label = frappe.db.get_value("Team Master", doc.team, "team_name") if doc.team else None
         region_label = frappe.db.get_value("Region Master", doc.region, "region_name") if doc.region else None
+        # Resolve zone code -> zone_name for display in Data fields
+        zone_display = doc.zone
+        if doc.zone:
+            zone_name_val = frappe.db.get_value("Zone Master", doc.zone, "zone_name")
+            if zone_name_val:
+                zone_display = zone_name_val
         return {
             "success": True,
             "data": {
@@ -2458,7 +2775,7 @@ def get_hq_details(hq_name):
                 "team_label": team_label or doc.team,
                 "region": doc.region,
                 "region_label": region_label or doc.region,
-                "zone": doc.zone,
+                "zone": zone_display,  # human-readable zone_name for display
                 "division": doc.division
             }
         }
@@ -2495,11 +2812,9 @@ def portal_link_search(doctype=None, search=""):
         "name"
     )
 
-    # Region Master and Team Master use composite keys (name = "Chennai-Prima").
-    # Filter by division so only the correct division's records appear in search.
-    # HQ Master also filtered by division.
+    # For all division-scoped masters, filter by the current user's division.
     filters = {display_field: ["like", f"%{search}%"]}
-    if doctype in ("Region Master", "Team Master", "HQ Master"):
+    if doctype in ("Region Master", "Team Master", "Zone Master", "State Master", "HQ Master"):
         try:
             current_division = get_user_division()
             if current_division:
@@ -2514,7 +2829,7 @@ def portal_link_search(doctype=None, search=""):
         limit=15
     )
 
-    # For Region/Team, label = display name (e.g. "Chennai"), value = composite name (e.g. "Chennai-Prima")
+    # label = human-readable name (region_name, zone_name, etc.), value = auto-code (R0001, Z0001, etc.)
     return [
         {"label": r.get(display_field) or r.name, "value": r.name}
         for r in results
@@ -2671,18 +2986,36 @@ def create_hq_yearly_target_from_portal(financial_year, start_date, end_date, st
 
 @frappe.whitelist()
 def import_master_data(doctype, division):
-    """Bulk import master data from Excel file"""
+    """Bulk import master data from Excel or CSV file"""
     try:
         import pandas as pd
-        from frappe.utils.file_manager import get_file
         
         # Get uploaded file
         file = frappe.request.files.get('file')
         if not file:
             return {"success": False, "message": "No file uploaded"}
         
-        # Read Excel file
-        df = pd.read_excel(file)
+        filename = file.filename or ""
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        
+        # Read file based on extension
+        if ext == "csv":
+            df = pd.read_csv(file, dtype=str)
+        elif ext in ("xlsx", "xls"):
+            df = pd.read_excel(file, dtype=str)
+        else:
+            # Try CSV first, then Excel (fallback for unnamed streams)
+            try:
+                import io
+                content = file.read()
+                file.seek(0) if hasattr(file, 'seek') else None
+                df = pd.read_csv(io.BytesIO(content), dtype=str)
+            except Exception:
+                file.seek(0) if hasattr(file, 'seek') else None
+                df = pd.read_excel(file, dtype=str)
+        
+        # Strip whitespace from column names
+        df.columns = df.columns.str.strip()
         
         # Map columns based on doctype
         column_mapping = get_column_mapping(doctype)
@@ -2699,7 +3032,7 @@ def import_master_data(doctype, division):
                         data[field_name] = row[excel_col]
                 
                 # Add division if applicable
-                if doctype in ["HQ Master", "Product Master", "Team Master", "Region Master"]:
+                if doctype in ["HQ Master", "Product Master", "Team Master", "Region Master", "Zone Master", "State Master"]:
                     if "division" not in data:
                         data["division"] = division
                 
@@ -2807,6 +3140,7 @@ def get_column_mapping(doctype):
             "Division": "division",
             "Status": "status"
             # sanctioned_strength is auto-computed - not in import
+            # team_code is auto-generated - not in import
         },
         "Region Master": {
             "Region Name": "region_name",
@@ -2814,9 +3148,64 @@ def get_column_mapping(doctype):
             "Zone": "zone",
             "State": "state",
             "Status": "status"
+            # region_code is auto-generated - not in import
+        },
+        "Zone Master": {
+            "Zone Name": "zone_name",
+            "Division": "division",
+            "Status": "status"
+            # zone_code is auto-generated - not in import
+        },
+        "State Master": {
+            "State Name": "state_name",
+            "Division": "division",
+            "Status": "status"
+            # state_code is auto-generated - not in import
         }
     }
     return mappings.get(doctype, {})
+
+
+@frappe.whitelist()
+def get_zone_list(division=None, search=""):
+    """Get all Zone Master records for dropdown population."""
+    try:
+        filters = {"status": "Active"}
+        if division:
+            filters["division"] = ["in", [division, "Both"]]
+        if search:
+            filters["zone_name"] = ["like", f"%{search}%"]
+        zones = frappe.get_all(
+            "Zone Master",
+            filters=filters,
+            fields=["name", "zone_name"],
+            order_by="zone_name asc",
+            limit=100
+        )
+        return {"success": True, "data": zones}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_state_list(division=None, search=""):
+    """Get all State Master records for dropdown population."""
+    try:
+        filters = {"status": "Active"}
+        if division:
+            filters["division"] = ["in", [division, "Both"]]
+        if search:
+            filters["state_name"] = ["like", f"%{search}%"]
+        states = frappe.get_all(
+            "State Master",
+            filters=filters,
+            fields=["name", "state_name"],
+            order_by="state_name asc",
+            limit=100
+        )
+        return {"success": True, "data": states}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 
 
 def get_code_field(doctype):

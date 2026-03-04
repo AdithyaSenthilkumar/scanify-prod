@@ -670,6 +670,33 @@
     .ss-qc-table {
         font-size: 11px;
     }
+
+    /* Inline edit inputs for draft mode */
+    .sv-edit-input,
+    .sv-edit-input-ft,
+    .sv-edit-input-qc {
+        width: 70px;
+        min-width: 60px;
+        padding: 2px 4px;
+        border: 1px solid #818cf8;
+        border-radius: 4px;
+        font-size: 11px;
+        text-align: right;
+        color: #1e293b;
+        background: #eef2ff;
+        outline: none;
+        transition: border-color 0.15s, box-shadow 0.15s;
+        display: block;
+        margin: auto;
+    }
+
+    .sv-edit-input:focus,
+    .sv-edit-input-ft:focus,
+    .sv-edit-input-qc:focus {
+        border-color: #4f46e5;
+        box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+        background: white;
+    }
 </style>
 
 {% endblock %}
@@ -766,6 +793,46 @@
         return { t_open, t_purch, t_sales_ptr, t_sales_pts, t_close };
     }
 
+    // Replicates the normal flow calculation
+    function do_sv_row_calc(row) {
+        const cf = parseFloat(row.conversion_factor) || 1;
+        const pts = parseFloat(row.pts) || 0;
+        const ptr = parseFloat(row.ptr) || 0;
+
+        const c_op = parseFloat(row.openingqty || 0) / cf;
+        const c_pu = parseFloat(row.purchaseqty || 0) / cf;
+        const c_sa = parseFloat(row.salesqty || 0) / cf;
+        const c_fr = parseFloat(row.freeqty || 0) / cf;
+        const c_frs = parseFloat(row.freeqtyscheme || 0) / cf;
+        const c_rt = parseFloat(row.returnqty || 0) / cf;
+        const c_mo = parseFloat(row.miscoutqty || 0) / cf;
+
+        row.openingvalue = c_op * pts;
+        row.purchasevalue = c_pu * pts;
+
+        const closing_base = c_op + c_pu - c_sa - c_fr - c_frs - c_rt - c_mo;
+        row.closingqty = closing_base * cf;
+        row.closingvalue = closing_base * pts;
+
+        const deducted = (parseFloat(row.salesqty || 0) + parseFloat(row.freeqty || 0) - parseFloat(row.freeqtyscheme || 0)) / cf;
+        row.salesvaluepts = deducted * pts;
+        row.salesvalueptr = deducted * ptr;
+        row.schemedeductedqty = deducted * cf;
+    }
+
+    function sv_recalc_row($input, inputClass) {
+        const rowIdx = parseInt($input.data('row'));
+        const field = $input.data('field');
+        sv_items[rowIdx][field] = parseFloat($input.val()) || 0;
+
+        do_sv_row_calc(sv_items[rowIdx]);
+        sv_refresh_totals();
+
+        const $tr = $input.closest('tr');
+        $tr.find(`input.${inputClass}[data-field="closingqty"]`).val(sv_items[rowIdx].closingqty);
+        $tr.find('.sv-clsval-cell').text(sv_fmt(sv_items[rowIdx].closingvalue));
+    }
+
     function sv_refresh_totals() {
         const t = sv_calc_totals();
         $('#svt-opening').text('₹' + sv_fmt(t.t_open, true));
@@ -819,23 +886,42 @@
         // Preview table — includes Prev Cls column
         const $tbody = $('#sv-preview-tbody');
         $tbody.empty();
-        sv_items.forEach(row => {
+        const isDraft = (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed');
+        sv_items.forEach((row, rowIdx) => {
             const prevCls = row.prev_closing_qty != null ? sv_fmt(row.prev_closing_qty) : '—';
             const prevClass = row.prev_closing_qty != null && parseFloat(row.openingqty) !== parseFloat(row.prev_closing_qty)
                 ? 'text-right text-warning' : 'text-right text-muted';
+
+            function qtyCell(field, val) {
+                if (isDraft) {
+                    return `<td class="text-right p-0">
+                        <input type="number" step="any" class="sv-edit-input"
+                            data-row="${rowIdx}" data-field="${field}"
+                            value="${sv_fmt(val)}">
+                    </td>`;
+                }
+                return `<td class="text-right">${sv_fmt(val)}</td>`;
+            }
+
             $tbody.append(`<tr>
       <td><strong>${sv_escape(row.productcode)}</strong></td>
       <td>${sv_escape(row.productname || '')}</td>
       <td>${sv_escape(row.pack || '')}</td>
       <td class="${prevClass}">${prevCls}</td>
-      <td class="text-right">${sv_fmt(row.openingqty)}</td>
-      <td class="text-right">${sv_fmt(row.purchaseqty)}</td>
-      <td class="text-right">${sv_fmt(row.salesqty)}</td>
-      <td class="text-right">${sv_fmt(row.freeqty)}</td>
-      <td class="text-right">${sv_fmt(row.closingqty)}</td>
-      <td class="text-right">${sv_fmt(row.closingvalue)}</td>
+      ${qtyCell('openingqty', row.openingqty)}
+      ${qtyCell('purchaseqty', row.purchaseqty)}
+      ${qtyCell('salesqty', row.salesqty)}
+      ${qtyCell('freeqty', row.freeqty)}
+      ${qtyCell('closingqty', row.closingqty)}
+      <td class="text-right sv-clsval-cell">${sv_fmt(row.closingvalue)}</td>
     </tr>`);
         });
+        // Wire up inline edit handlers for draft mode
+        if (isDraft) {
+            $('#sv-preview-tbody').off('change', '.sv-edit-input').on('change', '.sv-edit-input', function () {
+                sv_recalc_row($(this), 'sv-edit-input');
+            });
+        }
         $('#sv-item-count').text(`${sv_items.length} products`);
 
         // Totals section
@@ -889,7 +975,10 @@
     window.sv_open_full_table = function () {
         const $tbody = $('#sv-full-tbody');
         $tbody.empty();
+        const isDraft = (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed');
 
+        const editableQtyCols = ['openingqty', 'purchaseqty', 'salesqty', 'freeqty',
+            'freeqtyscheme', 'returnqty', 'miscoutqty', 'closingqty'];
         const cols = [
             'productcode', 'productname', 'pack', 'pts', 'conversion_factor', 'prev_closing_qty',
             'openingqty', 'purchaseqty', 'salesqty', 'freeqty', 'freeqtyscheme',
@@ -899,39 +988,75 @@
         const currCols = ['pts', 'openingvalue', 'purchasevalue', 'salesvaluepts', 'salesvalueptr', 'closingvalue'];
         const textCols = ['productcode', 'productname', 'pack'];
 
-        sv_items.forEach(row => {
+        sv_items.forEach((row, rowIdx) => {
             let tr = '<tr>';
             cols.forEach(c => {
                 const v = row[c];
                 const isText = textCols.includes(c);
                 const isCurr = currCols.includes(c);
-                const display = isText ? sv_escape(v || '') : (isCurr ? sv_fmt(v, true) : (v != null ? sv_fmt(v) : '—'));
+                const isEditable = isDraft && editableQtyCols.includes(c);
                 const align = isText ? '' : 'text-right';
-                tr += `<td class="${align}">${display}</td>`;
+                if (isEditable) {
+                    tr += `<td class="p-0">
+                        <input type="number" step="any" class="sv-edit-input-ft"
+                            data-row="${rowIdx}" data-field="${c}"
+                            value="${sv_fmt(v)}">
+                    </td>`;
+                } else {
+                    const display = isText ? sv_escape(v || '') : (isCurr ? sv_fmt(v, true) : (v != null ? sv_fmt(v) : '—'));
+                    if (c === 'closingvalue') {
+                        tr += `<td class="${align} sv-clsval-cell">${display}</td>`;
+                    } else {
+                        tr += `<td class="${align}">${display}</td>`;
+                    }
+                }
             });
             tr += '</tr>';
             $tbody.append(tr);
         });
 
-        $('#sv-full-modal').modal('show');
+        if (isDraft) {
+            $tbody.off('change', '.sv-edit-input-ft').on('change', '.sv-edit-input-ft', function () {
+                sv_recalc_row($(this), 'sv-edit-input-ft');
+            });
+        }
+
+        $('#sv-full-modal').off('hidden.bs.modal').on('hidden.bs.modal', function () {
+            render_sv_page();
+        }).modal('show');
     };
 
     // ---- QC Screen ----
     window.sv_open_qc = function () {
         const $tbody = $('#sv-qc-tbody');
         $tbody.empty();
-        sv_items.forEach(row => {
+        const isDraft = (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed');
+
+        sv_items.forEach((row, rowIdx) => {
+            function qcCell(field, val) {
+                if (isDraft) {
+                    return `<td class="p-0"><input type="number" step="any" class="sv-edit-input-qc"
+                        data-row="${rowIdx}" data-field="${field}" value="${sv_fmt(val)}"></td>`;
+                }
+                return `<td class="text-right">${sv_fmt(val)}</td>`;
+            }
             $tbody.append(`<tr>
       <td>${sv_escape(row.productcode)}</td>
       <td>${sv_escape(row.productname || '')}</td>
-      <td class="text-right">${sv_fmt(row.openingqty)}</td>
-      <td class="text-right">${sv_fmt(row.purchaseqty)}</td>
-      <td class="text-right">${sv_fmt(row.salesqty)}</td>
-      <td class="text-right">${sv_fmt(row.freeqty)}</td>
-      <td class="text-right">${sv_fmt(row.closingqty)}</td>
-      <td class="text-right">${sv_fmt(row.closingvalue)}</td>
+      ${qcCell('openingqty', row.openingqty)}
+      ${qcCell('purchaseqty', row.purchaseqty)}
+      ${qcCell('salesqty', row.salesqty)}
+      ${qcCell('freeqty', row.freeqty)}
+      ${qcCell('closingqty', row.closingqty)}
+      <td class="text-right sv-clsval-cell">${sv_fmt(row.closingvalue)}</td>
     </tr>`);
         });
+
+        if (isDraft) {
+            $tbody.off('change', '.sv-edit-input-qc').on('change', '.sv-edit-input-qc', function () {
+                sv_recalc_row($(this), 'sv-edit-input-qc');
+            });
+        }
 
         // Show uploaded file
         const file = sv_doc.uploaded_file;
@@ -946,7 +1071,9 @@
             }
         }
 
-        $('#sv-qc-modal').modal('show');
+        $('#sv-qc-modal').off('hidden.bs.modal').on('hidden.bs.modal', function () {
+            render_sv_page();
+        }).modal('show');
     };
 
     // Zoom

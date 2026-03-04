@@ -3,6 +3,9 @@ let currentDivision = '';
 let allRecords = [];
 let filteredRecords = [];
 
+// Single master mode: when this page only shows one master type (e.g. Division Master page)
+let singleMasterMode = (typeof window.MASTERS_SINGLE_MODE !== 'undefined') ? window.MASTERS_SINGLE_MODE : null;
+
 // Master configurations
 const masterConfigs = {
     hq: {
@@ -15,10 +18,13 @@ const masterConfigs = {
             { name: 'region', label: 'Region', type: 'region_select', required: true, readonly_always: true, help: 'Auto-filled from Team' },
             { name: 'zone', label: 'Zone', type: 'text', readonly_always: true, help: 'Auto-filled from Team\'s Region' },
             { name: 'per_capita', label: 'Per Capita', type: 'number', required: false },
-            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true }
+            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true },
+            { name: 'team_label', label: 'Team', type: 'display_only' },
+            { name: 'region_label', label: 'Region', type: 'display_only' },
+            { name: 'zone_label', label: 'Zone', type: 'display_only' }
         ],
-        columns: ['hq_name', 'team', 'region', 'zone', 'per_capita', 'status'],
-        searchFields: ['hq_name', 'team', 'region', 'zone'],
+        columns: ['hq_name', 'team_label', 'region_label', 'zone_label', 'per_capita', 'status'],
+        searchFields: ['hq_name', 'team_label', 'region_label', 'zone_label'],
         excelColumns: ['HQ Name', 'Team', 'Region', 'Zone', 'Per Capita', 'Status'],
         excelSample: ['Chennai Central', 'Team A', 'South', 'Zone A', 2, 'Active']
     },
@@ -42,9 +48,13 @@ const masterConfigs = {
             { name: 'phone', label: 'Phone', type: 'text' },
             { name: 'email', label: 'Email', type: 'email' },
 
-            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true }
+            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true },
+            { name: 'hq_label', label: 'HQ', type: 'display_only' },
+            { name: 'team_label', label: 'Team', type: 'display_only' },
+            { name: 'region_label', label: 'Region', type: 'display_only' },
+            { name: 'zone_label', label: 'Zone', type: 'display_only' }
         ],
-        columns: ['stockist_code', 'stockist_name', 'hq', 'team', 'region', 'zone', 'phone', 'status'],
+        columns: ['stockist_code', 'stockist_name', 'hq_label', 'team_label', 'region_label', 'zone_label', 'phone', 'status'],
         searchFields: ['stockist_code', 'stockist_name', 'city', 'phone'],
         excelColumns: ['Stockist Name', 'HQ', 'Team', 'Region', 'Zone', 'Address', 'Contact Person', 'Phone', 'Email', 'Status'],
         excelSample: ['ABC Pharma Distributors', 'Chennai Central', 'Team A', 'South', 'Zone 1', '123 Main St', 'John Smith', '9876543210', 'abc@example.com', 'Active']
@@ -107,9 +117,10 @@ const masterConfigs = {
             { name: 'state_name', label: 'State', type: 'text' },
             { name: 'zone', label: 'Zone', type: 'text', readonly_always: true, help: 'Auto-filled from HQ' },
             { name: 'chemist_name', label: 'Chemist Name', type: 'text' },
-            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true }
+            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true },
+            { name: 'hq_label', label: 'HQ', type: 'display_only' }
         ],
-        columns: ['doctor_code', 'doctor_name', 'place', 'specialization', 'hq', 'phone', 'status'],
+        columns: ['doctor_code', 'doctor_name', 'place', 'specialization', 'hq_label', 'phone', 'status'],
         searchFields: ['doctor_code', 'doctor_name', 'place', 'phone', 'chemist_name'],
         excelColumns: [
             'Doctor Name', 'Qualification', 'Doctor Category',
@@ -127,32 +138,75 @@ const masterConfigs = {
         title: 'Team Master',
         doctype: 'Team Master',
         fields: [
+            { name: 'team_code', label: 'Team Code', type: 'text', system_generated: true, readonly_on_edit: true },
             { name: 'team_name', label: 'Team Name', type: 'text', required: true },
             { name: 'region', label: 'Region', type: 'region_select', required: true },
             // sanctioned_strength is auto-calculated from HQ per_capita — always readonly
             { name: 'sanctioned_strength', label: 'Sanctioned Strength', type: 'number', readonly_always: true, help: 'Auto-calculated from sum of HQ Per Capita' },
-            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true }
+            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true },
+            { name: 'region_label', label: 'Region', type: 'display_only' }
         ],
-        columns: ['team_name', 'division', 'region', 'sanctioned_strength', 'status'],
-        searchFields: ['team_name', 'region'],
-        excelColumns: ['Team Name', 'Division', 'Region', 'Status'],
-        excelSample: ['Team Alpha', 'Prima', 'South Region', 'Active']
+        columns: ['team_code', 'team_name', 'division', 'region_label', 'sanctioned_strength', 'status'],
+        searchFields: ['team_code', 'team_name', 'region_label'],
+        excelColumns: ['Team Name', 'Region', 'Division', 'Status'],
+        excelSample: ['Team Alpha', 'R0001', 'Prima', 'Active']
     },
     region: {
         title: 'Region Master',
         doctype: 'Region Master',
         fields: [
+            { name: 'region_code', label: 'Region Code', type: 'text', system_generated: true, readonly_on_edit: true },
             { name: 'region_name', label: 'Region Name', type: 'text', required: true },
             { name: 'division', label: 'Division', type: 'link', options: 'Division', required: true },
-            { name: 'zone', label: 'Zone', type: 'text' },
-            { name: 'state', label: 'State', type: 'text' },
+            { name: 'zone', label: 'Zone', type: 'zone_select' },
+            { name: 'state', label: 'State', type: 'state_select' },
+            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true },
+            // Virtual display-only fields (resolved by API, not in form)
+            { name: 'zone_label', label: 'Zone', type: 'display_only' },
+            { name: 'state_label', label: 'State', type: 'display_only' }
+        ],
+        // name = auto-code R0001; title_field means links display region_name
+        columns: ['region_code', 'region_name', 'division', 'zone_label', 'state_label', 'status'],
+        searchFields: ['region_code', 'region_name', 'zone_label', 'state_label'],
+        excelColumns: ['Region Name', 'Division', 'Zone', 'State', 'Status'],
+        excelSample: ['South Region', 'Prima', 'Z0001', 'ST0001', 'Active']
+    },
+    division: {
+        title: 'Division Master',
+        doctype: 'Division',
+        fields: [
+            { name: 'name', label: 'Division Name', type: 'text', required: true }
+        ],
+        columns: ['name'],
+        searchFields: ['name'],
+        excelColumns: ['Division Name'],
+        excelSample: ['Prima']
+    },
+    zone: {
+        title: 'Zone Master',
+        doctype: 'Zone Master',
+        fields: [
+            { name: 'zone_code', label: 'Zone Code', type: 'text', system_generated: true, readonly_on_edit: true },
+            { name: 'zone_name', label: 'Zone Name', type: 'text', required: true },
             { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true }
         ],
-        // name = "region_name-division" internally, but title_field means links show just region_name
-        columns: ['region_name', 'division', 'zone', 'state', 'status'],
-        searchFields: ['region_name', 'zone', 'state'],
-        excelColumns: ['Region Name', 'Division', 'Zone', 'State', 'Status'],
-        excelSample: ['South Region', 'Prima', 'Zone A', 'Tamil Nadu', 'Active']
+        columns: ['zone_code', 'zone_name', 'division', 'status'],
+        searchFields: ['zone_code', 'zone_name'],
+        excelColumns: ['Zone Name', 'Division', 'Status'],
+        excelSample: ['Zone A', 'Prima', 'Active']
+    },
+    state: {
+        title: 'State Master',
+        doctype: 'State Master',
+        fields: [
+            { name: 'state_code', label: 'State Code', type: 'text', system_generated: true, readonly_on_edit: true },
+            { name: 'state_name', label: 'State Name', type: 'text', required: true },
+            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true }
+        ],
+        columns: ['state_code', 'state_name', 'division', 'status'],
+        searchFields: ['state_code', 'state_name'],
+        excelColumns: ['State Name', 'Division', 'Status'],
+        excelSample: ['Maharashtra', 'Prima', 'Active']
     }
 };
 
@@ -165,28 +219,53 @@ let regionCache = [];
 // Team data cache for dropdown (loaded per division)
 let teamCache = [];
 
+// Zone data cache (per division — zone_code is the value, zone_name is the label)
+let zoneCache = [];
+
+// State data cache (per division — state_code is the value, state_name is the label)
+let stateCache = [];
+
 window.addEventListener('load', function () {
     // Get current division from the page
     const divisionText = document.querySelector('#divisionMenuButton .division-name');
     currentDivision = divisionText ? divisionText.textContent.trim() : 'Prima';
 
+    // Single master mode: a page can set window.MASTERS_SINGLE_MODE before this script loads
+    if (singleMasterMode) {
+        currentMasterType = singleMasterMode;
+        // Hide the master type selector card if it exists
+        const masterTypeSelect = document.getElementById('master-type');
+        if (masterTypeSelect) {
+            const card = masterTypeSelect.closest('.card');
+            if (card) card.style.display = 'none';
+        }
+    }
+
     // Pre-load all dropdown caches
     loadHQCache();
     loadRegionCache();
     loadTeamCache();
+    loadZoneCache();
+    loadStateCache();
 
     // Load initial data
     loadMasterData();
 
-    // Event listeners
-    document.getElementById('master-type').addEventListener('change', function () {
-        currentMasterType = this.value;
-        loadMasterData();
-    });
+    // Event listeners (safe — elements may not exist in single master mode)
+    const masterTypeEl = document.getElementById('master-type');
+    if (masterTypeEl) {
+        masterTypeEl.addEventListener('change', function () {
+            currentMasterType = this.value;
+            loadMasterData();
+        });
+    }
 
-    document.getElementById('search-input').addEventListener('input', debounce(function () {
-        filterRecords();
-    }, 300));
+    const searchEl = document.getElementById('search-input');
+    if (searchEl) {
+        searchEl.addEventListener('input', debounce(function () {
+            filterRecords();
+        }, 300));
+    }
 });
 
 function loadHQCache() {
@@ -231,6 +310,36 @@ function loadTeamCache() {
             if (r.message && r.message.success) {
                 teamCache = r.message.data;
                 populateTeamDropdown(null);
+            }
+        }
+    });
+}
+
+function loadZoneCache() {
+    $.ajax({
+        url: '/api/method/scanify.api.get_zone_list',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': window.csrf_token },
+        data: JSON.stringify({ division: currentDivision }),
+        success: function (r) {
+            if (r.message && r.message.success) {
+                zoneCache = r.message.data;
+            }
+        }
+    });
+}
+
+function loadStateCache() {
+    $.ajax({
+        url: '/api/method/scanify.api.get_state_list',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': window.csrf_token },
+        data: JSON.stringify({ division: currentDivision }),
+        success: function (r) {
+            if (r.message && r.message.success) {
+                stateCache = r.message.data;
             }
         }
     });
@@ -420,6 +529,11 @@ function buildForm(config, data) {
             return;
         }
 
+        // Skip virtual display-only fields (used only for list column headers)
+        if (field.type === 'display_only') {
+            return;
+        }
+
         // Skip division field (it's session-based)
         if (field.name === 'division') {
             return;
@@ -447,8 +561,9 @@ function buildForm(config, data) {
             return;
         }
 
-        // Skip 'name' field for new records (autoname will generate it)
-        if (!data && field.name === 'name') {
+        // Skip 'name' field for new records when it is auto-generated.
+        // Division master uses the name field as the user-entered primary field, so do not skip there.
+        if (!data && field.name === 'name' && currentMasterType !== 'division') {
             return;
         }
 
@@ -482,6 +597,18 @@ function buildForm(config, data) {
             html += `<option value="">-- Select Region --</option>`;
             html += `</select>`;
             if (helpText) html += helpText;
+        } else if (field.type === 'zone_select') {
+            // Zone dropdown — sourced from Zone Master
+            html += `<select class="form-control zone-select-field" name="${field.name}" data-value="${value}" ${field.required ? 'required' : ''}>`;
+            html += `<option value="">-- Select Zone --</option>`;
+            html += `</select>`;
+            if (helpText) html += helpText;
+        } else if (field.type === 'state_select') {
+            // State dropdown — sourced from State Master
+            html += `<select class="form-control state-select-field" name="${field.name}" data-value="${value}" ${field.required ? 'required' : ''}>`;
+            html += `<option value="">-- Select State --</option>`;
+            html += `</select>`;
+            if (helpText) html += helpText;
         } else if (field.type === 'select') {
             html += `<select class="form-control" name="${field.name}" ${field.required ? 'required' : ''} ${readonly} ${readonlyStyle}>`;
             if (Array.isArray(field.options)) {
@@ -497,7 +624,7 @@ function buildForm(config, data) {
         } else {
             html += `<input type="${field.type === 'number' ? 'number' : 'text'}" class="form-control" name="${field.name}" value="${value}" ${readonly} ${readonlyStyle} ${field.required ? 'required' : ''} ${field.type === 'number' ? 'step="1"' : ''}>`;
         }
-        if (helpText && field.type !== 'hq_select' && field.type !== 'team_select' && field.type !== 'region_select') html += helpText;
+        if (helpText && field.type !== 'hq_select' && field.type !== 'team_select' && field.type !== 'region_select' && field.type !== 'zone_select' && field.type !== 'state_select') html += helpText;
 
         html += `</div>`;
     });
@@ -509,6 +636,8 @@ function buildForm(config, data) {
     populateHQDropdown(data);
     populateRegionDropdown(data);
     populateTeamDropdown(data);
+    populateZoneDropdown(data);
+    populateStateDropdown(data);
 
     setTimeout(() => hydrateLinkLabels(), 50);
 }
@@ -583,8 +712,8 @@ function populateRegionDropdown(data) {
         select.innerHTML = '<option value="">-- Select Region --</option>';
         regionCache.forEach(region => {
             const opt = document.createElement('option');
-            opt.value = region.name;            // composite: "Chennai-Prima"
-            opt.textContent = region.region_name; // display: "Chennai"
+            opt.value = region.name;            // auto-code: "R0001"
+            opt.textContent = region.region_name; // display: "South Region"
             if (region.name === currentVal || region.region_name === currentVal) {
                 opt.selected = true;
             }
@@ -621,9 +750,9 @@ function populateTeamDropdown(data) {
         select.innerHTML = '<option value="">-- Select Team --</option>';
         teamCache.forEach(team => {
             const opt = document.createElement('option');
-            opt.value = team.name;          // composite: "Team Alpha-Prima"
+            opt.value = team.name;          // auto-code: "T0001"
             opt.textContent = team.team_name; // display: "Team Alpha"
-            // Match by composite name OR by team_name
+            // Match by auto-code OR by team_name
             if (team.name === currentVal || team.team_name === currentVal) {
                 opt.selected = true;
             }
@@ -657,17 +786,96 @@ function populateTeamDropdown(data) {
     }
 }
 
-function fillTeamRelatedFields(teamData) {
-    // Auto-fill Region select from team's linked region
-    const regionSelect = $('select.region-select-field[name="region"]');
-    if (regionSelect.length && teamData.region) {
-        regionSelect.val(teamData.region); // composite name, option text shows region_name
+function populateZoneDropdown(data) {
+    const zoneSelects = document.querySelectorAll('.zone-select-field');
+    if (!zoneSelects.length) return;
+
+    function fillOneZoneSelect(select) {
+        const currentVal = select.getAttribute('data-value') || (data ? data[select.getAttribute('name')] : '');
+        select.innerHTML = '<option value="">-- Select Zone --</option>';
+        zoneCache.forEach(zone => {
+            const opt = document.createElement('option');
+            opt.value = zone.name;
+            opt.textContent = zone.zone_name;
+            if (zone.name === currentVal || zone.zone_name === currentVal) {
+                opt.selected = true;
+            }
+            select.appendChild(opt);
+        });
     }
 
-    // Auto-fill Zone text field from team's region's zone
-    const zoneInput = $('[name="zone"]');
-    if (zoneInput.length) {
-        zoneInput.val(teamData.zone || '');
+    if (zoneCache.length) {
+        zoneSelects.forEach(fillOneZoneSelect);
+    } else {
+        $.ajax({
+            url: '/api/method/scanify.api.get_zone_list',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': window.csrf_token },
+            data: JSON.stringify({ division: currentDivision }),
+            success: function (r) {
+                if (r.message && r.message.success) {
+                    zoneCache = r.message.data;
+                    zoneSelects.forEach(fillOneZoneSelect);
+                }
+            }
+        });
+    }
+}
+
+function populateStateDropdown(data) {
+    const stateSelects = document.querySelectorAll('.state-select-field');
+    if (!stateSelects.length) return;
+
+    function fillOneStateSelect(select) {
+        const currentVal = select.getAttribute('data-value') || (data ? data[select.getAttribute('name')] : '');
+        select.innerHTML = '<option value="">-- Select State --</option>';
+        stateCache.forEach(state => {
+            const opt = document.createElement('option');
+            opt.value = state.name;
+            opt.textContent = state.state_name;
+            if (state.name === currentVal || state.state_name === currentVal) {
+                opt.selected = true;
+            }
+            select.appendChild(opt);
+        });
+    }
+
+    if (stateCache.length) {
+        stateSelects.forEach(fillOneStateSelect);
+    } else {
+        $.ajax({
+            url: '/api/method/scanify.api.get_state_list',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': window.csrf_token },
+            data: JSON.stringify({ division: currentDivision }),
+            success: function (r) {
+                if (r.message && r.message.success) {
+                    stateCache = r.message.data;
+                    stateSelects.forEach(fillOneStateSelect);
+                }
+            }
+        });
+    }
+}
+
+function fillTeamRelatedFields(teamData) {
+    // Auto-fill Region select from team's linked region (value = R0001, label = region_name)
+    const regionSelect = $('select.region-select-field[name="region"]');
+    if (regionSelect.length && teamData.region) {
+        regionSelect.val(teamData.region); // auto-code R0001, option text shows region_name
+    }
+
+    // Auto-fill Zone:
+    //   zone_select dropdown  → use zone code (Z0001) as value
+    //   Data text input       → use zone_name (human readable) for display
+    const zoneSelect = $('select.zone-select-field[name="zone"]');
+    const zoneInput = $('input[name="zone"]');
+    if (zoneSelect.length) {
+        zoneSelect.val(teamData.zone || '');    // Z0001
+    } else if (zoneInput.length) {
+        zoneInput.val(teamData.zone_name || teamData.zone || '');
     }
 }
 
@@ -827,8 +1035,13 @@ function saveRecord() {
     // Collect form data
     const data = {};
     config.fields.forEach(field => {
-        // Skip division field
-        if (field.name === 'division') {
+        // Skip display_only virtual fields (not real form inputs)
+        if (field.type === 'display_only') {
+            return;
+        }
+
+        // Skip division field (it's session-based) — except for Division master itself
+        if (field.name === 'division' && currentMasterType !== 'division') {
             return;
         }
 
@@ -858,14 +1071,15 @@ function saveRecord() {
         }
 
         // Skip code fields for new records (auto-generated)
+        // Exception: Division master uses 'name' as the user-provided key
         const isCodeField = ['name'].includes(field.name);
-        if (!recordId && isCodeField) {
+        if (!recordId && isCodeField && currentMasterType !== 'division') {
             return;
         }
 
         let input, value;
 
-        if (field.type === 'hq_select' || field.type === 'region_select' || field.type === 'team_select') {
+        if (field.type === 'hq_select' || field.type === 'region_select' || field.type === 'team_select' || field.type === 'zone_select' || field.type === 'state_select') {
             // Select dropdowns: value is already the internal doc name
             input = $(`[name="${field.name}"]`);
             value = input.val();
@@ -914,9 +1128,19 @@ function saveRecord() {
                 showAlert('Record saved successfully!', 'success');
                 $('#editModal').modal('hide');
                 loadMasterData();
-                // Refresh HQ cache if HQ was changed (affects sanctioned strength)
+                // Refresh cache state so next time dropdowns are opened they fetch fresh data
                 if (currentMasterType === 'hq') {
-                    loadHQCache();
+                    hqCache = [];
+                    // Fallback to loadHQCache if it exists for backwards compatibility
+                    if (typeof loadHQCache === 'function') loadHQCache();
+                } else if (currentMasterType === 'zone') {
+                    zoneCache = [];
+                } else if (currentMasterType === 'state') {
+                    stateCache = [];
+                } else if (currentMasterType === 'region') {
+                    regionCache = [];
+                } else if (currentMasterType === 'team') {
+                    teamCache = [];
                 }
             } else {
                 showError(response.message ? response.message.message : 'Failed to save record');
@@ -1299,6 +1523,19 @@ function processImport() {
                 setTimeout(function () {
                     $('#bulkImportModal').modal('hide');
                     loadMasterData();
+                    // Refresh cache state so next time dropdowns are opened they fetch fresh data
+                    if (currentMasterType === 'hq') {
+                        hqCache = [];
+                        if (typeof loadHQCache === 'function') loadHQCache();
+                    } else if (currentMasterType === 'zone') {
+                        zoneCache = [];
+                    } else if (currentMasterType === 'state') {
+                        stateCache = [];
+                    } else if (currentMasterType === 'region') {
+                        regionCache = [];
+                    } else if (currentMasterType === 'team') {
+                        teamCache = [];
+                    }
                 }, 2000);
             } else {
                 $('#import-alert')
@@ -1368,4 +1605,6 @@ function showAlert(message, type) {
 function showError(message) {
     showAlert(message, 'danger');
 }
+
+
 

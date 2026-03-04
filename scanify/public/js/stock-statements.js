@@ -558,7 +558,7 @@ function render_qc_table() {
         const v = c.curr ? fmt(row[c.id]) : (row[c.id] || '');
         tr += `<td class="text-right" id="cell-${i}-${c.id}">${v}</td>`;
       } else {
-        tr += `<td><input type="number" class="form-control form-control-sm qc-input" data-col="${c.id}" value="${row[c.id]}" min="0" step="1"></td>`;
+        tr += `<td class="p-0"><input type="number" class="ss-edit-input qc-input" data-col="${c.id}" value="${row[c.id]}" min="0" step="any"></td>`;
       }
     });
     tr += '</tr>';
@@ -577,7 +577,7 @@ function render_full_edit_table() {
         const v = c.curr ? fmt(row[c.id]) : escape_html(row[c.id] || '');
         tr += `<td class="text-right" id="fcell-${i}-${c.id}">${v}</td>`;
       } else {
-        tr += `<td><input type="number" class="form-control form-control-sm qc-input" data-col="${c.id}" value="${row[c.id]}" min="0"></td>`;
+        tr += `<td class="p-0"><input type="number" class="ss-edit-input qc-input" data-col="${c.id}" value="${row[c.id]}" min="0" step="any"></td>`;
       }
     });
     tr += '</tr>';

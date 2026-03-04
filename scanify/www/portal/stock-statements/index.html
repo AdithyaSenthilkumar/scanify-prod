@@ -139,12 +139,7 @@
       <div class="ss-loader-dots">
         <span></span><span></span><span></span><span></span>
       </div>
-      <div class="ss-loader-steps" id="loader-steps">
-        <div class="ss-step active" id="step-upload"><i class="fa fa-upload"></i> Uploading file</div>
-        <div class="ss-step" id="step-create"><i class="fa fa-file-plus"></i> Creating document</div>
-        <div class="ss-step" id="step-ai"><i class="fa fa-robot"></i> Running AI extraction</div>
-        <div class="ss-step" id="step-enrich"><i class="fa fa-database"></i> Enriching product data</div>
-      </div>
+
     </div>
   </div>
 
@@ -1088,6 +1083,28 @@
   .link-dropdown {
     border-radius: 8px;
     overflow: hidden;
+  }
+
+  .ss-edit-input {
+    width: 70px;
+    min-width: 60px;
+    padding: 2px 4px;
+    border: 1px solid #818cf8;
+    border-radius: 4px;
+    font-size: 11px;
+    text-align: right;
+    color: #1e293b;
+    background: #eef2ff;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    display: block;
+    margin: auto;
+  }
+
+  .ss-edit-input:focus {
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+    background: white;
   }
 </style>
 {% endblock %}

@@ -1,0 +1,543 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}New Bulk OCR Job{% endblock %}
+
+{% block portal_content %}
+<div class="bk-page">
+
+    <!-- Header -->
+    <div class="bk-header">
+        <div>
+            <h1 class="page-title"><i class="fa fa-layer-group"></i> New Bulk OCR Job</h1>
+            <p class="page-subtitle">Upload a ZIP of stockist statements — AI extracts them in parallel</p>
+        </div>
+        <div class="bk-header-actions">
+            <a href="/portal/bulk-ocr-list" class="btn btn-secondary btn-sm">
+                <i class="fa fa-list"></i> View All Jobs
+            </a>
+        </div>
+    </div>
+
+    <!-- Upload card -->
+    <div class="card bk-card">
+        <div class="card-header"><span><i class="fa fa-upload"></i> Upload Details</span></div>
+        <div class="card-body">
+            <form id="bk-form">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label>Statement Month <span class="text-danger">*</span></label>
+                            <input type="month" id="bk-month" class="form-control" required>
+                            <small class="form-text text-muted">Select the statement period for all files in the
+                                ZIP</small>
+                        </div>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="form-group">
+                            <label>ZIP File <span class="text-danger">*</span></label>
+                            <div class="bk-dropzone" id="bk-dropzone">
+                                <input type="file" id="bk-file-input" accept=".zip" style="display:none;">
+                                <div id="bk-drop-placeholder">
+                                    <div class="bk-drop-icon"><i class="fa fa-file-archive"></i></div>
+                                    <h5 class="bk-drop-title">Drag &amp; Drop your ZIP file here</h5>
+                                    <p class="bk-drop-hint">All statement files (PDF/JPG/PNG/Excel) should be inside the
+                                        ZIP</p>
+                                    <button type="button" class="btn btn-outline-primary" id="bk-browse-btn">
+                                        <i class="fa fa-folder-open"></i> Browse ZIP
+                                    </button>
+                                </div>
+                                <div id="bk-file-preview" style="display:none;" class="bk-file-card">
+                                    <div class="bk-file-icon"><i class="fa fa-file-archive"></i></div>
+                                    <div class="bk-file-info">
+                                        <strong id="bk-file-name"></strong>
+                                        <small id="bk-file-size" class="text-muted"></small>
+                                    </div>
+                                    <button type="button" class="btn-remove-file" id="bk-clear-file">
+                                        <i class="fa fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Info Box -->
+                <div class="bk-info-box">
+                    <div class="bk-info-item">
+                        <div class="bk-info-icon" style="background:#dbeafe;color:#2563eb;"><i class="fa fa-robot"></i>
+                        </div>
+                        <div>
+                            <strong>Stockist Matching</strong>
+                            <p>AI maps all filenames to stockists in one smart loop, then extracts data from each file
+                            </p>
+                        </div>
+                    </div>
+                    <div class="bk-info-item">
+                        <div class="bk-info-icon" style="background:#d1fae5;color:#059669;"><i class="fa fa-cogs"></i>
+                        </div>
+                        <div>
+                            <strong>Background Processing</strong>
+                            <p>Jobs run in the background. Track progress in real-time from the job list</p>
+                        </div>
+                    </div>
+                    <div class="bk-info-item">
+                        <div class="bk-info-icon" style="background:#fef3c7;color:#d97706;"><i class="fa fa-tag"></i>
+                        </div>
+                        <div>
+                            <strong>Filename Tip</strong>
+                            <p>Include at least part of the stockist name in each filename for best matching accuracy
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bk-action-bar">
+                    <button type="submit" class="btn bk-submit-btn" id="bk-submit">
+                        <span class="bk-glow"></span>
+                        <i class="fa fa-rocket"></i>
+                        <span>Start Bulk OCR Job</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</div>
+
+<!-- Upload progress overlay -->
+<div id="bk-uploading-overlay" style="display:none;" class="bk-overlay">
+    <div class="bk-overlay-card">
+        <div class="bk-spin-ring"></div>
+        <h4 id="bk-overlay-title">Uploading ZIP file…</h4>
+        <p id="bk-overlay-sub" class="text-muted">Please wait, do not close this page</p>
+        <div class="bk-upload-progress">
+            <div class="bk-progress-bar" id="bk-upload-progress-bar" style="width:0%"></div>
+        </div>
+        <p id="bk-upload-pct" class="bk-pct-text">0%</p>
+    </div>
+</div>
+
+<style>
+    .bk-page {
+        padding: 0;
+    }
+
+    .bk-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .bk-header-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .bk-card {
+        border-radius: 14px;
+        overflow: hidden;
+        margin-bottom: 1.5rem;
+    }
+
+    .bk-dropzone {
+        border: 2px dashed #c7d2fe;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #f8f8ff 0%, #f0f4ff 100%);
+        padding: 2rem;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+        min-height: 140px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .bk-dropzone.drag-over {
+        border-color: #4f46e5;
+        background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+        box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.08);
+    }
+
+    .bk-drop-icon {
+        font-size: 2.5rem;
+        color: #4f46e5;
+        margin-bottom: 0.75rem;
+    }
+
+    .bk-drop-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 0.35rem;
+    }
+
+    .bk-drop-hint {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin-bottom: 1rem;
+    }
+
+    .bk-file-card {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        background: white;
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        width: 100%;
+    }
+
+    .bk-file-icon {
+        font-size: 2rem;
+        color: #4f46e5;
+    }
+
+    .bk-file-info {
+        flex: 1;
+        text-align: left;
+    }
+
+    .btn-remove-file {
+        background: #fee2e2;
+        color: #dc2626;
+        border: none;
+        border-radius: 8px;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+
+    .btn-remove-file:hover {
+        background: #dc2626;
+        color: white;
+    }
+
+    .bk-info-box {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        margin: 1.5rem 0;
+    }
+
+    @media(max-width: 768px) {
+        .bk-info-box {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .bk-info-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        background: #f8fafc;
+        border-radius: 12px;
+        padding: 1rem;
+        border: 1px solid #e2e8f0;
+    }
+
+    .bk-info-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+    }
+
+    .bk-info-item strong {
+        display: block;
+        font-size: 13px;
+        color: #1e293b;
+        margin-bottom: 4px;
+    }
+
+    .bk-info-item p {
+        font-size: 12px;
+        color: #64748b;
+        margin: 0;
+    }
+
+    .bk-action-bar {
+        display: flex;
+        justify-content: center;
+        padding: 1.5rem 0 0.5rem;
+    }
+
+    .bk-submit-btn {
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        color: white;
+        border: none;
+        padding: 0.85rem 3rem;
+        font-size: 1.05rem;
+        font-weight: 700;
+        border-radius: 14px;
+        letter-spacing: 0.02em;
+        box-shadow: 0 8px 24px rgba(79, 70, 229, 0.35);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+
+    .bk-submit-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 14px 32px rgba(79, 70, 229, 0.45);
+    }
+
+    .bk-glow {
+        position: absolute;
+        inset: -2px;
+        background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.15) 50%, transparent 100%);
+        border-radius: inherit;
+        animation: bkGlow 2s linear infinite;
+        pointer-events: none;
+    }
+
+    @keyframes bkGlow {
+        0% {
+            transform: translateX(-100%);
+        }
+
+        100% {
+            transform: translateX(100%);
+        }
+    }
+
+    /* Overlay */
+    .bk-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(15, 23, 42, 0.7);
+        backdrop-filter: blur(6px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .bk-overlay-card {
+        background: white;
+        border-radius: 24px;
+        padding: 3rem 2.5rem;
+        text-align: center;
+        max-width: 400px;
+        width: 90%;
+        box-shadow: 0 32px 64px rgba(0, 0, 0, 0.25);
+    }
+
+    .bk-spin-ring {
+        width: 80px;
+        height: 80px;
+        margin: 0 auto 1.5rem;
+        border-radius: 50%;
+        border: 4px solid #e0e7ff;
+        border-top-color: #4f46e5;
+        animation: bkSpin 1s linear infinite;
+    }
+
+    @keyframes bkSpin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .bk-upload-progress {
+        background: #e2e8f0;
+        border-radius: 20px;
+        height: 10px;
+        margin: 1rem 0 0.5rem;
+        overflow: hidden;
+    }
+
+    .bk-progress-bar {
+        height: 100%;
+        border-radius: 20px;
+        background: linear-gradient(90deg, #4f46e5, #7c3aed);
+        transition: width 0.3s ease;
+    }
+
+    .bk-pct-text {
+        font-size: 14px;
+        font-weight: 700;
+        color: #4f46e5;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function () {
+        const CSRF = frappe.csrf_token;
+        let selectedFile = null;
+
+        // File input binding
+        const fileInput = document.getElementById('bk-file-input');
+        const dropzone = document.getElementById('bk-dropzone');
+        const placeholder = document.getElementById('bk-drop-placeholder');
+        const preview = document.getElementById('bk-file-preview');
+
+        document.getElementById('bk-browse-btn').addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+
+        // Drag & drop
+        dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+        dropzone.addEventListener('drop', e => {
+            e.preventDefault(); dropzone.classList.remove('drag-over');
+            if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+        });
+
+        document.getElementById('bk-clear-file').addEventListener('click', () => {
+            selectedFile = null;
+            fileInput.value = '';
+            preview.style.display = 'none';
+            placeholder.style.display = '';
+        });
+
+        function handleFile(f) {
+            if (!f) return;
+            if (!f.name.toLowerCase().endsWith('.zip')) {
+                alert('Please upload a ZIP file only.');
+                return;
+            }
+            selectedFile = f;
+            document.getElementById('bk-file-name').textContent = f.name;
+            document.getElementById('bk-file-size').textContent = formatBytes(f.size);
+            placeholder.style.display = 'none';
+            preview.style.display = 'flex';
+        }
+
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / 1048576).toFixed(1) + ' MB';
+        }
+
+        // Form submit
+        document.getElementById('bk-form').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const monthVal = document.getElementById('bk-month').value;
+            if (!monthVal) { alert('Please select a statement month.'); return; }
+            if (!selectedFile) { alert('Please upload a ZIP file.'); return; }
+
+            // Step 1: Upload ZIP via Frappe file upload
+            showOverlay('Uploading ZIP file…', 0);
+            let zipFileUrl = null;
+            try {
+                zipFileUrl = await uploadFile(selectedFile);
+            } catch (err) {
+                hideOverlay();
+                alert('Upload failed: ' + err.message);
+                return;
+            }
+
+            // Step 2: Create bulk job doc
+            updateOverlay('Creating bulk OCR job…', 80);
+            try {
+                function get_active_division() {
+                    try {
+                        const btn = document.querySelector('.division-name');
+                        if (btn && btn.textContent.trim()) return btn.textContent.trim();
+                    } catch (e) { }
+                    const match = document.cookie.match(/(?:^|;\s*)division=([^;]*)/);
+                    if (match) return decodeURIComponent(match[1]);
+                    return '';
+                }
+
+                const res = await apiCall('scanify.api.create_bulk_ocr_job', {
+                    statement_month: monthVal + '-01',
+                    zip_file_url: zipFileUrl,
+                    division: get_active_division()
+                });
+                if (!res.success) throw new Error(res.message || 'Could not create job');
+
+                const docname = res.docname;
+
+                // Step 3: Enqueue job
+                updateOverlay('Queuing background job…', 90);
+                const startRes = await apiCall('scanify.api.start_bulk_ocr_job', { docname });
+                if (!startRes.success) throw new Error(startRes.message || 'Could not start job');
+
+                hideOverlay();
+                window.location.href = '/portal/bulk-ocr-view?name=' + encodeURIComponent(docname);
+            } catch (err) {
+                hideOverlay();
+                alert('Error: ' + err.message);
+            }
+        });
+
+        function uploadFile(file) {
+            return new Promise((resolve, reject) => {
+                const fd = new FormData();
+                fd.append('file', file, file.name);
+                fd.append('is_private', '0');
+
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/method/upload_file', true);
+                xhr.setRequestHeader('X-Frappe-CSRF-Token', CSRF);
+
+                xhr.upload.onprogress = e => {
+                    if (e.lengthComputable) {
+                        const pct = Math.round((e.loaded / e.total) * 70); // 0-70
+                        updateOverlay('Uploading ZIP file…', pct);
+                    }
+                };
+
+                xhr.onload = () => {
+                    if (xhr.status === 200) {
+                        try {
+                            const resp = JSON.parse(xhr.responseText);
+                            resolve(resp.message.file_url);
+                        } catch {
+                            reject(new Error('Invalid server response'));
+                        }
+                    } else {
+                        reject(new Error(`Upload failed with status ${xhr.status}`));
+                    }
+                };
+                xhr.onerror = () => reject(new Error('Network error during upload'));
+                xhr.send(fd);
+            });
+        }
+
+        function apiCall(method, args) {
+            return fetch('/api/method/' + method, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': CSRF },
+                body: JSON.stringify(args)
+            }).then(r => r.json()).then(r => r.message);
+        }
+
+        function showOverlay(title, pct) {
+            document.getElementById('bk-overlay-title').textContent = title;
+            document.getElementById('bk-upload-progress-bar').style.width = pct + '%';
+            document.getElementById('bk-upload-pct').textContent = pct + '%';
+            document.getElementById('bk-uploading-overlay').style.display = 'flex';
+        }
+        function updateOverlay(title, pct) {
+            document.getElementById('bk-overlay-title').textContent = title;
+            document.getElementById('bk-upload-progress-bar').style.width = pct + '%';
+            document.getElementById('bk-upload-pct').textContent = pct + '%';
+        }
+        function hideOverlay() {
+            document.getElementById('bk-uploading-overlay').style.display = 'none';
+        }
+    })();
+</script>
+{% endblock %}

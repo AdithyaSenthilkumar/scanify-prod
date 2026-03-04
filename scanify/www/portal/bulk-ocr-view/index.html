@@ -1,0 +1,515 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Bulk OCR Job — {{ doc_name }}{% endblock %}
+
+{% block portal_content %}
+<div class="bkv-page">
+
+    <!-- Header -->
+    <div class="bkv-header">
+        <div>
+            <h1 class="page-title"><i class="fa fa-layer-group"></i> Bulk OCR Job</h1>
+            <p class="page-subtitle" id="bkv-subtitle">Loading…</p>
+        </div>
+        <div class="bkv-header-actions">
+            <a href="/portal/bulk-ocr-list" class="btn btn-secondary btn-sm">
+                <i class="fa fa-arrow-left"></i> All Jobs
+            </a>
+            <button class="btn btn-primary btn-sm" id="bkv-rerun-btn" style="display:none;" onclick="rerunJob()">
+                <i class="fa fa-redo"></i> Re-run Job
+            </button>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="bkv-loading" class="bkv-loading-card">
+        <i class="fa fa-spinner fa-spin fa-2x text-muted"></i>
+        <p class="text-muted mt-3">Loading job details…</p>
+    </div>
+
+    <!-- Main content -->
+    <div id="bkv-content" style="display:none;">
+
+        <!-- Status + Progress Card -->
+        <div class="card bkv-card">
+            <div class="card-body">
+                <div class="bkv-status-row">
+                    <div class="bkv-status-left">
+                        <div class="bkv-status-info">
+                            <span id="bkv-status-badge">—</span>
+                            <div class="bkv-meta">
+                                <span><i class="fa fa-calendar"></i> <span id="bkv-month"></span></span>
+                                <span><i class="fa fa-file-archive"></i> <span id="bkv-total"></span> files total</span>
+                            </div>
+                        </div>
+
+                        <!-- Big progress bar -->
+                        <div class="bkv-progress-section">
+                            <div class="bkv-progress-bar-wrap">
+                                <div class="bkv-progress-fill" id="bkv-progress-fill" style="width:0%"></div>
+                                <span class="bkv-progress-pct" id="bkv-progress-pct">0%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stat chips -->
+                    <div class="bkv-stat-chips">
+                        <div class="bkv-chip bkv-chip-green">
+                            <div class="bkv-chip-val" id="bkv-success">0</div>
+                            <div class="bkv-chip-label"><i class="fa fa-check-circle"></i> Success</div>
+                        </div>
+                        <div class="bkv-chip bkv-chip-red">
+                            <div class="bkv-chip-val" id="bkv-failed">0</div>
+                            <div class="bkv-chip-label"><i class="fa fa-times-circle"></i> Failed</div>
+                        </div>
+                        <div class="bkv-chip bkv-chip-blue">
+                            <div class="bkv-chip-val" id="bkv-skipped">0</div>
+                            <div class="bkv-chip-label"><i class="fa fa-forward"></i> Skipped</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- In-progress pulse animation -->
+                <div id="bkv-active-indicator" style="display:none;" class="bkv-active-pulse mt-3">
+                    <div class="bkv-pulse-dot"></div>
+                    <span class="bkv-pulse-text">AI extraction in progress — auto-refreshing every 5 seconds…</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results log -->
+        <div class="card bkv-card mt-3" id="bkv-log-card" style="display:none;">
+            <div class="card-header">
+                <span><i class="fa fa-list-alt"></i> File Results</span>
+                <div>
+                    <input type="text" id="bkv-log-search" class="form-control form-control-sm"
+                        placeholder="Filter files…" style="width:200px;display:inline-block;">
+                    <select id="bkv-log-filter" class="form-control form-control-sm ml-2"
+                        style="width:130px;display:inline-block;">
+                        <option value="">All</option>
+                        <option value="Success">Success</option>
+                        <option value="Failed">Failed</option>
+                        <option value="Skipped">Skipped</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height:500px;overflow-y:auto;">
+                    <table class="table table-hover mb-0 bkv-log-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>File</th>
+                                <th>Stockist</th>
+                                <th>Status</th>
+                                <th>Items</th>
+                                <th>Note</th>
+                                <th>Statement</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bkv-log-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /bkv-content -->
+
+</div><!-- /bkv-page -->
+
+<style>
+    .bkv-page {
+        padding: 0;
+    }
+
+    .bkv-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .bkv-header-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .bkv-loading-card {
+        text-align: center;
+        padding: 4rem;
+        background: white;
+        border-radius: 14px;
+        border: 1px solid #e2e8f0;
+    }
+
+    .bkv-card {
+        border-radius: 14px;
+        overflow: hidden;
+    }
+
+    .bkv-status-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 2rem;
+        flex-wrap: wrap;
+    }
+
+    .bkv-status-left {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .bkv-status-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 1.25rem;
+        flex-wrap: wrap;
+    }
+
+    .bkv-meta {
+        display: flex;
+        gap: 16px;
+    }
+
+    .bkv-meta span {
+        font-size: 12px;
+        color: #64748b;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    /* Progress bar */
+    .bkv-progress-section {
+        margin-bottom: 0;
+    }
+
+    .bkv-progress-bar-wrap {
+        background: #e2e8f0;
+        border-radius: 20px;
+        height: 20px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .bkv-progress-fill {
+        height: 100%;
+        border-radius: 20px;
+        background: linear-gradient(90deg, #4f46e5, #7c3aed);
+        transition: width 0.5s ease;
+        position: relative;
+    }
+
+    .bkv-progress-fill::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 40px;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3));
+        animation: shimmer 1.5s infinite;
+    }
+
+    @keyframes shimmer {
+        0% {
+            opacity: 0;
+        }
+
+        50% {
+            opacity: 1;
+        }
+
+        100% {
+            opacity: 0;
+        }
+    }
+
+    .bkv-progress-pct {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 11px;
+        font-weight: 700;
+        color: white;
+        z-index: 1;
+    }
+
+    /* Stat chips */
+    .bkv-stat-chips {
+        display: flex;
+        gap: 12px;
+        flex-shrink: 0;
+    }
+
+    .bkv-chip {
+        text-align: center;
+        padding: 12px 20px;
+        border-radius: 12px;
+        min-width: 80px;
+    }
+
+    .bkv-chip-green {
+        background: #dcfce7;
+    }
+
+    .bkv-chip-red {
+        background: #fee2e2;
+    }
+
+    .bkv-chip-blue {
+        background: #dbeafe;
+    }
+
+    .bkv-chip-val {
+        font-size: 1.75rem;
+        font-weight: 800;
+        line-height: 1;
+    }
+
+    .bkv-chip-green .bkv-chip-val {
+        color: #16a34a;
+    }
+
+    .bkv-chip-red .bkv-chip-val {
+        color: #dc2626;
+    }
+
+    .bkv-chip-blue .bkv-chip-val {
+        color: #2563eb;
+    }
+
+    .bkv-chip-label {
+        font-size: 11px;
+        font-weight: 600;
+        margin-top: 4px;
+        color: #64748b;
+    }
+
+    /* Pulse */
+    .bkv-active-pulse {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: #f0fdf4;
+        border-radius: 10px;
+        padding: 10px 16px;
+    }
+
+    .bkv-pulse-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #10b981;
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+        animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+        0% {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+        }
+
+        70% {
+            box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+        }
+
+        100% {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+        }
+    }
+
+    .bkv-pulse-text {
+        font-size: 12px;
+        color: #059669;
+        font-weight: 600;
+    }
+
+    /* Log table */
+    .bkv-log-table {
+        font-size: 12px;
+    }
+
+    .bkv-log-table thead th {
+        background: #1e293b;
+        color: white;
+        font-size: 11px;
+        white-space: nowrap;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+    }
+
+    .status-success {
+        color: #16a34a;
+        font-weight: 700;
+    }
+
+    .status-failed {
+        color: #dc2626;
+        font-weight: 700;
+    }
+
+    .status-skipped {
+        color: #0284c7;
+        font-weight: 700;
+    }
+
+    .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const DOC_NAME = {{ doc_name | tojson }};
+    const CSRF = frappe.csrf_token;
+    let allLogData = [];
+    let pollTimer = null;
+
+    function apiCall(method, args) {
+        return fetch('/api/method/' + method, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': CSRF },
+            body: JSON.stringify(args || {})
+        }).then(r => r.json()).then(r => r.message);
+    }
+
+    function statusBadge(s) {
+        const cls = {
+            'Pending': 'badge-secondary', 'Queued': 'badge-info',
+            'In Progress': 'badge-warning', 'Completed': 'badge-success',
+            'Partially Completed': 'badge-warning', 'Failed': 'badge-danger'
+        }[s] || 'badge-secondary';
+        return `<span class="badge ${cls}" style="font-size:13px;padding:6px 14px;">${s}</span>`;
+    }
+
+    function fmtMonth(d) {
+        if (!d) return '—';
+        const parts = d.split('-');
+        return new Date(parts[0], parts[1] - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+    }
+
+    function renderLog(data) {
+        const search = (document.getElementById('bkv-log-search').value || '').toLowerCase();
+        const filter = document.getElementById('bkv-log-filter').value;
+
+        const filtered = data.filter(r => {
+            const matchSearch = !search || (r.file || '').toLowerCase().includes(search)
+                || (r.stockist || '').toLowerCase().includes(search);
+            const matchStatus = !filter || r.status === filter;
+            return matchSearch && matchStatus;
+        });
+
+        const tbody = document.getElementById('bkv-log-tbody');
+        if (!filtered.length) {
+            tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">No results match the filter.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = filtered.map((r, i) => {
+            const stCls = r.status === 'Success' ? 'status-success'
+                : r.status === 'Failed' ? 'status-failed' : 'status-skipped';
+            const stLink = r.statement
+                ? `<a href="/portal/statement-view?name=${encodeURIComponent(r.statement)}" class="btn btn-xs btn-outline-primary" style="font-size:11px;padding:2px 8px;">View</a>`
+                : '—';
+            return `<tr>
+            <td class="text-muted">${i + 1}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.file || ''}">${r.file || '—'}</td>
+            <td>${r.stockist || '—'}</td>
+            <td class="${stCls}">${r.status}</td>
+            <td>${r.items_extracted != null ? r.items_extracted : '—'}</td>
+            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.message || ''}">${r.message || '—'}</td>
+            <td>${stLink}</td>
+        </tr>`;
+        }).join('');
+    }
+
+    async function loadStatus() {
+        const res = await apiCall('scanify.api.get_bulk_job_status', { docname: DOC_NAME });
+        if (!res || !res.success) return;
+
+        // Header
+        document.getElementById('bkv-subtitle').textContent = DOC_NAME;
+        document.getElementById('bkv-status-badge').innerHTML = statusBadge(res.status);
+        document.getElementById('bkv-total').textContent = res.total_files;
+        document.getElementById('bkv-success').textContent = res.success_count;
+        document.getElementById('bkv-failed').textContent = res.failed_count;
+        document.getElementById('bkv-skipped').textContent = res.skipped_count;
+
+        const pct = Math.round(res.progress || 0);
+        document.getElementById('bkv-progress-fill').style.width = pct + '%';
+        document.getElementById('bkv-progress-pct').textContent = pct + '%';
+
+        // Active indicator
+        const isActive = ['Queued', 'In Progress'].includes(res.status);
+        document.getElementById('bkv-active-indicator').style.display = isActive ? 'flex' : 'none';
+
+        // Re-run button for failed/completed with failures
+        if (['Failed', 'Partially Completed'].includes(res.status)) {
+            document.getElementById('bkv-rerun-btn').style.display = '';
+        }
+
+        // Month (fetched from a separate field if available)
+        // For now, show from DOC_NAME parsing
+        const monthMatch = DOC_NAME.match(/BULK-(\d{4}-\d{2}-\d{2})/);
+        if (monthMatch) {
+            document.getElementById('bkv-month').textContent = fmtMonth(monthMatch[1]);
+        }
+
+        // Log data
+        if (res.log && res.log.length) {
+            allLogData = res.log;
+            document.getElementById('bkv-log-card').style.display = '';
+            renderLog(allLogData);
+        }
+
+        document.getElementById('bkv-loading').style.display = 'none';
+        document.getElementById('bkv-content').style.display = '';
+
+        // Keep polling if active
+        if (isActive) {
+            if (!pollTimer) {
+                pollTimer = setInterval(loadStatus, 5000);
+            }
+        } else {
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        }
+    }
+
+    async function rerunJob() {
+        if (!confirm('Re-run this job? It will only process files that were not already extracted.')) return;
+        const btn = document.getElementById('bkv-rerun-btn');
+        btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Queuing…';
+        try {
+            const res = await apiCall('scanify.api.start_bulk_ocr_job', { docname: DOC_NAME });
+            if (res && res.success) {
+                btn.innerHTML = '<i class="fa fa-check"></i> Queued!';
+                setTimeout(loadStatus, 1000);
+            } else {
+                alert('Failed: ' + (res && res.message));
+                btn.disabled = false; btn.innerHTML = '<i class="fa fa-redo"></i> Re-run Job';
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+            btn.disabled = false; btn.innerHTML = '<i class="fa fa-redo"></i> Re-run Job';
+        }
+    }
+
+    // Search / filter
+    document.getElementById('bkv-log-search').addEventListener('input', () => renderLog(allLogData));
+    document.getElementById('bkv-log-filter').addEventListener('change', () => renderLog(allLogData));
+
+    document.addEventListener('DOMContentLoaded', loadStatus);
+</script>
+{% endblock %}

@@ -16,7 +16,7 @@
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body bg-light rounded px-4 py-3 border">
             <div class="row align-items-center">
-                <div class="col-md-6 mb-3 mb-md-0">
+                <div class="col-md-5 mb-3 mb-md-0">
                     <div class="input-group">
                         <div class="input-group-prepend">
                             <span class="input-group-text bg-white"><i class="fa fa-search text-muted"></i></span>
@@ -25,7 +25,10 @@
                             placeholder="Search by Stockist Name or Code...">
                     </div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-2 mb-3 mb-md-0">
+                    <input type="month" id="monthFilter" class="form-control" placeholder="Filter by Month">
+                </div>
+                <div class="col-md-3 mb-3 mb-md-0">
                     <select id="statusFilter" class="form-control custom-select">
                         <option value="">All Statuses</option>
                         <option value="Pending">Pending</option>
@@ -34,7 +37,7 @@
                         <option value="Failed">Failed</option>
                     </select>
                 </div>
-                <div class="col-md-2 text-md-right mt-3 mt-md-0">
+                <div class="col-md-2 text-md-right">
                     <button class="btn btn-outline-secondary w-100" onclick="clearFilters()"><i class="fa fa-times"></i>
                         Clear</button>
                 </div>
@@ -63,6 +66,7 @@
                         {% for row in statements %}
                         <tr class="statement-row"
                             data-stockist="{{ row.stockist_name|lower }} {{ row.stockist_code|lower }}"
+                            data-month="{{ row.statement_month and row.statement_month|string|truncate(7, True, '') or '' }}"
                             data-status="{{ row.extracted_data_status }}">
                             <td><strong>{{ row.name }}</strong></td>
                             <td>
@@ -127,22 +131,31 @@
     document.addEventListener("DOMContentLoaded", function () {
         const searchInput = document.getElementById("searchInput");
         const statusFilter = document.getElementById("statusFilter");
+        const monthFilter = document.getElementById("monthFilter");
         const rows = document.querySelectorAll(".statement-row");
         const noMatchesRow = document.getElementById("noMatchesRow");
 
         function filterTable() {
             const searchTerm = searchInput.value.toLowerCase();
             const statusTerm = statusFilter.value;
+            const monthTerm = monthFilter.value;
             let anyVisible = false;
 
             rows.forEach(row => {
                 const stockistData = row.getAttribute("data-stockist");
                 const rowStatus = row.getAttribute("data-status");
+                const rowMonth = row.getAttribute("data-month");
 
                 const matchesSearch = stockistData.includes(searchTerm);
                 const matchesStatus = statusTerm === "" || rowStatus === statusTerm;
 
-                if (matchesSearch && matchesStatus) {
+                let matchesMonth = true;
+                if (monthTerm) {
+                    // Make sure the row's YYYY-MM matches the filter's YYYY-MM exactly
+                    matchesMonth = rowMonth.startsWith(monthTerm);
+                }
+
+                if (matchesSearch && matchesStatus && matchesMonth) {
                     row.style.display = "";
                     anyVisible = true;
                 } else {
@@ -157,10 +170,12 @@
 
         searchInput.addEventListener("input", filterTable);
         statusFilter.addEventListener("change", filterTable);
+        monthFilter.addEventListener("change", filterTable);
 
         window.clearFilters = function () {
             searchInput.value = "";
             statusFilter.value = "";
+            monthFilter.value = "";
             filterTable();
         };
     });

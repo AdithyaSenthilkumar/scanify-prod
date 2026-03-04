@@ -1,0 +1,254 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Bulk OCR Jobs{% endblock %}
+
+{% block portal_content %}
+<div class="bkl-page">
+
+    <div class="bkl-header">
+        <div>
+            <h1 class="page-title"><i class="fa fa-layer-group"></i> Bulk OCR Processing Jobs</h1>
+            <p class="page-subtitle text-muted">Track AI extraction jobs for {{ division }} division</p>
+        </div>
+        <a href="/portal/bulk-ocr-new" class="btn btn-primary">
+            <i class="fa fa-plus"></i> New Bulk Job
+        </a>
+    </div>
+
+    <!-- Jobs table -->
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0 border">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" id="bkl-table">
+                    <thead class="bkl-thead">
+                        <tr>
+                            <th>Job ID</th>
+                            <th>Month</th>
+                            <th>Status</th>
+                            <th>Progress</th>
+                            <th>Results</th>
+                            <th>Created</th>
+                            <th class="text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bkl-tbody">
+                        <tr>
+                            <td colspan="7" class="text-center py-5 text-muted" id="bkl-loading">
+                                <i class="fa fa-spinner fa-spin fa-2x mb-2"></i><br>Loading jobs…
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .bkl-page {
+        padding: 0;
+    }
+
+    .bkl-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .bkl-thead th {
+        background: #1e293b;
+        color: white;
+        font-size: 11px;
+        white-space: nowrap;
+        padding: 10px 12px;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .s-pending {
+        background: #f0f9ff;
+        color: #0284c7;
+    }
+
+    .s-queued {
+        background: #faf5ff;
+        color: #7c3aed;
+    }
+
+    .s-progress {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .s-completed {
+        background: #dcfce7;
+        color: #16a34a;
+    }
+
+    .s-partial {
+        background: #fff7ed;
+        color: #ea580c;
+    }
+
+    .s-failed {
+        background: #fee2e2;
+        color: #dc2626;
+    }
+
+    .bkl-progress-wrap {
+        background: #e2e8f0;
+        border-radius: 10px;
+        height: 8px;
+        width: 100px;
+        overflow: hidden;
+        display: inline-block;
+    }
+
+    .bkl-progress-fill {
+        height: 100%;
+        border-radius: 10px;
+        background: linear-gradient(90deg, #4f46e5, #7c3aed);
+        transition: width 0.4s ease;
+    }
+
+    .bkl-result-chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .bkl-chip {
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 10px;
+        font-weight: 700;
+    }
+
+    .chip-success {
+        background: #dcfce7;
+        color: #16a34a;
+    }
+
+    .chip-failed {
+        background: #fee2e2;
+        color: #dc2626;
+    }
+
+    .chip-skipped {
+        background: #f0f9ff;
+        color: #0284c7;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function () {
+        const CSRF = frappe.csrf_token;
+
+        function apiCall(method, args) {
+            return fetch('/api/method/' + method, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': CSRF },
+                body: JSON.stringify(args || {})
+            }).then(r => r.json()).then(r => r.message);
+        }
+
+        function statusBadge(s) {
+            const cls = {
+                'Pending': 's-pending', 'Queued': 's-queued',
+                'In Progress': 's-progress', 'Completed': 's-completed',
+                'Partially Completed': 's-partial', 'Failed': 's-failed'
+            }[s] || 's-pending';
+            const icons = {
+                'Pending': 'fa-clock', 'Queued': 'fa-hourglass-half',
+                'In Progress': 'fa-cog fa-spin', 'Completed': 'fa-check-circle',
+                'Partially Completed': 'fa-exclamation-circle', 'Failed': 'fa-times-circle'
+            };
+            const icon = icons[s] || 'fa-circle';
+            return `<span class="status-badge ${cls}"><i class="fa ${icon}"></i> ${s}</span>`;
+        }
+
+        function progressBar(pct) {
+            return `<div class="bkl-progress-wrap">
+            <div class="bkl-progress-fill" style="width:${pct}%"></div>
+        </div>
+        <small class="ml-1 text-muted">${Math.round(pct)}%</small>`;
+        }
+
+        function formatDate(d) {
+            if (!d) return '—';
+            const dt = new Date(d);
+            return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                + ' ' + dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function formatMonth(d) {
+            if (!d) return '—';
+            const [y, m] = d.split('-');
+            return new Date(y, m - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+        }
+
+        async function loadJobs() {
+            const res = await apiCall('scanify.api.get_bulk_jobs_list');
+            const tbody = document.getElementById('bkl-tbody');
+
+            if (!res || !res.success || !res.jobs || !res.jobs.length) {
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-5 text-muted">
+                <i class="fa fa-folder-open fa-3x mb-3 d-block text-light"></i>
+                No bulk OCR jobs found.<br>
+                <a href="/portal/bulk-ocr-new" class="btn btn-primary btn-sm mt-3">
+                    <i class="fa fa-plus"></i> Create First Job
+                </a>
+            </td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = res.jobs.map(job => {
+                const sc = job.success_count || 0;
+                const fc = job.failed_count || 0;
+                const sk = job.skipped_count || 0;
+                const total = job.total_files || 0;
+                const chips = total > 0 ? `
+                <div class="bkl-result-chips">
+                    <span class="bkl-chip chip-success"><i class="fa fa-check"></i> ${sc}</span>
+                    ${fc > 0 ? `<span class="bkl-chip chip-failed"><i class="fa fa-times"></i> ${fc}</span>` : ''}
+                    ${sk > 0 ? `<span class="bkl-chip chip-skipped"><i class="fa fa-forward"></i> ${sk}</span>` : ''}
+                    <span class="text-muted" style="font-size:10px;">/ ${total}</span>
+                </div>` : '<span class="text-muted small">—</span>';
+
+                return `<tr>
+                <td><strong>${job.name}</strong></td>
+                <td>${formatMonth(job.statement_month)}</td>
+                <td>${statusBadge(job.status)}</td>
+                <td>${progressBar(job.progress || 0)}</td>
+                <td>${chips}</td>
+                <td><small class="text-muted">${formatDate(job.creation)}</small></td>
+                <td class="text-center">
+                    <a href="/portal/bulk-ocr-view?name=${encodeURIComponent(job.name)}"
+                       class="btn btn-sm btn-primary">
+                        <i class="fa fa-eye"></i> View
+                    </a>
+                </td>
+            </tr>`;
+            }).join('');
+        }
+
+        // Load on page ready
+        document.addEventListener('DOMContentLoaded', loadJobs);
+        // Auto-refresh every 10s
+        setInterval(loadJobs, 10000);
+    })();
+</script>
+{% endblock %}

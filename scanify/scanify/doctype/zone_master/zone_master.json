@@ -1,56 +1,40 @@
 {
     "actions": [],
     "allow_rename": 1,
-    "autoname": "format:T{####}",
-    "creation": "2025-11-28 22:00:00.000000",
+    "autoname": "format:Z{####}",
+    "creation": "2026-03-04 18:00:00.000000",
     "doctype": "DocType",
     "engine": "InnoDB",
-    "title_field": "team_name",
+    "title_field": "zone_name",
     "field_order": [
-        "team_code",
-        "team_name",
+        "zone_code",
+        "zone_name",
         "division",
-        "region",
-        "sanctioned_strength",
         "status"
     ],
     "fields": [
         {
-            "fieldname": "team_code",
+            "fieldname": "zone_code",
             "fieldtype": "Data",
-            "label": "Team Code",
+            "label": "Zone Code",
             "read_only": 1,
             "in_list_view": 1,
             "bold": 1
         },
         {
-            "fieldname": "team_name",
+            "fieldname": "zone_name",
             "fieldtype": "Data",
             "in_list_view": 1,
-            "label": "Team Name",
+            "label": "Zone Name",
             "reqd": 1
         },
         {
             "fieldname": "division",
             "fieldtype": "Link",
+            "in_list_view": 1,
             "label": "Division",
             "options": "Division",
-            "reqd": 1,
-            "in_list_view": 1
-        },
-        {
-            "fieldname": "region",
-            "fieldtype": "Link",
-            "label": "Region",
-            "options": "Region Master",
             "reqd": 1
-        },
-        {
-            "fieldname": "sanctioned_strength",
-            "fieldtype": "Int",
-            "label": "Sanctioned Strength",
-            "read_only": 1,
-            "description": "Auto-calculated: sum of Per Capita across all HQs in this team."
         },
         {
             "default": "Active",
@@ -65,7 +49,7 @@
     "modified": "2026-03-05 00:30:00.000000",
     "modified_by": "Administrator",
     "module": "Scanify",
-    "name": "Team Master",
+    "name": "Zone Master",
     "naming_rule": "",
     "owner": "Administrator",
     "permissions": [
@@ -82,9 +66,9 @@
             "write": 1
         }
     ],
-    "search_fields": "team_name,team_code",
-    "sort_field": "modified",
-    "sort_order": "DESC",
+    "search_fields": "zone_name,zone_code",
+    "sort_field": "zone_name",
+    "sort_order": "ASC",
     "states": [],
     "track_changes": 1
 }
