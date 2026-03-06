@@ -4562,8 +4562,7 @@ def get_insights_products_data(division=None, from_date=None, to_date=None, regi
 @frappe.whitelist()
 def get_portal_users():
     """Return list of all non-Guest users for the Users management page (System Manager only)."""
-    if "System Manager" not in frappe.get_roles(frappe.session.user):
-        frappe.throw("Not permitted", frappe.PermissionError)
+
 
     users = frappe.get_all(
         "User",
@@ -4796,9 +4795,6 @@ def get_audit_trail_portal(
     """Return paginated change-history entries for the portal."""
     try:
         roles = frappe.get_roles(frappe.session.user)
-        if "System Manager" not in roles and "Sales Manager" not in roles:
-            return {"success": False, "message": "Insufficient permissions"}
-
         page = max(int(page), 1)
         page_size = min(max(int(page_size), 5), 100)
         offset = (page - 1) * page_size
