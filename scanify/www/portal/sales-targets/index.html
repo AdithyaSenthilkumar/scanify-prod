@@ -43,9 +43,15 @@
     <div class="card">
         <div class="card-header d-flex align-items-center justify-content-between">
             <span><i class="fa fa-list"></i> HQ Target Rows</span>
-            <button class="btn btn-sm btn-primary" type="button" id="add-row-btn">
-                <i class="fa fa-plus"></i> Add HQ Row
-            </button>
+            <div>
+                <button class="btn btn-sm btn-outline-info mr-2" type="button" id="bulk-import-btn" data-toggle="modal"
+                    data-target="#bulk-import-modal">
+                    <i class="fa fa-upload"></i> Bulk Import
+                </button>
+                <button class="btn btn-sm btn-primary" type="button" id="add-row-btn">
+                    <i class="fa fa-plus"></i> Add HQ Row
+                </button>
+            </div>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -101,11 +107,41 @@
                     <button class="btn btn-primary" type="button" id="save-btn">
                         <i class="fa fa-save"></i> Save Sales Target
                     </button>
+                    <button class="btn btn-success d-none ml-2" type="button" id="approve-btn">
+                        <i class="fa fa-check"></i> Approve Target
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Bulk Import Modal -->
+<div class="modal fade" id="bulk-import-modal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa fa-upload"></i> Bulk Import Targets</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Paste your data here from Excel/CSV. Ensure the columns are exactly: <strong>HQ
+                        Name, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar</strong> and separated by tabs
+                    (from Excel) or commas.</p>
+                <textarea id="bulk-import-data" class="form-control" rows="10"
+                    placeholder="Paste data here..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="process-bulk-import"><i class="fa fa-cogs"></i>
+                    Process Data</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 
 <style>
     .sales-target-page {
@@ -143,7 +179,7 @@
     }
 
     .sales-target-page .table td.col-hq {
-        min-width: 260px;
+        min-width: 320px;
     }
 
     .sales-target-page .hq-cell-wrap {

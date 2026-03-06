@@ -485,13 +485,6 @@
     function renderActionButtons(d) {
         let html = '';
 
-        // Repeat (if approved)
-        if (d.approval_status === 'Approved') {
-            html += `<button class="btn btn-info ml-1" onclick="repeatScheme()">
-            <i class="fa fa-redo"></i> Repeat Request
-        </button>`;
-        }
-
         // Manager actions (if pending and not submitted)
         if (IS_MANAGER && d.approval_status === 'Pending' && d.docstatus !== 1) {
             html += `

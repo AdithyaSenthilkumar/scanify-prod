@@ -4,32 +4,30 @@
 
 {% block portal_content %}
 <div class="portal-page scheme-list-page">
-    <div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div class="page-header d-flex justify-content-between align-items-center">
         <div>
             <h1 class="page-title"><i class="fa fa-file-alt"></i> Scheme Requests</h1>
-            <p class="page-subtitle text-muted">All scheme requests for <strong>{{ division }}</strong> division</p>
+            <p class="page-subtitle">All scheme requests for <strong>{{ division }}</strong> division</p>
         </div>
-        <a href="/portal/scheme-new" class="btn btn-primary">
-            <i class="fa fa-plus"></i> New Scheme Request
-        </a>
+        <div class="d-flex gap-2">
+            <a href="/portal/scheme-repeat" class="btn btn-secondary">
+                <i class="fa fa-redo"></i> Repeat Request
+            </a>
+            <a href="/portal/scheme-new" class="btn btn-primary">
+                <i class="fa fa-plus"></i> New Scheme Request
+            </a>
+        </div>
     </div>
 
-    <!-- Filters -->
-    <div class="card shadow-sm border-0 mb-4">
-        <div class="card-body bg-light rounded px-4 py-3 border">
-            <div class="row align-items-end g-3">
-                <div class="col-md-4">
-                    <label class="form-label"><strong>Search</strong></label>
-                    <div class="input-group">
-                        <div class="input-group-prepend">
-                            <span class="input-group-text bg-white"><i class="fa fa-search text-muted"></i></span>
-                        </div>
-                        <input type="text" id="searchInput" class="form-control"
-                            placeholder="Doctor, Stockist, Scheme ID...">
-                    </div>
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row align-items-end">
+                <div class="col-md-3">
+                    <label><strong>Search</strong></label>
+                    <input type="text" id="searchInput" class="form-control" placeholder="Doctor, Stockist, Scheme ID...">
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label"><strong>Status</strong></label>
+                    <label><strong>Status</strong></label>
                     <select id="statusFilter" class="form-control">
                         <option value="">All Status</option>
                         <option value="Pending">Pending</option>
@@ -39,18 +37,26 @@
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label"><strong>From Date</strong></label>
+                    <label><strong>Request Type</strong></label>
+                    <select id="requestTypeFilter" class="form-control">
+                        <option value="">All</option>
+                        <option value="Original">Original</option>
+                        <option value="Repeated">Repeated</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label><strong>From Date</strong></label>
                     <input type="date" id="fromDate" class="form-control">
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label"><strong>To Date</strong></label>
+                    <label><strong>To Date</strong></label>
                     <input type="date" id="toDate" class="form-control">
                 </div>
-                <div class="col-md-2 d-flex gap-2">
-                    <button class="btn btn-primary flex-fill" id="applyFilterBtn" onclick="loadSchemes()">
-                        <i class="fa fa-filter"></i> Filter
+                <div class="col-md-1 d-flex gap-2">
+                    <button class="btn btn-primary w-100" id="applyFilterBtn" onclick="loadSchemes()">
+                        <i class="fa fa-filter"></i>
                     </button>
-                    <button class="btn btn-outline-secondary" onclick="clearFilters()">
+                    <button class="btn btn-secondary" onclick="clearFilters()">
                         <i class="fa fa-times"></i>
                     </button>
                 </div>
@@ -58,9 +64,8 @@
         </div>
     </div>
 
-    <!-- List -->
-    <div class="card shadow-sm border-0">
-        <div class="card-body p-0 border">
+    <div class="card">
+        <div class="card-body p-0">
             <div id="schemesList">
                 <div class="text-center p-5">
                     <i class="fa fa-spinner fa-spin fa-3x text-muted"></i>
@@ -78,32 +83,27 @@
         font-size: 12px;
         font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.3px;
     }
 
     .scheme-list-page .status-Pending {
-        background: #fff3cd;
-        color: #856404;
+        background: #fffbeb;
+        color: #b45309;
     }
 
     .scheme-list-page .status-Approved {
-        background: #d1e7dd;
-        color: #0a5e36;
+        background: #ecfdf5;
+        color: #047857;
     }
 
     .scheme-list-page .status-Rejected {
-        background: #f8d7da;
-        color: #842029;
+        background: #fef2f2;
+        color: #b91c1c;
     }
 
     .scheme-list-page .status-Rerouted {
-        background: #cff4fc;
-        color: #055160;
-    }
-
-    .scheme-list-page .table td,
-    .scheme-list-page .table th {
-        vertical-align: middle;
+        background: #eff6ff;
+        color: #1d4ed8;
     }
 
     .scheme-list-page .scheme-id {
@@ -119,8 +119,15 @@
 
 {% block scripts %}
 <script>
-    const DIVISION = "{{ division }}";
-    const IS_MANAGER = {{ 'true' if is_manager else 'false' }};
+    function getActiveDivision() {
+        try {
+            const btn = document.querySelector('.division-name');
+            if (btn && btn.textContent.trim()) return btn.textContent.trim();
+        } catch (e) { }
+        const match = document.cookie.match(/(?:^|;\s*)division=([^;]*)/);
+        if (match) return decodeURIComponent(match[1]);
+        return '{{ division }}';
+    }
 
     $(document).ready(function () {
         loadSchemes();
@@ -129,6 +136,7 @@
     function loadSchemes() {
         const filters = {
             status: $('#statusFilter').val(),
+            request_type: $('#requestTypeFilter').val(),
             from_date: $('#fromDate').val(),
             to_date: $('#toDate').val(),
             search: $('#searchInput').val(),
@@ -145,13 +153,11 @@
             url: '/api/method/scanify.api.get_scheme_list_portal',
             type: 'POST',
             contentType: 'application/json',
-            headers: {
-                'X-Frappe-CSRF-Token': frappe.csrf_token
-            },
-            data: JSON.stringify({ division: DIVISION, filters: JSON.stringify(filters) }),
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ division: getActiveDivision(), filters: JSON.stringify(filters) }),
             success: function (r) {
                 if (r.message && r.message.success) {
-                    renderSchemes(r.message.data);
+                    renderSchemes(r.message.data || []);
                 } else {
                     showError(r.message && r.message.message ? r.message.message : 'Failed to load schemes');
                 }
@@ -164,11 +170,11 @@
     }
 
     function renderSchemes(schemes) {
-        if (!schemes || schemes.length === 0) {
+        if (!schemes.length) {
             $('#schemesList').html(`
             <div class="text-center py-5 text-muted">
                 <i class="fa fa-folder-open fa-3x mb-3 text-light"></i>
-                <h5>No scheme requests found for ${DIVISION}</h5>
+                <h5>No scheme requests found</h5>
                 <p>Click 'New Scheme Request' to create one.</p>
             </div>
         `);
@@ -177,7 +183,7 @@
 
         let html = `<div class="table-responsive">
         <table class="table table-hover mb-0">
-            <thead class="bg-light">
+            <thead>
                 <tr>
                     <th>Scheme ID</th>
                     <th>Date</th>
@@ -185,8 +191,9 @@
                     <th>HQ</th>
                     <th>Stockist</th>
                     <th>Products</th>
-                    <th class="text-right">Value (₹)</th>
+                    <th class="text-right">Value (&#8377;)</th>
                     <th>Status</th>
+                    <th>Type</th>
                     <th class="text-center">Actions</th>
                 </tr>
             </thead>
@@ -195,6 +202,7 @@
         schemes.forEach(function (s) {
             const statusClass = { Approved: 'Approved', Pending: 'Pending', Rejected: 'Rejected', Rerouted: 'Rerouted' }[s.approval_status] || 'Pending';
             const dateStr = s.application_date ? s.application_date.substring(0, 10) : '-';
+            const isRepeated = Number(s.repeated_request || 0) === 1;
 
             html += `<tr>
             <td><a href="/portal/scheme-detail?name=${s.name}" class="scheme-id">${s.name}</a></td>
@@ -209,16 +217,13 @@
                 <small class="text-muted">${s.stockist_code || ''}</small>
             </td>
             <td><span class="badge badge-secondary">${s.product_count || 0}</span></td>
-            <td class="text-right"><strong>₹${formatCurrency(s.total_scheme_value || 0)}</strong></td>
+            <td class="text-right"><strong>&#8377;${formatCurrency(s.total_scheme_value || 0)}</strong></td>
             <td><span class="status-badge status-${statusClass}">${s.approval_status}</span></td>
+            <td>${isRepeated ? '<span class="badge badge-info">Repeated</span>' : '<span class="badge badge-light">Original</span>'}</td>
             <td class="text-center">
-                <a href="/portal/scheme-detail?name=${s.name}" class="btn btn-sm btn-outline-primary" title="View">
+                <a href="/portal/scheme-detail?name=${s.name}" class="btn btn-sm btn-secondary" title="View">
                     <i class="fa fa-eye"></i> View
                 </a>
-                ${s.approval_status === 'Approved' ? `
-                <button class="btn btn-sm btn-outline-info ml-1" onclick="repeatScheme('${s.name}')" title="Repeat">
-                    <i class="fa fa-redo"></i>
-                </button>` : ''}
             </td>
         </tr>`;
         });
@@ -227,34 +232,10 @@
         $('#schemesList').html(html);
     }
 
-    function repeatScheme(name) {
-        if (!confirm('Create a new scheme request based on ' + name + '?')) return;
-        $.ajax({
-            url: '/api/method/scanify.api.portal_repeat_scheme_request',
-            type: 'POST',
-            contentType: 'application/json',
-            headers: {
-                'X-Frappe-CSRF-Token': frappe.csrf_token
-            },
-            data: JSON.stringify({ source_name: name }),
-            success: function (r) {
-                if (r.message && r.message.success) {
-                    showAlert('New scheme request created: ' + r.message.name, 'success');
-                    setTimeout(() => window.location.href = '/portal/scheme-detail?name=' + r.message.name, 1200);
-                } else {
-                    showAlert((r.message && r.message.message) || 'Failed to repeat scheme', 'danger');
-                }
-            },
-            error: function (xhr) {
-                console.error(xhr.responseText);
-                showAlert('Error repeating scheme', 'danger');
-            }
-        });
-    }
-
     function clearFilters() {
         $('#searchInput').val('');
         $('#statusFilter').val('');
+        $('#requestTypeFilter').val('');
         $('#fromDate').val('');
         $('#toDate').val('');
         loadSchemes();
@@ -266,13 +247,6 @@
 
     function showError(msg) {
         $('#schemesList').html(`<div class="alert alert-danger m-3"><i class="fa fa-exclamation-triangle"></i> ${msg}</div>`);
-    }
-
-    function showAlert(msg, type) {
-        let a = $(`<div class="alert alert-${type} alert-dismissible fade show" role="alert" style="position:fixed;top:70px;right:20px;z-index:9999;min-width:300px;box-shadow:0 4px 6px rgba(0,0,0,.1);">
-        <strong>${msg}</strong><button type="button" class="close" data-dismiss="alert">&times;</button></div>`);
-        $('body').append(a);
-        setTimeout(() => a.fadeOut(() => a.remove()), 4000);
     }
 </script>
 {% endblock %}

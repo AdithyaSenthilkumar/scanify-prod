@@ -192,6 +192,7 @@ def repeat_scheme_request(source_name):
         new_doc.specialization = source_doc.specialization
         new_doc.hospital_clinic = source_doc.hospital_clinic
         new_doc.scheme_notes = f"Repeated from {source_doc.name}"
+        new_doc.repeated_request = 1
         
         # Set default status
         new_doc.approval_status = "Pending"

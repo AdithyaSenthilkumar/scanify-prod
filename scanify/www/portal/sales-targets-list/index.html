@@ -9,7 +9,24 @@
             <h1 class="page-title"><i class="fa fa-list-alt"></i> Sales Targets List</h1>
             <p class="page-subtitle text-muted">HQ-wise target rows for {{ division }} division</p>
         </div>
-        <a href="/portal/sales-targets" class="btn btn-primary"><i class="fa fa-plus"></i> New Target</a>
+        <div class="d-flex align-items-center" style="gap: 15px;">
+            <select class="form-control form-control-sm" id="region-filter">
+                <option value="">All Regions</option>
+                {% for r in regions %}
+                <option value="{{ r.name }}" {% if r.name==selected_region %}selected{% endif %}>{{ r.region_name }}
+                </option>
+                {% endfor %}
+            </select>
+            <select class="form-control form-control-sm" id="team-filter">
+                <option value="">All Teams</option>
+                {% for t in teams %}
+                <option value="{{ t.name }}" {% if t.name==selected_team %}selected{% endif %}>{{ t.team_name }}
+                </option>
+                {% endfor %}
+            </select>
+            <a href="/portal/sales-targets" class="btn btn-primary text-nowrap"><i class="fa fa-plus"></i> New
+                Target</a>
+        </div>
     </div>
 
     <div class="card shadow-sm border-0">
@@ -55,10 +72,9 @@
                             </td>
                             <td>{{ frappe.utils.formatdate(row.creation) }}</td>
                             <td class="text-center">
-                                <a href="/app/hq-yearly-target/{{ row.target_id }}" target="_blank"
-                                    class="btn btn-sm btn-outline-primary"
-                                    title="View Target Details in Desk">
-                                    <i class="fa fa-external-link-alt"></i> View details
+                                <a href="/portal/sales-targets?name={{ row.target_id }}"
+                                    class="btn btn-sm btn-outline-primary" title="View Target Details">
+                                    <i class="fa fa-edit"></i> View / Edit
                                 </a>
                             </td>
                         </tr>
@@ -101,4 +117,27 @@
         font-weight: 600;
     }
 </style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const regionFilter = document.getElementById('region-filter');
+        const teamFilter = document.getElementById('team-filter');
+
+        function applyFilters() {
+            const region = regionFilter.value;
+            const team = teamFilter.value;
+            let url = '/portal/sales-targets-list';
+            const params = [];
+            if (region) params.push('region=' + encodeURIComponent(region));
+            if (team) params.push('team=' + encodeURIComponent(team));
+            if (params.length > 0) url += '?' + params.join('&');
+            window.location.href = url;
+        }
+
+        regionFilter.addEventListener('change', applyFilters);
+        teamFilter.addEventListener('change', applyFilters);
+    });
+</script>
 {% endblock %}

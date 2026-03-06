@@ -9,9 +9,25 @@ def get_context(context):
 
     user_division = get_user_division() or "Prima"
     context.division = user_division
+    
+    selected_region = frappe.form_dict.get('region') or ''
+    selected_team = frappe.form_dict.get('team') or ''
+    
+    context.selected_region = selected_region
+    context.selected_team = selected_team
+
+    # Fetch filters for division
+    context.regions = frappe.get_all("Region Master", filters={"division": ["in", [user_division, "Both"]], "status": "Active"}, fields=["name", "region_name"], order_by="region_name asc")
+    context.teams = frappe.get_all("Team Master", filters={"division": ["in", [user_division, "Both"]], "status": "Active"}, fields=["name", "team_name"], order_by="team_name asc")
+
+    conds = ""
+    if selected_region:
+        conds += " AND t.region = %(selected_region)s"
+    if selected_team:
+        conds += " AND ti.team = %(selected_team)s"
 
     context.target_rows = frappe.db.sql(
-        """
+        f"""
         SELECT
             t.name AS target_id,
             t.financial_year,
@@ -31,9 +47,14 @@ def get_context(context):
         LEFT JOIN `tabHQ Master` hq ON hq.name = ti.hq
         WHERE t.docstatus < 2
           AND t.division = %(division)s
+          {conds}
         ORDER BY t.creation DESC, ti.idx ASC
         LIMIT 500
         """,
-        {"division": user_division},
+        {
+            "division": user_division,
+            "selected_region": selected_region,
+            "selected_team": selected_team
+        },
         as_dict=True,
     )

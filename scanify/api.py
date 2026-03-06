@@ -617,33 +617,62 @@ IMPORTANT:
 @frappe.whitelist()
 def start_bulk_ocr_job(docname):
     """
-    Portal entry point: validates the doc, then enqueues the background job.
+    Portal entry point: validates the doc, then runs extraction in a background thread.
+    Uses threading instead of RQ enqueue to avoid os.fork() deadlocks in WSL/gunicorn environments.
+    The thread gets its own Frappe DB connection via frappe.init()/connect() so it is fully
+    independent; progress is written to DB and polled by the frontend every 5 seconds.
     """
+    import threading
+
     try:
         doc = frappe.get_doc("Bulk Statement Upload", docname)
 
-        if doc.status not in ("Pending", "Failed"):
+        if doc.status in ("In Progress",):
             return {"success": False, "message": f"Job is already {doc.status}. Cannot restart."}
 
         if not doc.zip_file:
             return {"success": False, "message": "No ZIP file attached to this job."}
 
-        job = enqueue(
-            method="scanify.api.process_bulk_extraction",
-            queue="long",
-            timeout=7200,
-            job_name=f"bulk_ocr_{docname}",
-            docname=docname,
-            month=str(doc.statement_month),
-            zip_file_url=doc.zip_file,
-        )
+        # Capture all context-specific values before the request context is torn down
+        site = frappe.local.site
+        zip_file_url = doc.zip_file
+        month = str(doc.statement_month)
 
+        # Immediately mark as Queued so the UI updates
         doc.status = "Queued"
-        doc.job_id = job.id
         doc.save(ignore_permissions=True)
         frappe.db.commit()
 
-        return {"success": True, "message": "Bulk OCR job queued successfully", "job_id": job.id}
+        def run_in_thread():
+            """Thread target: initialises its own Frappe connection, runs extraction, then destroys."""
+            try:
+                frappe.init(site=site)
+                frappe.connect()
+                process_bulk_extraction(docname=docname, month=month, zip_file_url=zip_file_url)
+            except Exception as thread_err:
+                # Best-effort: mark doc as Failed with error info
+                try:
+                    frappe.init(site=site)
+                    frappe.connect()
+                    _doc = frappe.get_doc("Bulk Statement Upload", docname)
+                    _doc.status = "Failed"
+                    _doc.extraction_log = json.dumps([
+                        {"file": "—", "status": "Failed", "message": str(thread_err)}
+                    ])
+                    _doc.save(ignore_permissions=True)
+                    frappe.db.commit()
+                except Exception:
+                    pass
+            finally:
+                try:
+                    frappe.destroy()
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=run_in_thread, daemon=True, name=f"bulk_ocr_{docname}")
+        t.start()
+
+        return {"success": True, "message": "Bulk OCR job started in background thread", "job_id": docname}
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Start Bulk OCR Job Error")
@@ -881,14 +910,21 @@ def process_bulk_extraction(docname, month, zip_file_url):
                         "statement_month": month
                     })
                     
+                    # Resolve stockist name for display
+                    stockist_name = frappe.db.get_value("Stockist Master", stockist_code, "stockist_name") or stockist_code
+
                     if existing:
                         results.append({
                             "file": file,
                             "status": "Skipped",
                             "message": f"Statement already exists: {existing}",
-                            "stockist": stockist_code
+                            "stockist": stockist_name
                         })
                         skipped_count += 1
+                        # Save partial log so UI can show in-flight progress
+                        doc.extraction_log = json.dumps(results)
+                        doc.save(ignore_permissions=True)
+                        frappe.db.commit()
                         continue
                     
                     # Create statement
@@ -926,12 +962,14 @@ def process_bulk_extraction(docname, month, zip_file_url):
                         for item_data in extracted_data:
                             statement.append("items", {
                                 "product_code": item_data.get("product_code"),
-                                "opening_qty": flt(item_data.get("opening_qty"), 0),
-                                "purchase_qty": flt(item_data.get("purchase_qty"), 0),
-                                "sales_qty": flt(item_data.get("sales_qty"), 0),
-                                "free_qty": flt(item_data.get("free_qty"), 0),
-                                "return_qty": flt(item_data.get("return_qty"), 0),
-                                "misc_out_qty": flt(item_data.get("misc_out_qty"), 0),
+                                "opening_qty": flt(item_data.get("opening_qty") or 0),
+                                "purchase_qty": flt(item_data.get("purchase_qty") or 0),
+                                "sales_qty": flt(item_data.get("sales_qty") or 0),
+                                "free_qty": flt(item_data.get("free_qty") or 0),
+                                "return_qty": flt(item_data.get("return_qty") or 0),
+                                "misc_out_qty": flt(item_data.get("misc_out_qty") or 0),
+                                "closing_qty": flt(item_data.get("closing_qty") or 0),
+                                "closing_value": flt(item_data.get("closing_value") or 0),
                             })
                         
                         statement.extracted_data_status = "Completed"
@@ -947,7 +985,7 @@ def process_bulk_extraction(docname, month, zip_file_url):
                         "file": file,
                         "status": "Success",
                         "statement": statement.name,
-                        "stockist": stockist_code,
+                        "stockist": stockist_name,
                         "items_extracted": len(extracted_data) if extracted_data else 0
                     })
                     success_count += 1
@@ -958,16 +996,26 @@ def process_bulk_extraction(docname, month, zip_file_url):
                         f"Error processing {file}: {error_msg}\n{frappe.get_traceback()}",
                         "Bulk Extract File Error"
                     )
+                    # stockist_code / stockist_name may not be set if error happened before identification
+                    _sc_display = "Unknown"
+                    try:
+                        _sc_display = stockist_name  # defined after stockist resolution
+                    except NameError:
+                        try:
+                            _sc_display = stockist_code  # fall back to code
+                        except NameError:
+                            pass
                     results.append({
                         "file": file,
                         "status": "Failed",
                         "message": error_msg,
-                        "stockist": stockist_code if 'stockist_code' in locals() else None
+                        "stockist": _sc_display
                     })
                     failed_count += 1
                 
-                # Update progress
+                # Update progress + partial log so UI shows in-flight results
                 doc.progress = (idx / len(all_files)) * 100
+                doc.extraction_log = json.dumps(results)
                 doc.save(ignore_permissions=True)
                 frappe.db.commit()
         
@@ -987,11 +1035,12 @@ def process_bulk_extraction(docname, month, zip_file_url):
         try:
             doc = frappe.get_doc("Bulk Statement Upload", docname)
             doc.status = "Failed"
-            doc.extraction_log = f"Job failed: {str(e)}"
+            doc.extraction_log = json.dumps([{"file": "—", "status": "Failed", "message": f"Job failed: {str(e)}"}])
             doc.save(ignore_permissions=True)
             frappe.db.commit()
-        except:
+        except Exception:
             pass
+
 @frappe.whitelist()
 def bulk_extract_statements(month, zip_file_url):
     """
@@ -2266,24 +2315,29 @@ def get_user_schemes(filters=None):
     return schemes
 
 @frappe.whitelist()
-def get_user_hqs():
+def get_user_hqs(division=None):
     """Get HQs for current user based on division"""
-    user = frappe.session.user
-    division = get_user_division(user)
+    if not division:
+        division = get_user_division()
+
+    filters = {"status": "Active"}
+    if division and division != "Both":
+        filters["division"] = ["in", [division, "Both"]]
     
     hqs = frappe.get_all(
         "HQ Master",
-        filters={"division": division, "status": "Active"},
-        fields=["name", "hqname", "team", "region"]
+        filters=filters,
+        fields=["name", "hq_name", "team", "region"],
+        order_by="hq_name asc",
     )
     
     return hqs
 
 @frappe.whitelist()
-def get_active_products():
+def get_active_products(division=None):
     """Get all active products for scheme entry"""
-    user = frappe.session.user
-    division = get_user_division(user)
+    if not division:
+        division = get_user_division()
     
     products = frappe.get_all(
         "Product Master",
@@ -2292,36 +2346,51 @@ def get_active_products():
     )
     
     # Filter by division if applicable
-    if division != "Both":
-        products = [p for p in products if p.get("division") == division]
+    if division and division != "Both":
+        products = [p for p in products if p.get("division") in (division, "Both")]
     
     return products
 
 @frappe.whitelist()
-def get_stockists_by_hq(hq):
+def get_stockists_by_hq(hq, division=None):
     """Get stockists for a specific HQ"""
+    if not division:
+        division = get_user_division()
+
+    filters = {"hq": hq, "status": "Active"}
+    if division and division != "Both":
+        filters["division"] = ["in", [division, "Both"]]
+
     stockists = frappe.get_all(
         "Stockist Master",
-        filters={"hq": hq, "status": "Active"},
+        filters=filters,
         fields=["name", "stockist_code", "stockist_name"]
     )
     
     return stockists
 
 @frappe.whitelist()
-def search_doctors(searchterm):
+def search_doctors(searchterm=None, search_term=None, division=None):
     """Search doctors by name or code"""
-    user = frappe.session.user
-    division = get_user_division(user)
+    term = searchterm or search_term or ""
+    if not division:
+        division = get_user_division()
+    
+    division_clause = ""
+    params = {"term": f"%{term}%"}
+    if division and division != "Both":
+        division_clause = "AND (division = %(division)s OR division = 'Both')"
+        params["division"] = division
     
     doctors = frappe.db.sql("""
-        SELECT name, doctor_code, doctor_name, place, specialization, hq
+        SELECT name, doctor_code, doctor_name, place, specialization, hospital_address, hq, team, region
         FROM `tabDoctor Master`
         WHERE status = 'Active'
+        {division_clause}
         AND (doctor_name LIKE %(term)s OR doctor_code LIKE %(term)s OR place LIKE %(term)s)
         ORDER BY doctor_name
         LIMIT 20
-    """, {"term": f"%{searchterm}%"}, as_dict=True)
+    """.format(division_clause=division_clause), params, as_dict=True)
     
     return doctors
 
@@ -2455,12 +2524,12 @@ def save_master_record(doctype, name, data):
         if doctype == 'Team Master':
             data.pop('sanctioned_strength', None)
 
-        # Division uses autoname=prompt.
-        # Frontend sends the user-provided name as data['name'] — extract it.
-        _prompt_name = None
-        if doctype == 'Division' and not name:
-            _prompt_name = data.pop('name', None)
-            if not _prompt_name:
+        # Division uses autoname=field:division_name.
+        # Accept legacy payloads that may send `name`.
+        if doctype == 'Division':
+            if data.get('name') and not data.get('division_name'):
+                data['division_name'] = data.pop('name')
+            if not name and not data.get('division_name'):
                 return {'success': False, 'message': "Division Name is required"}
 
         # -----------------------------
@@ -2470,10 +2539,6 @@ def save_master_record(doctype, name, data):
             doc = frappe.get_doc(doctype, name)
         else:
             doc = frappe.new_doc(doctype)
-            # For prompt autoname doctypes, set the name before insert
-            if _prompt_name:
-                doc.name = _prompt_name
-                doc.__newname = _prompt_name
 
         # -----------------------------
         # RESOLVE LINK FIELDS
@@ -3356,9 +3421,11 @@ def get_scheme_requests_for_deduction(division=None, search=""):
 
 
 @frappe.whitelist()
-def get_stockist_statements_for_deduction(stockist_code):
+def get_stockist_statements_for_deduction(stockist_code, division=None):
     """Get stockist statements for a stockist for deduction"""
     try:
+        if not division:
+            division = get_user_division()
         statements = frappe.db.sql("""
             SELECT
                 ss.name,
@@ -3369,9 +3436,14 @@ def get_stockist_statements_for_deduction(stockist_code):
             LEFT JOIN `tabStockist Master` sm ON ss.stockist_code = sm.name
             WHERE ss.stockist_code = %(stockist_code)s
               AND ss.docstatus != 2
+              AND (
+                ss.division IS NULL
+                OR ss.division = %(division)s
+                OR ss.division = 'Both'
+              )
             ORDER BY ss.statement_month DESC
             LIMIT 24
-        """, {"stockist_code": stockist_code}, as_dict=True)
+        """, {"stockist_code": stockist_code, "division": division}, as_dict=True)
         return {"success": True, "data": statements}
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Get Statements For Deduction Error")
@@ -3379,11 +3451,18 @@ def get_stockist_statements_for_deduction(stockist_code):
 
 
 @frappe.whitelist()
-def fetch_deduction_items_portal(scheme_request, stockist_statement):
+def fetch_deduction_items_portal(scheme_request, stockist_statement, division=None):
     """Fetch items for deduction from scheme + statement (portal version)"""
     try:
+        if not division:
+            division = get_user_division()
         scheme = frappe.get_doc("Scheme Request", scheme_request)
         statement = frappe.get_doc("Stockist Statement", stockist_statement)
+
+        if getattr(scheme, "division", None) and division and scheme.division not in [division, "Both"]:
+            return {"success": False, "message": f"Scheme {scheme_request} does not belong to division {division}"}
+        if getattr(statement, "division", None) and division and statement.division not in [division, "Both"]:
+            return {"success": False, "message": f"Statement {stockist_statement} does not belong to division {division}"}
 
         # Validate stockist match
         if scheme.stockist_code != statement.stockist_code:
@@ -3428,13 +3507,14 @@ def fetch_deduction_items_portal(scheme_request, stockist_statement):
 
 
 @frappe.whitelist()
-def create_scheme_deduction_portal(scheme_request, stockist_statement, items):
+def create_scheme_deduction_portal(scheme_request, stockist_statement, items, deduction_date=None, division=None):
     """Create a Scheme Deduction document from portal"""
     try:
         if isinstance(items, str):
             items = json.loads(items)
 
         scheme = frappe.get_doc("Scheme Request", scheme_request)
+        statement = frappe.get_doc("Stockist Statement", stockist_statement)
 
         # Check if deduction already exists
         existing = frappe.db.exists("Scheme Deduction", {
@@ -3445,12 +3525,22 @@ def create_scheme_deduction_portal(scheme_request, stockist_statement, items):
         if existing:
             return {"success": False, "message": f"Deduction already exists: {existing}"}
 
+        if not division:
+            division = getattr(scheme, "division", None) or get_user_division()
+        if getattr(scheme, "division", None) and scheme.division not in [division, "Both"]:
+            return {"success": False, "message": f"Scheme {scheme_request} does not belong to division {division}"}
+        if getattr(statement, "division", None) and statement.division not in [division, "Both"]:
+            return {"success": False, "message": f"Statement {stockist_statement} does not belong to division {division}"}
+
         doc = frappe.new_doc("Scheme Deduction")
         doc.scheme_request = scheme_request
         doc.stockist_statement = stockist_statement
         doc.stockist_code = scheme.stockist_code
         doc.doctor_code = scheme.doctor_code
         doc.scheme_date = scheme.application_date
+        doc.division = division
+        if deduction_date:
+            doc.deduction_date = deduction_date
 
         total_qty = 0
         total_value = 0
@@ -3483,6 +3573,60 @@ def create_scheme_deduction_portal(scheme_request, stockist_statement, items):
 
 
 @frappe.whitelist()
+def get_scheme_deductions_portal(division=None, search=None, status=None, from_date=None, to_date=None):
+    """List scheme deductions for the portal with filters"""
+    try:
+        if not division:
+            division = get_user_division()
+
+        filters = [["Scheme Deduction", "division", "=", division]]
+
+        if search:
+            filters = [
+                ["Scheme Deduction", "division", "=", division],
+                "|",
+                ["Scheme Deduction", "name", "like", f"%{search}%"],
+                ["Scheme Deduction", "scheme_request", "like", f"%{search}%"],
+                ["Scheme Deduction", "stockist_statement", "like", f"%{search}%"],
+            ]
+            # Use simpler OR approach via SQL
+            deductions = frappe.db.sql("""
+                SELECT name, scheme_request, stockist_statement, deduction_date, 
+                       total_deducted_qty, total_deducted_value, status, docstatus, creation
+                FROM `tabScheme Deduction`
+                WHERE division = %(division)s
+                AND (name LIKE %(s)s OR scheme_request LIKE %(s)s OR stockist_statement LIKE %(s)s)
+                ORDER BY creation DESC
+                LIMIT 100
+            """, {"division": division, "s": f"%{search}%"}, as_dict=True)
+        else:
+            q_filters = {"division": division}
+            if status:
+                q_filters["status"] = status
+            if from_date:
+                q_filters["creation"] = [">=", from_date]
+            if to_date:
+                if "creation" in q_filters:
+                    q_filters["creation"] = ["between", [from_date, to_date]]
+                else:
+                    q_filters["creation"] = ["<=", to_date]
+
+            deductions = frappe.get_all(
+                "Scheme Deduction",
+                filters=q_filters,
+                fields=["name", "scheme_request", "stockist_statement", "deduction_date",
+                        "total_deducted_qty", "total_deducted_value", "status", "docstatus", "creation"],
+                order_by="creation desc",
+                limit=200
+            )
+
+        return {"success": True, "data": deductions}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Scheme Deductions Portal Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
 def portal_repeat_scheme_request(source_name):
     """Repeat an approved scheme request from portal"""
     try:
@@ -3505,6 +3649,7 @@ def portal_repeat_scheme_request(source_name):
         new_doc.hospital_address = source_doc.hospital_address
         new_doc.scheme_notes = f"Repeated from {source_doc.name}"
         new_doc.approval_status = "Pending"
+        new_doc.repeated_request = 1
 
         for item in source_doc.items:
             new_doc.append("items", {
@@ -3589,6 +3734,7 @@ def create_scheme_request_v2(data):
         doc.stockist_name = data.get("stockist_name")
         doc.scheme_notes = data.get("scheme_notes")
         doc.approval_status = "Pending"
+        doc.repeated_request = 1 if str(data.get("repeated_request", 0)).lower() in ("1", "true", "yes") else 0
 
         for item in data.get("items", []):
             if not item.get("product_code"):
@@ -3662,6 +3808,10 @@ def get_scheme_list_portal(division=None, filters=None):
                 "OR sr.stockist_name LIKE %(search)s OR sr.hq LIKE %(search)s)"
             )
             params["search"] = f"%{filters['search']}%"
+        if filters.get("request_type") == "Repeated":
+            where_clauses.append("COALESCE(sr.repeated_request, 0) = 1")
+        elif filters.get("request_type") == "Original":
+            where_clauses.append("COALESCE(sr.repeated_request, 0) = 0")
 
         where_sql = " AND ".join(where_clauses)
 
@@ -3675,6 +3825,7 @@ def get_scheme_list_portal(division=None, filters=None):
                 sr.stockist_name,
                 sr.stockist_code,
                 sr.approval_status,
+                COALESCE(sr.repeated_request, 0) as repeated_request,
                 sr.total_scheme_value,
                 sr.requested_by,
                 sr.docstatus,

@@ -442,9 +442,11 @@ function render_preview_table() {
   });
 }
 
-function fmt(v) {
+function fmt(v, currency) {
   const n = parseFloat(v || 0);
-  return isNaN(n) ? '0.00' : n.toFixed(2);
+  if (isNaN(n)) return currency ? '0.00' : '0';
+  if (currency) return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return Math.round(n).toString();
 }
 
 function escape_html(s) {
@@ -622,7 +624,7 @@ function calc_grand_totals() {
   let trHtml = '<td colspan="3" class="text-right font-weight-bold">TOTALS</td>';
   col_configs.slice(3).forEach(c => {
     const v = totals[c.id] || 0;
-    trHtml += `<td class="text-right">${c.curr ? fmt(v) : v.toFixed(2)}</td>`;
+    trHtml += `<td class="text-right">${fmt(v, c.curr)}</td>`;
   });
   $('#full-totals').html(trHtml);
 }

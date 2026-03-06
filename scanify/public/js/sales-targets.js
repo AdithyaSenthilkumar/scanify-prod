@@ -1,12 +1,23 @@
 let rowCounter = 0;
+let editingDocName = null;
 
 $(document).ready(function () {
     setDefaultDates();
-    addRow();
+
+    // Check if we are editing an existing target
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetName = urlParams.get('name');
+    if (targetName) {
+        loadExistingTarget(targetName);
+    } else {
+        addRow();
+    }
 
     $("#add-row-btn").on("click", addRow);
     $("#save-btn").on("click", saveTargets);
     $("#reset-btn").on("click", resetScreen);
+    $("#process-bulk-import").on("click", processBulkImport);
+    $("#approve-btn").on("click", approveTarget);
 
     $(document).on("input focus click", ".hq-search", debounce(handleHQSearchInput, 250));
     $(document).on("click", ".hq-result", handleHQResultClick);
@@ -294,19 +305,31 @@ async function saveTargets() {
 
     showLoadingOverlay("Saving sales target...");
     try {
-        const result = await callApi("scanify.api.create_hq_yearly_target_from_portal", {
-            financial_year,
-            start_date,
-            end_date,
-            status,
-            hq_targets: rows
-        });
+        let result;
+        if (editingDocName) {
+            result = await callApi("scanify.api.update_hq_yearly_target_from_portal", {
+                name: editingDocName,
+                financial_year,
+                start_date,
+                end_date,
+                status,
+                hq_targets: rows
+            });
+        } else {
+            result = await callApi("scanify.api.create_hq_yearly_target_from_portal", {
+                financial_year,
+                start_date,
+                end_date,
+                status,
+                hq_targets: rows
+            });
+        }
 
         hideLoadingOverlay();
         if (result.success) {
             showAlert(`Saved successfully: ${result.name}`, "success");
             setTimeout(() => {
-                window.location.href = `/app/hq-yearly-target/${result.name}`;
+                window.location.href = `/portal/sales-targets-list`;
             }, 900);
         } else {
             showAlert(result.message || "Failed to save", "danger");
@@ -323,6 +346,142 @@ function resetScreen() {
     setDefaultDates();
     $("#detected-region").val("");
     recalcAll();
+}
+
+async function loadExistingTarget(name) {
+    showLoadingOverlay("Loading sales target...");
+    try {
+        const result = await callApi("scanify.api.get_hq_yearly_target_details", { name });
+        hideLoadingOverlay();
+        if (result.success && result.doc) {
+            editingDocName = result.doc.name;
+            $("#financial-year").val(result.doc.financial_year);
+            $("#start-date").val(result.doc.start_date);
+            $("#end-date").val(result.doc.end_date);
+            $("#target-status").val(result.doc.status);
+
+            if (result.doc.docstatus === 0) {
+                $("#approve-btn").removeClass("d-none");
+            } else {
+                $("#save-btn").addClass("d-none");
+                $("#add-row-btn").addClass("d-none");
+                $("#bulk-import-btn").addClass("d-none");
+                $(".remove-row-btn").remove();
+            }
+
+            $("#targets-tbody").empty();
+            if (result.doc.items && result.doc.items.length) {
+                result.doc.items.forEach(item => {
+                    addRow();
+                    const $tr = $("#targets-tbody tr:last");
+                    $tr.find(".hq-search").val(item.hq_name);
+                    $tr.find(".hq-id").val(item.hq);
+                    $tr.find(".hq-region-id").val(item.region);
+
+                    const months = ["apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "jan", "feb", "mar"];
+                    months.forEach(m => {
+                        $tr.find(`.month-input[data-month="${m}"]`).val(item[m] || 0);
+                    });
+                });
+                recalcAll();
+                syncDetectedRegion();
+            } else {
+                addRow();
+            }
+        } else {
+            showAlert("Failed to load target details", "danger");
+            addRow();
+        }
+    } catch (e) {
+        hideLoadingOverlay();
+        showAlert(e.message || "Failed to load target details", "danger");
+        addRow();
+    }
+}
+
+async function approveTarget() {
+    if (!editingDocName) return;
+    if (!confirm("Are you sure you want to approve this Sales Target? It cannot be edited afterwards.")) return;
+
+    showLoadingOverlay("Approving...");
+    try {
+        const result = await callApi("scanify.api.submit_hq_yearly_target_from_portal", { name: editingDocName });
+        hideLoadingOverlay();
+        if (result.success) {
+            showAlert("Sales Target Approved", "success");
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } else {
+            showAlert(result.message || "Approval failed", "danger");
+        }
+    } catch (e) {
+        hideLoadingOverlay();
+        showAlert(e.message || "Approval failed", "danger");
+    }
+}
+
+function processBulkImport() {
+    const rawData = $("#bulk-import-data").val().trim();
+    if (!rawData) {
+        showAlert("Please paste some data to import", "warning");
+        return;
+    }
+
+    const lines = rawData.split("\\n");
+    let importedRows = 0;
+
+    lines.forEach(line => {
+        line = line.trim();
+        if (!line) return;
+
+        let cols = line.split("\\t");
+        if (cols.length < 5) {
+            cols = line.split(",");
+        }
+
+        if (cols.length >= 13) {
+            const hqName = cols[0].trim();
+            if (hqName.toLowerCase() === "hq name" || hqName.toLowerCase() === "hq") return; // Header skip
+
+            // Re-use an empty row if available
+            let $emptyTr = null;
+            $("#targets-tbody tr").each(function () {
+                if (!$(this).find(".hq-search").val().trim() && !$emptyTr) {
+                    $emptyTr = $(this);
+                }
+            });
+
+            if (!$emptyTr) {
+                addRow();
+                $emptyTr = $("#targets-tbody tr:last");
+            }
+
+            $emptyTr.find(".hq-search").val(hqName);
+            // Because we only have the name string from bulk paste, we just put it in hq-search.
+            // But API needs hq code. Actually, the search logic gets the hq_name anyway. 
+            // Wait, create_target_from_portal expects hq_id. 
+            // For bulk import, we should just let the user verify the HQs or we auto match it if we want.
+            // Let's rely on the user to double check names or we can use the hq search text to find ID.
+            // Let's store the text as ID tentatively so the backend can look it up by name or ID.
+            $emptyTr.find(".hq-id").val(hqName);
+
+            const months = ["apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "jan", "feb", "mar"];
+            for (let i = 0; i < 12; i++) {
+                $emptyTr.find(`.month-input[data-month="${months[i]}"]`).val(toNum(cols[i + 1]));
+            }
+
+            importedRows++;
+        }
+    });
+
+    recalcAll();
+    $("#bulk-import-modal").modal("hide");
+    $("#bulk-import-data").val("");
+
+    if (importedRows > 0) {
+        showAlert(`Successfully parsed ${importedRows} rows. Please verify HQ matches before saving.`, "success");
+    }
 }
 
 function toNum(val) {

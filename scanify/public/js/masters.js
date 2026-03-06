@@ -175,10 +175,10 @@ const masterConfigs = {
         title: 'Division Master',
         doctype: 'Division',
         fields: [
-            { name: 'name', label: 'Division Name', type: 'text', required: true }
+            { name: 'division_name', label: 'Division Name', type: 'text', required: true }
         ],
-        columns: ['name'],
-        searchFields: ['name'],
+        columns: ['division_name'],
+        searchFields: ['division_name'],
         excelColumns: ['Division Name'],
         excelSample: ['Prima']
     },

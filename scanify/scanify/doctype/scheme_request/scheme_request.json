@@ -9,6 +9,7 @@
 
     "application_date",
     "requested_by",
+    "division",
 
     "region",                
     "hq",                    
@@ -33,6 +34,7 @@
     "total_scheme_value",
     "column_break_ghbn",
     "approval_status",
+    "repeated_request",
     "scheme_notes",
 
     "attachments_section",   
@@ -168,6 +170,12 @@
       "label": "Status",
       "options": "Pending\nApproved\nRejected\nRerouted",
       "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "repeated_request",
+      "fieldtype": "Check",
+      "label": "Repeated Request"
     },
     {
       "fieldname": "scheme_notes",

@@ -1,0 +1,199 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Scheme Deductions{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page scheme-deduction-list-page">
+    <div class="page-header d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="page-title"><i class="fa fa-clipboard-list"></i> Scheme Deductions</h1>
+            <p class="page-subtitle">All scheme deductions for <strong id="divisionLabel">{{ division }}</strong></p>
+        </div>
+        <a href="/portal/scheme-deduction" class="btn btn-primary">
+            <i class="fa fa-plus"></i> New Deduction
+        </a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row align-items-end">
+                <div class="col-md-3">
+                    <label><strong>Search</strong></label>
+                    <input type="text" id="searchInput" class="form-control" placeholder="Deduction ID, scheme, statement...">
+                </div>
+                <div class="col-md-2">
+                    <label><strong>Status</strong></label>
+                    <select id="statusFilter" class="form-control">
+                        <option value="">All Status</option>
+                        <option value="Draft">Draft</option>
+                        <option value="Applied">Applied</option>
+                        <option value="Cancelled">Cancelled</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label><strong>From Date</strong></label>
+                    <input type="date" id="fromDate" class="form-control">
+                </div>
+                <div class="col-md-2">
+                    <label><strong>To Date</strong></label>
+                    <input type="date" id="toDate" class="form-control">
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                    <button class="btn btn-primary flex-fill" onclick="loadDeductions()">
+                        <i class="fa fa-filter"></i> Apply
+                    </button>
+                    <button class="btn btn-secondary" onclick="clearFilters()">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="loadingState" class="text-center py-5">
+        <i class="fa fa-spinner fa-spin fa-2x text-muted"></i>
+        <p class="text-muted mt-3">Loading deductions...</p>
+    </div>
+
+    <div class="card" id="tableCard" style="display:none;">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Deduction ID</th>
+                            <th>Scheme Request</th>
+                            <th>Stockist Statement</th>
+                            <th>Date</th>
+                            <th>Total Qty</th>
+                            <th class="text-right">Total Value</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="deductionsTbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="emptyState" style="display:none;" class="text-center py-5">
+        <i class="fa fa-clipboard-list fa-3x text-muted mb-3"></i>
+        <h5 class="text-muted">No deductions found</h5>
+        <p class="text-muted">Create a new deduction from an approved scheme request.</p>
+    </div>
+</div>
+
+<style>
+    .scheme-deduction-list-page .table thead th {
+        background: #f8fafc;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: var(--color-text-muted);
+    }
+
+    .gap-2 {
+        gap: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function getActiveDivision() {
+        try {
+            const btn = document.querySelector('.division-name');
+            if (btn && btn.textContent.trim()) return btn.textContent.trim();
+        } catch (e) { }
+        const match = document.cookie.match(/(?:^|;\s*)division=([^;]*)/);
+        if (match) return decodeURIComponent(match[1]);
+        return '{{ division }}';
+    }
+
+    function fmtCurrency(v) {
+        return '\u20B9 ' + new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0);
+    }
+
+    function fmtDate(d) {
+        if (!d) return '-';
+        return d.substring(0, 10);
+    }
+
+    function statusBadge(status, docstatus) {
+        if (docstatus === 2) return '<span class="badge badge-danger">Cancelled</span>';
+        if (docstatus === 1) return '<span class="badge badge-success">Submitted</span>';
+        const cls = { Draft: 'badge-warning', Applied: 'badge-info' }[status] || 'badge-secondary';
+        return `<span class="badge ${cls}">${status || 'Draft'}</span>`;
+    }
+
+    function clearFilters() {
+        $('#searchInput').val('');
+        $('#statusFilter').val('');
+        $('#fromDate').val('');
+        $('#toDate').val('');
+        loadDeductions();
+    }
+
+    function loadDeductions() {
+        const division = getActiveDivision();
+        $('#divisionLabel').text(division);
+
+        const payload = {
+            division: division,
+            search: $('#searchInput').val(),
+            status: $('#statusFilter').val(),
+            from_date: $('#fromDate').val(),
+            to_date: $('#toDate').val(),
+        };
+
+        $('#loadingState').show();
+        $('#tableCard').hide();
+        $('#emptyState').hide();
+
+        fetch('/api/method/scanify.api.get_scheme_deductions_portal', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            body: JSON.stringify(payload)
+        })
+            .then(r => r.json())
+            .then(r => {
+                $('#loadingState').hide();
+                const data = r.message;
+                if (!data || !data.success) {
+                    $('#emptyState').show();
+                    return;
+                }
+                if (!data.data || !data.data.length) {
+                    $('#emptyState').show();
+                    return;
+                }
+                renderTable(data.data);
+                $('#tableCard').show();
+            })
+            .catch(() => {
+                $('#loadingState').hide();
+                $('#emptyState').show();
+            });
+    }
+
+    function renderTable(rows) {
+        const html = rows.map(r => `
+            <tr>
+                <td><strong>${r.name}</strong></td>
+                <td>${r.scheme_request || '-'}</td>
+                <td>${r.stockist_statement || '-'}</td>
+                <td>${fmtDate(r.deduction_date || r.creation)}</td>
+                <td>${r.total_deducted_qty || 0}</td>
+                <td class="text-right">${fmtCurrency(r.total_deducted_value)}</td>
+                <td>${statusBadge(r.status, r.docstatus)}</td>
+            </tr>
+        `).join('');
+
+        $('#deductionsTbody').html(html);
+    }
+
+    document.addEventListener('DOMContentLoaded', loadDeductions);
+</script>
+{% endblock %}

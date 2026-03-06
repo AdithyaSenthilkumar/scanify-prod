@@ -9,6 +9,22 @@ let doctorProductLimits = {}; // product_code -> count_this_month
 let hqDivisionMap = {};       // hq_name -> { team, region }
 let doctorSearchTimeout = null;
 
+/** Read the active division from the portal's navbar switcher or DOM */
+function getActiveDivision() {
+    // Try the division-name span in the navbar
+    try {
+        const btn = document.querySelector('.division-name');
+        if (btn && btn.textContent.trim()) return btn.textContent.trim();
+    } catch (e) { }
+    // Try hidden input on the page
+    const hidden = document.getElementById('division');
+    if (hidden && hidden.value) return hidden.value;
+    // Try cookie
+    const match = document.cookie.match(/(?:^|;\s*)division=([^;]*)/);
+    if (match) return decodeURIComponent(match[1]);
+    return 'Prima';
+}
+
 $(document).ready(function () {
     // Set today as default application date
     const today = new Date().toISOString().split('T')[0];
@@ -55,26 +71,26 @@ $(document).ready(function () {
 // ===================== MASTER DATA =====================
 
 function loadHQs() {
+    const division = getActiveDivision();
     $.ajax({
         url: '/api/method/scanify.api.get_user_hqs',
         type: 'POST',
         contentType: 'application/json',
-        headers: {
-            'X-Frappe-CSRF-Token': frappe.csrf_token
-        },
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify({ division: division }),
         success: function (r) {
             if (r.message && r.message.length > 0) {
                 let html = '<option value="">-- Select HQ --</option>';
                 r.message.forEach(function (hq) {
-                    html += `<option value="${hq.name}" data-team="${hq.team || ''}" data-region="${hq.region || ''}">${hq.hqname || hq.name}</option>`;
+                    html += `<option value="${hq.name}" data-team="${hq.team || ''}" data-region="${hq.region || ''}">${hq.hq_name || hq.name}</option>`;
                     hqDivisionMap[hq.name] = { team: hq.team, region: hq.region };
                 });
                 $('#hqSelect').html(html);
+            } else {
+                $('#hqSelect').html('<option value="">No HQs found for this division</option>');
             }
         },
-        error: function (xhr) {
-            console.error(xhr.responseText);
-        }
+        error: function (xhr) { console.error('HQ load error:', xhr.responseText); }
     });
 }
 
@@ -84,6 +100,7 @@ function loadStockistsByHQ(hq) {
         return;
     }
     $('#stockistSelect').html('<option value="">Loading...</option>');
+    const division = getActiveDivision();
     $.ajax({
         url: '/api/method/scanify.api.get_stockists_by_hq',
         type: 'POST',
@@ -91,7 +108,7 @@ function loadStockistsByHQ(hq) {
         headers: {
             'X-Frappe-CSRF-Token': frappe.csrf_token
         },
-        data: JSON.stringify({ hq: hq }),
+        data: JSON.stringify({ hq: hq, division: division }),
         success: function (r) {
             let html = '<option value="">-- Select Stockist --</option>';
             if (r.message && r.message.length > 0) {
@@ -111,13 +128,13 @@ function loadStockistsByHQ(hq) {
 }
 
 function loadProducts() {
+    const division = getActiveDivision();
     $.ajax({
         url: '/api/method/scanify.api.get_active_products',
         type: 'POST',
         contentType: 'application/json',
-        headers: {
-            'X-Frappe-CSRF-Token': frappe.csrf_token
-        },
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify({ division: division }),
         success: function (r) {
             if (r.message) {
                 allProducts = r.message;
@@ -128,30 +145,27 @@ function loadProducts() {
                 });
             }
         },
-        error: function (xhr) {
-            console.error(xhr.responseText);
-        }
+        error: function (xhr) { console.error('Products load error:', xhr.responseText); }
     });
 }
 
 // ===================== DOCTOR SEARCH =====================
 
 function searchDoctors(term) {
+    const division = getActiveDivision();
     $.ajax({
         url: '/api/method/scanify.api.search_doctors',
         type: 'POST',
         contentType: 'application/json',
-        headers: {
-            'X-Frappe-CSRF-Token': frappe.csrf_token
-        },
-        data: JSON.stringify({ search_term: term }),
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify({ searchterm: term, division: division }),
         success: function (r) {
             if (r.message && r.message.length > 0) {
                 let html = '';
                 r.message.forEach(function (d) {
                     html += `<div class="doctor-result-item" 
                         data-code="${d.name}" 
-                        data-doctor-code="${d.doctor_code}"
+                        data-doctor-code="${d.doctor_code || ''}"
                         data-name="${d.doctor_name}" 
                         data-place="${d.place || ''}"
                         data-specialization="${d.specialization || ''}"
@@ -160,7 +174,7 @@ function searchDoctors(term) {
                         data-team="${d.team || ''}"
                         data-region="${d.region || ''}"
                         onclick="selectDoctor(this)">
-                        <strong>${d.doctor_name}</strong> <span class="text-muted">(${d.doctor_code})</span><br>
+                        <strong>${d.doctor_name}</strong> <span class="text-muted">(${d.doctor_code || d.name})</span><br>
                         <small class="text-muted">${[d.place, d.specialization].filter(Boolean).join(' · ')}</small>
                     </div>`;
                 });
@@ -169,9 +183,7 @@ function searchDoctors(term) {
                 $('#doctorResults').html('<div class="dropdown-item text-muted">No doctors found</div>').show();
             }
         },
-        error: function (xhr) {
-            console.error(xhr.responseText);
-        }
+        error: function (xhr) { console.error('Doctor search error:', xhr.responseText); }
     });
 }
 
@@ -340,9 +352,9 @@ function checkProductLimit(rowId, productCode) {
     const used = doctorProductLimits[productCode] || 0;
     const $warn = $(`#limit-warning-${rowId}`);
     if (used >= 3) {
-        $warn.text(`⚠ Limit reached: ${used}/3 requests this month for this product`).show();
+        $warn.text(`Limit reached: ${used}/3 requests this month for this product`).removeClass('text-warning').addClass('text-danger').show();
     } else if (used >= 2) {
-        $warn.text(`ℹ ${used}/3 requests this month - approaching limit`).removeClass('text-danger').addClass('text-warning').show();
+        $warn.text(`${used}/3 requests this month - approaching limit`).removeClass('text-danger').addClass('text-warning').show();
     } else {
         $warn.hide();
     }
@@ -365,7 +377,7 @@ function calculateRow(rowId) {
     const value = qty * effectiveRate;
 
     $(`#schemepct-${rowId}`).val(schemePct.toFixed(2) + '%');
-    $(`#value-${rowId}`).val('₹ ' + formatCurrency(value));
+    $(`#value-${rowId}`).val('\u20B9 ' + formatCurrency(value));
 
     calculateTotal();
 }
@@ -375,10 +387,10 @@ function calculateTotal() {
     $('#itemsTbody tr').each(function () {
         const rowId = $(this).data('row-id');
         if (!rowId) return;
-        const valStr = $(`#value-${rowId}`).val().replace('₹', '').replace(',', '').trim();
+        const valStr = $(`#value-${rowId}`).val().replace(/[^0-9.-]/g, '').trim();
         total += parseFloat(valStr) || 0;
     });
-    $('#totalValue').text('₹ ' + formatCurrency(total));
+    $('#totalValue').text('\u20B9 ' + formatCurrency(total));
 }
 
 function removeRow(rowId) {
@@ -490,7 +502,7 @@ function submitSchemeRequest() {
             $btn.prop('disabled', false).html('<i class="fa fa-save"></i> Submit Scheme Request');
             if (r.message && r.message.success) {
                 showAlert('Scheme request created: ' + r.message.name, 'success');
-                setTimeout(() => window.location.href = '/portal/scheme-detail?name=' + r.message.name, 1500);
+                setTimeout(() => window.location.href = '/portal/scheme-list', 1500);
             } else {
                 const msg = (r.message && r.message.message) || 'Failed to create scheme request';
                 showAlert(msg, 'danger');

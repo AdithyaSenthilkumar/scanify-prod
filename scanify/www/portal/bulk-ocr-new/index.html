@@ -9,7 +9,7 @@
     <div class="bk-header">
         <div>
             <h1 class="page-title"><i class="fa fa-layer-group"></i> New Bulk OCR Job</h1>
-            <p class="page-subtitle">Upload a ZIP of stockist statements — AI extracts them in parallel</p>
+            <p class="page-subtitle">Upload a ZIP of stockist statements — AI extracts them in background</p>
         </div>
         <div class="bk-header-actions">
             <a href="/portal/bulk-ocr-list" class="btn btn-secondary btn-sm">
@@ -24,15 +24,15 @@
         <div class="card-body">
             <form id="bk-form">
                 <div class="row">
-                    <div class="col-md-4">
-                        <div class="form-group">
+                    <div class="col-md-12 d-flex justify-content-center mb-4">
+                        <div class="form-group text-center" style="max-width: 300px;">
                             <label>Statement Month <span class="text-danger">*</span></label>
                             <input type="month" id="bk-month" class="form-control" required>
-                            <small class="form-text text-muted">Select the statement period for all files in the
+                            <small class="form-text text-muted mt-2">Select the statement period for all files in the
                                 ZIP</small>
                         </div>
                     </div>
-                    <div class="col-md-8">
+                    <div class="col-md-12">
                         <div class="form-group">
                             <label>ZIP File <span class="text-danger">*</span></label>
                             <div class="bk-dropzone" id="bk-dropzone">
@@ -46,7 +46,8 @@
                                         <i class="fa fa-folder-open"></i> Browse ZIP
                                     </button>
                                 </div>
-                                <div id="bk-file-preview" style="display:none;" class="bk-file-card">
+                                <div id="bk-file-preview" style="display:none;" class="bk-file-card mx-auto"
+                                    style="max-width: 500px;">
                                     <div class="bk-file-icon"><i class="fa fa-file-archive"></i></div>
                                     <div class="bk-file-info">
                                         <strong id="bk-file-name"></strong>

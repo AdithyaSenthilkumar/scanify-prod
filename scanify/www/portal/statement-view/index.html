@@ -253,6 +253,9 @@
                     <div class="ss-doc-viewer" id="sv-doc-viewer">
                         <iframe id="sv-pdf-viewer" style="display:none;width:100%;height:100%;border:none;"></iframe>
                         <img id="sv-img-viewer" style="display:none;max-width:100%;">
+                        <div id="sv-table-viewer"
+                            style="display:none;width:100%;height:100%;background:white;padding:10px;overflow:auto;">
+                        </div>
                     </div>
                 </div>
                 <div class="ss-qc-right">
@@ -702,6 +705,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
     const DOC_NAME = {{ doc_name | tojson }};
     let sv_items = [];
@@ -710,9 +714,9 @@
 
     function sv_fmt(v, currency) {
         const n = parseFloat(v || 0);
-        if (isNaN(n)) return '0.00';
+        if (isNaN(n)) return currency ? '0.00' : '0';
         if (currency) return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        return n.toFixed(2);
+        return Math.round(n).toString();
     }
 
     function sv_escape(s) {
@@ -895,9 +899,9 @@
             function qtyCell(field, val) {
                 if (isDraft) {
                     return `<td class="text-right p-0">
-                        <input type="number" step="any" class="sv-edit-input"
+                        <input type="number" step="1" class="sv-edit-input"
                             data-row="${rowIdx}" data-field="${field}"
-                            value="${sv_fmt(val)}">
+                            value="${Math.round(parseFloat(val) || 0)}">
                     </td>`;
                 }
                 return `<td class="text-right">${sv_fmt(val)}</td>`;
@@ -1062,12 +1066,24 @@
         const file = sv_doc.uploaded_file;
         if (file) {
             const ext = file.split('.').pop().toLowerCase();
+            $('#sv-pdf-viewer, #sv-img-viewer, #sv-table-viewer').hide();
             if (ext === 'pdf') {
                 $('#sv-pdf-viewer').attr('src', file).show();
-                $('#sv-img-viewer').hide();
             } else if (['jpg', 'jpeg', 'png'].includes(ext)) {
                 $('#sv-img-viewer').attr('src', file).show();
-                $('#sv-pdf-viewer').hide();
+            } else if (['csv', 'xls', 'xlsx', 'txt'].includes(ext)) {
+                $('#sv-table-viewer').html('<div class="text-center p-4 text-muted"><i class="fa fa-spinner fa-spin fa-2x"></i><br>Loading tabular data...</div>').show();
+                fetch(file)
+                    .then(res => res.arrayBuffer())
+                    .then(ab => {
+                        const workbook = XLSX.read(ab, { type: 'array' });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const htmlStr = XLSX.utils.sheet_to_html(firstSheet, { classes: 'table table-bordered table-sm' });
+                        $('#sv-table-viewer').html(htmlStr).find('table').css('font-size', '11px');
+                    })
+                    .catch(err => {
+                        $('#sv-table-viewer').html('<div class="alert alert-danger m-3">Error loading file data: ' + err.message + '</div>');
+                    });
             }
         }
 

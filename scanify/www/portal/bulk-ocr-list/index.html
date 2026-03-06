@@ -200,8 +200,18 @@
             return new Date(y, m - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
         }
 
+        function getActiveDivision() {
+            try {
+                const btn = document.querySelector('.division-name');
+                if (btn && btn.textContent.trim()) return btn.textContent.trim();
+            } catch (e) { }
+            const match = document.cookie.match(/(?:^|;\s*)division=([^;]*)/);
+            if (match) return decodeURIComponent(match[1]);
+            return '';
+        }
+
         async function loadJobs() {
-            const res = await apiCall('scanify.api.get_bulk_jobs_list');
+            const res = await apiCall('scanify.api.get_bulk_jobs_list', { division: getActiveDivision() });
             const tbody = document.getElementById('bkl-tbody');
 
             if (!res || !res.success || !res.jobs || !res.jobs.length) {
@@ -221,11 +231,11 @@
                 const sk = job.skipped_count || 0;
                 const total = job.total_files || 0;
                 const chips = total > 0 ? `
-                <div class="bkl-result-chips">
+                <div class="bkl-result-chips align-items-center">
                     <span class="bkl-chip chip-success"><i class="fa fa-check"></i> ${sc}</span>
                     ${fc > 0 ? `<span class="bkl-chip chip-failed"><i class="fa fa-times"></i> ${fc}</span>` : ''}
                     ${sk > 0 ? `<span class="bkl-chip chip-skipped"><i class="fa fa-forward"></i> ${sk}</span>` : ''}
-                    <span class="text-muted" style="font-size:10px;">/ ${total}</span>
+                    <span class="text-muted" style="font-size:11px; margin-left:4px; font-weight:600;">Total: ${total}</span>
                 </div>` : '<span class="text-muted small">—</span>';
 
                 return `<tr>

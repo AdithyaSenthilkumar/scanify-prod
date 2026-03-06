@@ -40,7 +40,7 @@ function loadMasters() {
             if (r.message) {
                 let html = '<option value="">Select HQ</option>';
                 r.message.forEach(function (hq) {
-                    html += `<option value="${hq.name}">${hq.hqname}</option>`;
+                    html += `<option value="${hq.name}">${hq.hq_name || hq.hqname || hq.name}</option>`;
                 });
                 $('#hq').html(html);
             }

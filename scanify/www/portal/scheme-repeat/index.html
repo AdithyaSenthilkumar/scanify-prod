@@ -1,0 +1,190 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Repeat Scheme Request{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page scheme-repeat-page">
+    <div class="page-header d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="page-title"><i class="fa fa-redo"></i> Repeat Scheme Request</h1>
+            <p class="page-subtitle">Create repeated requests from approved schemes in <strong>{{ division }}</strong> division</p>
+        </div>
+        <a href="/portal/scheme-list" class="btn btn-secondary">
+            <i class="fa fa-arrow-left"></i> Back to Scheme List
+        </a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <span><i class="fa fa-copy"></i> Repeat Request</span>
+        </div>
+        <div class="card-body">
+            <div class="row align-items-end">
+                <div class="col-md-4">
+                    <label><strong>Search Approved Scheme</strong></label>
+                    <div class="input-group">
+                        <input type="text" id="searchInput" class="form-control" placeholder="Scheme ID, doctor or stockist...">
+                        <div class="input-group-append">
+                            <button class="btn btn-secondary" type="button" onclick="loadApprovedSchemes()">
+                                <i class="fa fa-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <label><strong>Approved Scheme <span class="text-danger">*</span></strong></label>
+                    <select id="schemeSelect" class="form-control">
+                        <option value="">-- Select Approved Scheme --</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary btn-block" id="repeatBtn" onclick="repeatScheme()" disabled>
+                        <i class="fa fa-redo"></i> Repeat
+                    </button>
+                </div>
+            </div>
+
+            <div id="selectedSchemeInfo" class="alert alert-info mt-3 mb-0" style="display:none;"></div>
+            <div class="alert alert-light mt-3 mb-0">
+                <small>
+                    <strong>Note:</strong> Repeated requests are marked separately and still follow the rule:
+                    maximum 3 requests per product per doctor per month.
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let approvedSchemes = [];
+
+    function getActiveDivision() {
+        try {
+            const btn = document.querySelector('.division-name');
+            if (btn && btn.textContent.trim()) return btn.textContent.trim();
+        } catch (e) { }
+        const match = document.cookie.match(/(?:^|;\s*)division=([^;]*)/);
+        if (match) return decodeURIComponent(match[1]);
+        return '{{ division }}';
+    }
+
+    $(document).ready(function () {
+        loadApprovedSchemes();
+        $('#schemeSelect').on('change', updateSelectedSchemeInfo);
+        $('#searchInput').on('keyup', function (e) {
+            if (e.key === 'Enter') loadApprovedSchemes();
+        });
+    });
+
+    function loadApprovedSchemes() {
+        const filters = {
+            status: 'Approved',
+            search: $('#searchInput').val().trim()
+        };
+
+        $('#schemeSelect').html('<option value="">Loading...</option>');
+        $('#repeatBtn').prop('disabled', true);
+        $('#selectedSchemeInfo').hide().html('');
+
+        $.ajax({
+            url: '/api/method/scanify.api.get_scheme_list_portal',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ division: getActiveDivision(), filters: JSON.stringify(filters) }),
+            success: function (r) {
+                if (!(r.message && r.message.success)) {
+                    $('#schemeSelect').html('<option value="">Error loading schemes</option>');
+                    return;
+                }
+
+                approvedSchemes = r.message.data || [];
+                if (!approvedSchemes.length) {
+                    $('#schemeSelect').html('<option value="">No approved schemes found</option>');
+                    return;
+                }
+
+                let html = '<option value="">-- Select Approved Scheme --</option>';
+                approvedSchemes.forEach(function (s) {
+                    html += `<option value="${s.name}">${s.name} | ${s.doctor_name || '-'} | ${s.stockist_name || '-'} | ₹${formatCurrency(s.total_scheme_value || 0)}</option>`;
+                });
+                $('#schemeSelect').html(html);
+            },
+            error: function (xhr) {
+                console.error(xhr.responseText);
+                $('#schemeSelect').html('<option value="">Error loading schemes</option>');
+            }
+        });
+    }
+
+    function updateSelectedSchemeInfo() {
+        const selected = $('#schemeSelect').val();
+        $('#repeatBtn').prop('disabled', !selected);
+
+        if (!selected) {
+            $('#selectedSchemeInfo').hide().html('');
+            return;
+        }
+
+        const s = approvedSchemes.find(x => x.name === selected);
+        if (!s) {
+            $('#selectedSchemeInfo').hide().html('');
+            return;
+        }
+
+        $('#selectedSchemeInfo').html(`
+            <strong>${s.name}</strong>
+            <span class="mx-2">|</span>
+            Doctor: ${s.doctor_name || '-'}
+            <span class="mx-2">|</span>
+            Stockist: ${s.stockist_name || '-'}
+            <span class="mx-2">|</span>
+            Value: ₹${formatCurrency(s.total_scheme_value || 0)}
+        `).show();
+    }
+
+    function repeatScheme() {
+        const sourceName = $('#schemeSelect').val();
+        if (!sourceName) return;
+
+        $('#repeatBtn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Repeating...');
+
+        $.ajax({
+            url: '/api/method/scanify.api.portal_repeat_scheme_request',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ source_name: sourceName }),
+            success: function (r) {
+                $('#repeatBtn').prop('disabled', false).html('<i class="fa fa-redo"></i> Repeat');
+                if (r.message && r.message.success) {
+                    showAlert('Repeated request created: ' + r.message.name, 'success');
+                    setTimeout(() => window.location.href = '/portal/scheme-list', 1200);
+                } else {
+                    showAlert((r.message && r.message.message) || 'Failed to repeat scheme', 'danger');
+                }
+            },
+            error: function (xhr) {
+                $('#repeatBtn').prop('disabled', false).html('<i class="fa fa-redo"></i> Repeat');
+                console.error(xhr.responseText);
+                showAlert('Error repeating scheme', 'danger');
+            }
+        });
+    }
+
+    function formatCurrency(v) {
+        return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0);
+    }
+
+    function showAlert(msg, type) {
+        const a = $(`<div class="alert alert-${type} alert-dismissible fade show" role="alert"
+            style="position:fixed;top:90px;right:24px;z-index:9999;min-width:350px;">
+            <strong>${msg}</strong>
+            <button type="button" class="close" data-dismiss="alert">&times;</button></div>`);
+        $('body').append(a);
+        setTimeout(() => a.fadeOut(() => a.remove()), 4000);
+    }
+</script>
+{% endblock %}
