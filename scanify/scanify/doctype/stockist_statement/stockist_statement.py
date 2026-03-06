@@ -105,7 +105,6 @@ class StockistStatement(Document):
         total_opening_value = 0
         total_purchase_value = 0
         total_closing_value = 0
-        approved_scheme_map = self._get_approved_scheme_qty_map()
 
 
         for item in self.items:
@@ -132,26 +131,26 @@ class StockistStatement(Document):
             opening_qty_base = flt(item.opening_qty) / conversion_factor
             purchase_qty_base = flt(item.purchase_qty) / conversion_factor
             sales_qty_base = flt(item.sales_qty) / conversion_factor
-            free_qty_base = flt(item.free_qty) / conversion_factor
-            scheme_free_qty_base = flt(item.free_qty_scheme) / conversion_factor
-            return_qty_base = flt(item.return_qty) / conversion_factor
-            misc_out_qty_base = flt(item.misc_out_qty) / conversion_factor
             closing_qty_base = flt(item.closing_qty) / conversion_factor
 
             if item.closing_value is None or item.closing_value == 0:
                 item.closing_value = closing_qty_base * pts
             
-            approved_scheme_qty = flt(approved_scheme_map.get(item.product_code, 0))
-            item.scheme_deducted_qty_calc = flt(item.sales_qty) + flt(item.free_qty) - approved_scheme_qty 
-            
-            scheme_deducted_qty_base = flt(item.scheme_deducted_qty_calc) / conversion_factor
+            # Scheme Deducted Sales Qty = (Sales Qty + Free Qty) – Scheme Approved Free Qty
+            # Only populate when free_qty_scheme > 0 (i.e. after a deduction has been applied)
+            scheme_free = flt(item.free_qty_scheme)
+            if scheme_free > 0:
+                item.scheme_deducted_qty_calc = flt(item.sales_qty) + flt(item.free_qty) - scheme_free
+            else:
+                item.scheme_deducted_qty_calc = 0
 
 
             # -------- VALUE CALCULATIONS (STRIP LEVEL) --------
             item.opening_value = opening_qty_base * pts
             item.purchase_value = purchase_qty_base * pts
-            item.sales_value_pts = scheme_deducted_qty_base  * pts
-            item.sales_value_ptr = scheme_deducted_qty_base  * ptr
+            # Sales value based on sales qty directly
+            item.sales_value_pts = sales_qty_base * pts
+            item.sales_value_ptr = sales_qty_base * ptr
             if item.closing_value is None or item.closing_value == 0:
                 # Calculate only if not provided from statement
                 item.closing_value = closing_qty_base * pts

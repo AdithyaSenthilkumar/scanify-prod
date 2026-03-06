@@ -34,6 +34,7 @@ def get_context(context):
             t.start_date,
             t.end_date,
             t.status,
+            t.docstatus,
             t.creation,
             ti.hq,
             COALESCE(ti.hq_name, hq.hq_name, ti.hq) AS hq_name,

@@ -210,11 +210,11 @@
                             <th>Purchase</th>
                             <th>Sales</th>
                             <th>Free</th>
-                            <th>Free(Sch)</th>
                             <th>Return</th>
-                            <th>Sch Ded</th>
                             <th>Closing</th>
                             <th>Misc Out</th>
+                            <th>Free(Sch)</th>
+                            <th>Sch Ded</th>
                             <th>Open Val</th>
                             <th>Purch Val</th>
                             <th>Sales(PTS)</th>
@@ -261,21 +261,34 @@
                 <div class="ss-qc-right">
                     <div class="ss-qc-panel-header">
                         <h6><i class="fa fa-database"></i> Extracted Data</h6>
+                        <div class="ss-col-selector">
+                            <label class="small text-muted mb-1 d-block">Columns (max 8):</label>
+                            <div class="ss-col-chips" id="sv-column-checkboxes">
+                                <label class="ss-chip"><input type="checkbox" value="productcode" checked disabled> Code</label>
+                                <label class="ss-chip"><input type="checkbox" value="productname" checked> Name</label>
+                                <label class="ss-chip"><input type="checkbox" value="pack"> Pack</label>
+                                <label class="ss-chip"><input type="checkbox" value="pts"> PTS</label>
+                                <label class="ss-chip"><input type="checkbox" value="conversion_factor"> Conv</label>
+                                <label class="ss-chip"><input type="checkbox" value="openingqty" checked> Opening</label>
+                                <label class="ss-chip"><input type="checkbox" value="purchaseqty"> Purchase</label>
+                                <label class="ss-chip"><input type="checkbox" value="salesqty" checked> Sales</label>
+                                <label class="ss-chip"><input type="checkbox" value="freeqty"> Free</label>
+                                <label class="ss-chip"><input type="checkbox" value="returnqty"> Return</label>
+                                <label class="ss-chip"><input type="checkbox" value="closingqty" checked> Closing</label>
+                                <label class="ss-chip"><input type="checkbox" value="miscoutqty"> Misc Out</label>
+                                <label class="ss-chip"><input type="checkbox" value="freeqtyscheme"> Free(Sch)</label>
+                                <label class="ss-chip"><input type="checkbox" value="schemedeductedqty"> Sch Ded</label>
+                                <label class="ss-chip"><input type="checkbox" value="openingvalue"> Open Val</label>
+                                <label class="ss-chip"><input type="checkbox" value="purchasevalue"> Purch Val</label>
+                                <label class="ss-chip"><input type="checkbox" value="salesvaluepts"> Sales(PTS)</label>
+                                <label class="ss-chip"><input type="checkbox" value="salesvalueptr"> Sales(PTR)</label>
+                                <label class="ss-chip"><input type="checkbox" value="closingvalue" checked> Cls Val</label>
+                            </div>
+                        </div>
                     </div>
                     <div class="ss-qc-table-wrap">
                         <table class="table table-bordered table-sm ss-qc-table" id="sv-qc-table">
-                            <thead class="ss-full-thead">
-                                <tr>
-                                    <th>Code</th>
-                                    <th>Name</th>
-                                    <th>Opening</th>
-                                    <th>Purchase</th>
-                                    <th>Sales</th>
-                                    <th>Free</th>
-                                    <th>Closing</th>
-                                    <th>Cls Val</th>
-                                </tr>
-                            </thead>
+                            <thead id="sv-qc-thead" class="ss-full-thead"></thead>
                             <tbody id="sv-qc-tbody"></tbody>
                         </table>
                     </div>
@@ -700,6 +713,44 @@
         box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
         background: white;
     }
+
+    /* ======== Column chip selector (QC screen) ======== */
+    .ss-col-selector {
+        text-align: right;
+    }
+
+    .ss-col-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        justify-content: flex-end;
+    }
+
+    .ss-chip {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 500;
+        color: #334155;
+        transition: all 0.15s;
+        white-space: nowrap;
+    }
+
+    .ss-chip input {
+        cursor: pointer;
+    }
+
+    .ss-chip:has(input:checked) {
+        background: #eef2ff;
+        border-color: #818cf8;
+        color: #4f46e5;
+    }
 </style>
 
 {% endblock %}
@@ -711,6 +762,31 @@
     let sv_items = [];
     let sv_doc = {};
     let sv_zoom = 1;
+
+    // Column configuration for the dynamic QC table in the revisit-draft flow.
+    // readonly:true  => display-only cell that shows a calculated value.
+    // curr:true      => format as currency (2 decimals).
+    const sv_qc_col_configs = [
+        { id: 'productcode',       label: 'Code',         readonly: true },
+        { id: 'productname',       label: 'Product Name', readonly: true },
+        { id: 'pack',              label: 'Pack',         readonly: true },
+        { id: 'pts',               label: 'PTS',          readonly: true, curr: true },
+        { id: 'conversion_factor', label: 'Conv',         readonly: true },
+        { id: 'openingqty',        label: 'Opening' },
+        { id: 'purchaseqty',       label: 'Purchase' },
+        { id: 'salesqty',          label: 'Sales' },
+        { id: 'freeqty',           label: 'Free Qty' },
+        { id: 'returnqty',         label: 'Return' },
+        { id: 'closingqty',        label: 'Closing' },
+        { id: 'miscoutqty',        label: 'Misc Out' },
+        { id: 'freeqtyscheme',     label: 'Free(Sch)',    readonly: true }, // scheme-managed
+        { id: 'schemedeductedqty', label: 'Sch Ded',      readonly: true }, // set on scheme approval only
+        { id: 'openingvalue',      label: 'Open Val',     readonly: true, curr: true },
+        { id: 'purchasevalue',     label: 'Purch Val',    readonly: true, curr: true },
+        { id: 'salesvaluepts',     label: 'Sales(PTS)',   readonly: true, curr: true },
+        { id: 'salesvalueptr',     label: 'Sales(PTR)',   readonly: true, curr: true },
+        { id: 'closingvalue',      label: 'Cls Val',      readonly: true, curr: true }
+    ];
 
     function sv_fmt(v, currency) {
         const n = parseFloat(v || 0);
@@ -803,38 +879,75 @@
         const pts = parseFloat(row.pts) || 0;
         const ptr = parseFloat(row.ptr) || 0;
 
-        const c_op = parseFloat(row.openingqty || 0) / cf;
-        const c_pu = parseFloat(row.purchaseqty || 0) / cf;
-        const c_sa = parseFloat(row.salesqty || 0) / cf;
-        const c_fr = parseFloat(row.freeqty || 0) / cf;
-        const c_frs = parseFloat(row.freeqtyscheme || 0) / cf;
-        const c_rt = parseFloat(row.returnqty || 0) / cf;
-        const c_mo = parseFloat(row.miscoutqty || 0) / cf;
+        // Calculate per-movement values; do NOT derive closing from formula.
+        row.openingvalue  = (parseFloat(row.openingqty  || 0) / cf) * pts;
+        row.purchasevalue = (parseFloat(row.purchaseqty || 0) / cf) * pts;
 
-        row.openingvalue = c_op * pts;
-        row.purchasevalue = c_pu * pts;
+        // Sales value is based on sales qty only.
+        // Free-scheme deductions are handled outside QC by the scheme approval flow.
+        row.salesvaluepts = (parseFloat(row.salesqty || 0) / cf) * pts;
+        row.salesvalueptr = (parseFloat(row.salesqty || 0) / cf) * ptr;
 
-        const closing_base = c_op + c_pu - c_sa - c_fr - c_frs - c_rt - c_mo;
-        row.closingqty = closing_base * cf;
-        row.closingvalue = closing_base * pts;
+        // schemedeductedqty: NOT calculated here — set only when a scheme
+        // deduction is applied and approved. Leave the saved DB value as-is.
 
-        const deducted = (parseFloat(row.salesqty || 0) + parseFloat(row.freeqty || 0) - parseFloat(row.freeqtyscheme || 0)) / cf;
-        row.salesvaluepts = deducted * pts;
-        row.salesvalueptr = deducted * ptr;
-        row.schemedeductedqty = deducted * cf;
+        // Closing value is ALWAYS derived from closing qty (which may have been
+        // OCR-extracted or manually corrected). Never recalculate closing from
+        // opening/purchase/sales movements.
+        row.closingvalue = (parseFloat(row.closingqty || 0) / cf) * pts;
     }
 
-    function sv_recalc_row($input, inputClass) {
+    // Per-field recalculation: only touches the derived values that depend on
+    // the field that actually changed. Closing is isolated — it only changes
+    // when closingqty itself is edited. schemedeductedqty is NEVER touched here.
+    function sv_calc_row_field(row, changed_field) {
+        const cf  = parseFloat(row.conversion_factor) || 1;
+        const pts = parseFloat(row.pts) || 0;
+        const ptr = parseFloat(row.ptr) || 0;
+        switch (changed_field) {
+            case 'openingqty':
+                row.openingvalue = (parseFloat(row.openingqty) / cf) * pts;
+                break;
+            case 'purchaseqty':
+                row.purchasevalue = (parseFloat(row.purchaseqty) / cf) * pts;
+                break;
+            case 'salesqty':
+                // Only sales qty drives the sales value columns.
+                row.salesvaluepts = (parseFloat(row.salesqty || 0) / cf) * pts;
+                row.salesvalueptr = (parseFloat(row.salesqty || 0) / cf) * ptr;
+                break;
+            case 'freeqty':
+            case 'returnqty':
+            case 'miscoutqty':
+                // These fields record physical movements but do not drive any
+                // value column in the QC phase — leave all calculated fields as-is.
+                break;
+            case 'closingqty':
+                // User explicitly corrected the closing qty: recalc its value only.
+                row.closingvalue = (parseFloat(row.closingqty) / cf) * pts;
+                break;
+            default:
+                break;
+        }
+    }
+
+    function sv_recalc_row($input) {
         const rowIdx = parseInt($input.data('row'));
-        const field = $input.data('field');
+        const field  = $input.data('field');
         sv_items[rowIdx][field] = parseFloat($input.val()) || 0;
 
-        do_sv_row_calc(sv_items[rowIdx]);
+        sv_calc_row_field(sv_items[rowIdx], field);
         sv_refresh_totals();
 
-        const $tr = $input.closest('tr');
-        $tr.find(`input.${inputClass}[data-field="closingqty"]`).val(sv_items[rowIdx].closingqty);
-        $tr.find('.sv-clsval-cell').text(sv_fmt(sv_items[rowIdx].closingvalue));
+        // Refresh every calculated display cell in this row that carries
+        // a data-calcfield attribute (set during table rendering).
+        const $tr  = $input.closest('tr');
+        const row  = sv_items[rowIdx];
+        $tr.find('[data-calcfield]').each(function () {
+            const calcField = $(this).data('calcfield');
+            const cfg = sv_qc_col_configs.find(function (c) { return c.id === calcField; });
+            $(this).text(sv_fmt(row[calcField], cfg && cfg.curr));
+        });
     }
 
     function sv_refresh_totals() {
@@ -896,14 +1009,9 @@
             const prevClass = row.prev_closing_qty != null && parseFloat(row.openingqty) !== parseFloat(row.prev_closing_qty)
                 ? 'text-right text-warning' : 'text-right text-muted';
 
+            // Preview table is read-only regardless of draft status.
+            // Editing is available only in the QC screen and Full Table modal.
             function qtyCell(field, val) {
-                if (isDraft) {
-                    return `<td class="text-right p-0">
-                        <input type="number" step="1" class="sv-edit-input"
-                            data-row="${rowIdx}" data-field="${field}"
-                            value="${Math.round(parseFloat(val) || 0)}">
-                    </td>`;
-                }
                 return `<td class="text-right">${sv_fmt(val)}</td>`;
             }
 
@@ -920,12 +1028,6 @@
       <td class="text-right sv-clsval-cell">${sv_fmt(row.closingvalue)}</td>
     </tr>`);
         });
-        // Wire up inline edit handlers for draft mode
-        if (isDraft) {
-            $('#sv-preview-tbody').off('change', '.sv-edit-input').on('change', '.sv-edit-input', function () {
-                sv_recalc_row($(this), 'sv-edit-input');
-            });
-        }
         $('#sv-item-count').text(`${sv_items.length} products`);
 
         // Totals section
@@ -982,11 +1084,12 @@
         const isDraft = (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed');
 
         const editableQtyCols = ['openingqty', 'purchaseqty', 'salesqty', 'freeqty',
-            'freeqtyscheme', 'returnqty', 'miscoutqty', 'closingqty'];
+            'returnqty', 'miscoutqty', 'closingqty'];  // freeqtyscheme is scheme-managed, not editable
         const cols = [
             'productcode', 'productname', 'pack', 'pts', 'conversion_factor', 'prev_closing_qty',
-            'openingqty', 'purchaseqty', 'salesqty', 'freeqty', 'freeqtyscheme',
-            'returnqty', 'schemedeductedqty', 'closingqty', 'miscoutqty',
+            'openingqty', 'purchaseqty', 'salesqty', 'freeqty',
+            'returnqty', 'closingqty', 'miscoutqty',
+            'freeqtyscheme', 'schemedeductedqty',
             'openingvalue', 'purchasevalue', 'salesvaluepts', 'salesvalueptr', 'closingvalue'
         ];
         const currCols = ['pts', 'openingvalue', 'purchasevalue', 'salesvaluepts', 'salesvalueptr', 'closingvalue'];
@@ -1008,11 +1111,12 @@
                     </td>`;
                 } else {
                     const display = isText ? sv_escape(v || '') : (isCurr ? sv_fmt(v, true) : (v != null ? sv_fmt(v) : '—'));
-                    if (c === 'closingvalue') {
-                        tr += `<td class="${align} sv-clsval-cell">${display}</td>`;
-                    } else {
-                        tr += `<td class="${align}">${display}</td>`;
-                    }
+                    // Add data-calcfield to currency cells so sv_recalc_row
+                    // can refresh them automatically when an editable qty changes.
+                    // schemedeductedqty is NOT a calc cell — it is set only on scheme approval.
+                    const isCalcCell = isCurr;
+                    const calcAttr = isCalcCell ? ` data-calcfield="${c}"` : '';
+                    tr += `<td class="${align}"${calcAttr}>${display}</td>`;
                 }
             });
             tr += '</tr>';
@@ -1021,7 +1125,7 @@
 
         if (isDraft) {
             $tbody.off('change', '.sv-edit-input-ft').on('change', '.sv-edit-input-ft', function () {
-                sv_recalc_row($(this), 'sv-edit-input-ft');
+                sv_recalc_row($(this));
             });
         }
 
@@ -1032,35 +1136,7 @@
 
     // ---- QC Screen ----
     window.sv_open_qc = function () {
-        const $tbody = $('#sv-qc-tbody');
-        $tbody.empty();
-        const isDraft = (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed');
-
-        sv_items.forEach((row, rowIdx) => {
-            function qcCell(field, val) {
-                if (isDraft) {
-                    return `<td class="p-0"><input type="number" step="any" class="sv-edit-input-qc"
-                        data-row="${rowIdx}" data-field="${field}" value="${sv_fmt(val)}"></td>`;
-                }
-                return `<td class="text-right">${sv_fmt(val)}</td>`;
-            }
-            $tbody.append(`<tr>
-      <td>${sv_escape(row.productcode)}</td>
-      <td>${sv_escape(row.productname || '')}</td>
-      ${qcCell('openingqty', row.openingqty)}
-      ${qcCell('purchaseqty', row.purchaseqty)}
-      ${qcCell('salesqty', row.salesqty)}
-      ${qcCell('freeqty', row.freeqty)}
-      ${qcCell('closingqty', row.closingqty)}
-      <td class="text-right sv-clsval-cell">${sv_fmt(row.closingvalue)}</td>
-    </tr>`);
-        });
-
-        if (isDraft) {
-            $tbody.off('change', '.sv-edit-input-qc').on('change', '.sv-edit-input-qc', function () {
-                sv_recalc_row($(this), 'sv-edit-input-qc');
-            });
-        }
+        sv_render_qc_table();
 
         // Show uploaded file
         const file = sv_doc.uploaded_file;
@@ -1091,6 +1167,71 @@
             render_sv_page();
         }).modal('show');
     };
+
+    // Renders the QC table based on the column selector chips.
+    // Called on open and whenever the column selection changes.
+    function sv_render_qc_table() {
+        const isDraft = (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed');
+
+        const activeCols = [];
+        $('#sv-column-checkboxes input:checked').each(function () {
+            activeCols.push($(this).val());
+        });
+
+        const $thead = $('#sv-qc-thead');
+        const $tbody = $('#sv-qc-tbody');
+        $thead.empty();
+        $tbody.empty();
+
+        // Header
+        let thr = '<tr>';
+        sv_qc_col_configs.forEach(function (c) {
+            if (activeCols.includes(c.id)) thr += '<th>' + c.label + '</th>';
+        });
+        thr += '</tr>';
+        $thead.html(thr);
+
+        // Rows
+        const qcTextCols = ['productcode', 'productname', 'pack'];
+        sv_items.forEach(function (row, rowIdx) {
+            let tr = '<tr>';
+            sv_qc_col_configs.forEach(function (c) {
+                if (!activeCols.includes(c.id)) return;
+                const v = row[c.id];
+                const isText = qcTextCols.includes(c.id);
+                const align = (c.curr || (!isText && typeof v === 'number')) ? 'text-right' : '';
+                if (c.readonly || !isDraft) {
+                    const display = c.curr ? sv_fmt(v, true) : sv_escape(String(v != null ? v : ''));
+                    // Only add data-calcfield to numeric readonly cells, not text columns
+                    const calcAttr = (c.readonly && !isText) ? ' data-calcfield="' + c.id + '"' : '';
+                    tr += '<td class="' + align + '"' + calcAttr + '>' + display + '</td>';
+                } else {
+                    tr += '<td class="p-0"><input type="number" step="any" class="sv-edit-input-qc"' +
+                        ' data-row="' + rowIdx + '" data-field="' + c.id + '"' +
+                        ' value="' + sv_fmt(v) + '"></td>';
+                }
+            });
+            tr += '</tr>';
+            $tbody.append(tr);
+        });
+
+        if (isDraft) {
+            $tbody.off('change', '.sv-edit-input-qc').on('change', '.sv-edit-input-qc', function () {
+                sv_recalc_row($(this));
+            });
+        }
+    }
+
+    // Re-render QC table when column selection changes
+    $(document).on('change', '#sv-column-checkboxes input', function () {
+        const count = $('#sv-column-checkboxes input:checked').length;
+        if (count > 8) {
+            $(this).prop('checked', false);
+            alert('Maximum 8 columns allowed for QC view.');
+            return;
+        }
+        sv_render_qc_table();
+    });
 
     // Zoom
     window.sv_zoom_in = function () { sv_zoom = Math.min(sv_zoom + 0.2, 3); sv_apply_zoom(); };

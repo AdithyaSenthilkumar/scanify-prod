@@ -50,31 +50,33 @@
                     <tbody>
                         {% if target_rows %}
                         {% for row in target_rows %}
-                        <tr>
-                            <td><strong>{{ row.target_id }}</strong></td>
-                            <td>
+                        <tr style="font-size:13px;">
+                            <td class="py-1"><strong>{{ row.target_id }}</strong></td>
+                            <td class="py-1">
                                 <div class="font-weight-600">{{ row.hq_name or row.hq }}</div>
                                 <small class="text-muted">{{ row.hq }}</small>
                             </td>
-                            <td>{{ row.team or '-' }}</td>
-                            <td>{{ row.financial_year }}</td>
-                            <td class="font-weight-600">{{ "{:,.2f}".format(row.yearly_total or 0) }}</td>
-                            <td>{{ frappe.utils.formatdate(row.start_date) }}</td>
-                            <td>{{ frappe.utils.formatdate(row.end_date) }}</td>
-                            <td>
-                                {% if row.status == 'Draft' %}
-                                <span class="badge badge-warning">{{ row.status }}</span>
-                                {% elif row.status == 'Active' %}
-                                <span class="badge badge-success">{{ row.status }}</span>
+                            <td class="py-1">{{ row.team or '-' }}</td>
+                            <td class="py-1">{{ row.financial_year }}</td>
+                            <td class="py-1 font-weight-600">{{ "{:,.2f}".format(row.yearly_total or 0) }}</td>
+                            <td class="py-1">{{ frappe.utils.formatdate(row.start_date) }}</td>
+                            <td class="py-1">{{ frappe.utils.formatdate(row.end_date) }}</td>
+                            <td class="py-1">
+                                {% if row.docstatus == 1 %}
+                                <span class="badge badge-success">Approved</span>
+                                {% elif row.status == 'Draft' or not row.status %}
+                                <span class="badge badge-warning">Draft</span>
                                 {% else %}
                                 <span class="badge badge-secondary">{{ row.status }}</span>
                                 {% endif %}
                             </td>
-                            <td>{{ frappe.utils.formatdate(row.creation) }}</td>
-                            <td class="text-center">
+                            <td class="py-1">{{ frappe.utils.formatdate(row.creation) }}</td>
+                            <td class="py-1 text-center">
                                 <a href="/portal/sales-targets?name={{ row.target_id }}"
-                                    class="btn btn-sm btn-outline-primary" title="View Target Details">
-                                    <i class="fa fa-edit"></i> View / Edit
+                                    class="btn btn-xs {% if row.docstatus == 1 %}btn-outline-secondary{% else %}btn-outline-primary{% endif %}" 
+                                    title="{% if row.docstatus == 1 %}View Target{% else %}Edit Target{% endif %}">
+                                    <i class="fa fa-{% if row.docstatus == 1 %}eye{% else %}edit{% endif %}"></i>
+                                    {% if row.docstatus == 1 %}View{% else %}Edit{% endif %}
                                 </a>
                             </td>
                         </tr>

@@ -40,6 +40,7 @@ function setDefaultDates() {
     $("#start-date").val(`${year}-04-01`);
     $("#end-date").val(`${year + 1}-03-31`);
     $("#target-status").val("Draft");
+    setStatusBadge("Draft", 0);
 }
 
 function addRow() {
@@ -241,7 +242,6 @@ async function saveTargets() {
     const financial_year = ($("#financial-year").val() || "").trim();
     const start_date = ($("#start-date").val() || "").trim();
     const end_date = ($("#end-date").val() || "").trim();
-    const status = $("#target-status").val();
 
     if (!financial_year || !start_date || !end_date) {
         showAlert("Financial year, start date and end date are mandatory", "warning");
@@ -312,7 +312,7 @@ async function saveTargets() {
                 financial_year,
                 start_date,
                 end_date,
-                status,
+                status: "Draft",
                 hq_targets: rows
             });
         } else {
@@ -320,14 +320,14 @@ async function saveTargets() {
                 financial_year,
                 start_date,
                 end_date,
-                status,
+                status: "Draft",
                 hq_targets: rows
             });
         }
 
         hideLoadingOverlay();
         if (result.success) {
-            showAlert(`Saved successfully: ${result.name}`, "success");
+            showAlert(`Saved as Draft: ${result.name || editingDocName}`, "success");
             setTimeout(() => {
                 window.location.href = `/portal/sales-targets-list`;
             }, 900);
@@ -358,15 +358,24 @@ async function loadExistingTarget(name) {
             $("#financial-year").val(result.doc.financial_year);
             $("#start-date").val(result.doc.start_date);
             $("#end-date").val(result.doc.end_date);
-            $("#target-status").val(result.doc.status);
+            $("#target-status").val(result.doc.status || "Draft");
 
-            if (result.doc.docstatus === 0) {
-                $("#approve-btn").removeClass("d-none");
-            } else {
+            const isApproved = result.doc.docstatus === 1;
+            setStatusBadge(isApproved ? "Approved" : (result.doc.status || "Draft"), result.doc.docstatus);
+
+            if (isApproved) {
+                // Approved / submitted — lock entire form
                 $("#save-btn").addClass("d-none");
                 $("#add-row-btn").addClass("d-none");
                 $("#bulk-import-btn").addClass("d-none");
-                $(".remove-row-btn").remove();
+                $("#approve-btn").addClass("d-none");
+                $("#reset-btn").addClass("d-none");
+                // Make header fields readonly
+                $("#financial-year, #start-date, #end-date").prop("readonly", true).css("background", "#f8f9fa");
+            } else {
+                // Draft — show save + approve buttons
+                $("#save-btn").removeClass("d-none");
+                $("#approve-btn").removeClass("d-none");
             }
 
             $("#targets-tbody").empty();
@@ -376,17 +385,23 @@ async function loadExistingTarget(name) {
                     const $tr = $("#targets-tbody tr:last");
                     $tr.find(".hq-search").val(item.hq_name);
                     $tr.find(".hq-id").val(item.hq);
-                    $tr.find(".hq-region-id").val(item.region);
+                    $tr.find(".hq-region-id").val(item.region || "");
 
                     const months = ["apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "jan", "feb", "mar"];
                     months.forEach(m => {
                         $tr.find(`.month-input[data-month="${m}"]`).val(item[m] || 0);
                     });
+
+                    if (isApproved) {
+                        // Make row readonly
+                        $tr.find("input").prop("readonly", true).css("background", "#f8f9fa");
+                        $tr.find(".remove-row-btn").remove();
+                    }
                 });
                 recalcAll();
                 syncDetectedRegion();
             } else {
-                addRow();
+                if (!isApproved) addRow();
             }
         } else {
             showAlert("Failed to load target details", "danger");
@@ -408,10 +423,17 @@ async function approveTarget() {
         const result = await callApi("scanify.api.submit_hq_yearly_target_from_portal", { name: editingDocName });
         hideLoadingOverlay();
         if (result.success) {
-            showAlert("Sales Target Approved", "success");
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
+            showAlert("Sales Target Approved successfully!", "success");
+            setStatusBadge("Approved", 1);
+            // Lock the form immediately
+            $("#save-btn").addClass("d-none");
+            $("#approve-btn").addClass("d-none");
+            $("#add-row-btn").addClass("d-none");
+            $("#bulk-import-btn").addClass("d-none");
+            $("#reset-btn").addClass("d-none");
+            $("#financial-year, #start-date, #end-date").prop("readonly", true).css("background", "#f8f9fa");
+            $("#targets-tbody input").prop("readonly", true).css("background", "#f8f9fa");
+            $("#targets-tbody .remove-row-btn").remove();
         } else {
             showAlert(result.message || "Approval failed", "danger");
         }
@@ -421,66 +443,103 @@ async function approveTarget() {
     }
 }
 
-function processBulkImport() {
-    const rawData = $("#bulk-import-data").val().trim();
-    if (!rawData) {
-        showAlert("Please paste some data to import", "warning");
+function setStatusBadge(status, docstatus) {
+    const $badge = $("#target-status-badge");
+    $badge.removeClass("badge-warning badge-success badge-secondary badge-danger");
+    if (docstatus === 1 || status === "Approved") {
+        $badge.addClass("badge-success").text("Approved");
+    } else if (status === "Draft" || !status) {
+        $badge.addClass("badge-warning").text("Draft");
+    } else {
+        $badge.addClass("badge-secondary").text(status);
+    }
+}
+
+function downloadTargetTemplate() {
+    const headers = ["HQ Name", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+    const sample = ["Mumbai HQ", "10.00", "10.00", "10.00", "10.00", "10.00", "10.00", "10.00", "10.00", "10.00", "10.00", "10.00", "10.00"];
+    const csvContent = headers.join(",") + "\n" + sample.join(",");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "HQ_Target_Template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showAlert("Template downloaded. Fill HQ Names exactly as in HQ Master (figures in Lakhs).", "info");
+}
+
+async function processBulkImport() {
+    const fileInput = document.getElementById("target-import-file");
+    const file = fileInput && fileInput.files[0];
+    if (!file) {
+        showAlert("Please select an Excel or CSV file to import", "warning");
         return;
     }
 
-    const lines = rawData.split("\\n");
-    let importedRows = 0;
+    $("#import-target-progress").show();
+    $("#import-target-results").hide();
 
-    lines.forEach(line => {
-        line = line.trim();
-        if (!line) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("division", $("#division").val() || "");
 
-        let cols = line.split("\\t");
-        if (cols.length < 5) {
-            cols = line.split(",");
+    try {
+        const response = await fetch("/api/method/scanify.api.resolve_hq_target_rows_from_file", {
+            method: "POST",
+            headers: { "X-Frappe-CSRF-Token": window.csrf_token },
+            body: formData,
+        });
+        const data = await response.json();
+        const result = data.message;
+
+        $("#import-target-progress").hide();
+
+        if (!result || !result.success) {
+            showAlert(result?.message || "Failed to process file", "danger");
+            return;
         }
 
-        if (cols.length >= 13) {
-            const hqName = cols[0].trim();
-            if (hqName.toLowerCase() === "hq name" || hqName.toLowerCase() === "hq") return; // Header skip
+        const rows = result.rows || [];
+        const errors = result.errors || [];
 
-            // Re-use an empty row if available
-            let $emptyTr = null;
-            $("#targets-tbody tr").each(function () {
-                if (!$(this).find(".hq-search").val().trim() && !$emptyTr) {
-                    $emptyTr = $(this);
-                }
-            });
+        if (rows.length === 0) {
+            let errMsg = "No valid HQ rows found in the file.";
+            if (errors.length) errMsg += " " + errors.slice(0, 3).join("; ");
+            showAlert(errMsg, "warning");
+            return;
+        }
 
-            if (!$emptyTr) {
-                addRow();
-                $emptyTr = $("#targets-tbody tr:last");
-            }
-
-            $emptyTr.find(".hq-search").val(hqName);
-            // Because we only have the name string from bulk paste, we just put it in hq-search.
-            // But API needs hq code. Actually, the search logic gets the hq_name anyway. 
-            // Wait, create_target_from_portal expects hq_id. 
-            // For bulk import, we should just let the user verify the HQs or we auto match it if we want.
-            // Let's rely on the user to double check names or we can use the hq search text to find ID.
-            // Let's store the text as ID tentatively so the backend can look it up by name or ID.
-            $emptyTr.find(".hq-id").val(hqName);
-
+        // Clear existing tbody rows and populate with imported data
+        $("#targets-tbody").empty();
+        rows.forEach(item => {
+            addRow();
+            const $tr = $("#targets-tbody tr:last");
+            $tr.find(".hq-search").val(item.hq_name);
+            $tr.find(".hq-id").val(item.hq);
             const months = ["apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "jan", "feb", "mar"];
-            for (let i = 0; i < 12; i++) {
-                $emptyTr.find(`.month-input[data-month="${months[i]}"]`).val(toNum(cols[i + 1]));
-            }
+            months.forEach(m => {
+                $tr.find(`.month-input[data-month="${m}"]`).val(item[m] || 0);
+            });
+        });
 
-            importedRows++;
-        }
-    });
+        recalcAll();
+        syncDetectedRegion();
+        $("#bulk-import-modal").modal("hide");
+        fileInput.value = "";
 
-    recalcAll();
-    $("#bulk-import-modal").modal("hide");
-    $("#bulk-import-data").val("");
+        let msg = `Imported ${rows.length} HQ row(s) successfully.`;
+        if (errors.length) msg += ` ${errors.length} row(s) skipped: ${errors.slice(0, 2).join("; ")}`;
+        showAlert(msg, "success");
 
-    if (importedRows > 0) {
-        showAlert(`Successfully parsed ${importedRows} rows. Please verify HQ matches before saving.`, "success");
+        // Show results summary inside modal briefly
+        const $results = $("#import-target-results");
+        $results.html(`<div class="alert alert-success mt-2">${msg}</div>`).show();
+    } catch (e) {
+        $("#import-target-progress").hide();
+        showAlert("Failed to process the import file: " + (e.message || ""), "danger");
     }
 }
 

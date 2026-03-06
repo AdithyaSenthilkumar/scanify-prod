@@ -28,12 +28,10 @@
                 </div>
                 <div class="col-md-3">
                     <label><strong>Status</strong></label>
-                    <select class="form-control" id="target-status">
-                        <option value="Draft">Draft</option>
-                        <option value="Active">Active</option>
-                        <option value="Completed">Completed</option>
-                        <option value="Cancelled">Cancelled</option>
-                    </select>
+                    <div class="pt-1">
+                        <span class="badge badge-warning" id="target-status-badge" style="font-size:13px;padding:6px 12px;">Draft</span>
+                    </div>
+                    <input type="hidden" id="target-status" value="Draft">
                 </div>
                 <input type="hidden" id="detected-region">
             </div>
@@ -101,14 +99,14 @@
                     </div>
                 </div>
                 <div class="col-md-6 text-right">
-                    <button class="btn btn-secondary" type="button" id="reset-btn">
+                    <button class="btn btn-secondary mr-2" type="button" id="reset-btn">
                         <i class="fa fa-undo"></i> Reset
                     </button>
-                    <button class="btn btn-primary" type="button" id="save-btn">
-                        <i class="fa fa-save"></i> Save Sales Target
+                    <button class="btn btn-primary mr-2" type="button" id="save-btn">
+                        <i class="fa fa-save"></i> Save as Draft
                     </button>
-                    <button class="btn btn-success d-none ml-2" type="button" id="approve-btn">
-                        <i class="fa fa-check"></i> Approve Target
+                    <button class="btn btn-success d-none" type="button" id="approve-btn">
+                        <i class="fa fa-check-circle"></i> Approve Target
                     </button>
                 </div>
             </div>
@@ -127,16 +125,32 @@
                 </button>
             </div>
             <div class="modal-body">
-                <p class="text-muted">Paste your data here from Excel/CSV. Ensure the columns are exactly: <strong>HQ
-                        Name, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar</strong> and separated by tabs
-                    (from Excel) or commas.</p>
-                <textarea id="bulk-import-data" class="form-control" rows="10"
-                    placeholder="Paste data here..."></textarea>
+                <div class="alert alert-info mb-3" style="font-size:13px;">
+                    <i class="fa fa-info-circle mr-1"></i>
+                    <strong>Excel/CSV Format:</strong> Columns must be exactly:
+                    <code>HQ Name, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar</code>
+                    &nbsp;(values in Lakhs).<br>
+                    The <em>HQ Name</em> must match exactly as it appears in HQ Master.
+                    <a href="#" class="d-inline-block mt-1" onclick="downloadTargetTemplate(); return false;">
+                        <i class="fa fa-download"></i> Download Template
+                    </a>
+                </div>
+                <div class="form-group">
+                    <label><strong>Upload Excel or CSV File <span class="text-danger">*</span></strong></label>
+                    <input type="file" class="form-control-file" id="target-import-file" accept=".xlsx,.xls,.csv">
+                </div>
+                <div id="import-target-progress" style="display:none;">
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated w-100">Processing...</div>
+                    </div>
+                </div>
+                <div id="import-target-results" style="display:none;"></div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" id="process-bulk-import"><i class="fa fa-cogs"></i>
-                    Process Data</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="process-bulk-import">
+                    <i class="fa fa-upload"></i> Import Rows
+                </button>
             </div>
         </div>
     </div>

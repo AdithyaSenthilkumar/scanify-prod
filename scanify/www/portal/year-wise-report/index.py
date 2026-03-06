@@ -35,10 +35,10 @@ def get_context(context):
                 ti.hq,
                 COALESCE(ti.hq_name, hm.hq_name, ti.hq) as hq_name,
                 COALESCE(hm.team, ti.team) as team,
-                COALESCE(hm.region, ti.region) as region,
+                hm.region as region,
                 SUM(ti.apr) as apr, SUM(ti.may) as may, SUM(ti.jun) as jun,
                 SUM(ti.jul) as jul, SUM(ti.aug) as aug, SUM(ti.sep) as sep,
-                SUM(ti.oct) as oct, SUM(ti.nov) as nov, SUM(ti.dec) as dec,
+                SUM(ti.oct) as oct, SUM(ti.nov) as nov, SUM(ti.`dec`) as `dec`,
                 SUM(ti.jan) as jan, SUM(ti.feb) as feb, SUM(ti.mar) as mar,
                 SUM(ti.yearly_total) as yearly_total
             FROM `tabHQ Yearly Target` yt
@@ -47,7 +47,7 @@ def get_context(context):
             WHERE yt.docstatus = 1 
               AND yt.financial_year = %s 
               AND yt.division = %s
-            GROUP BY ti.hq
+            GROUP BY ti.hq, COALESCE(ti.hq_name, hm.hq_name, ti.hq), COALESCE(hm.team, ti.team), hm.region
             ORDER BY region, team, hq_name
         """, (financial_year, user_division), as_dict=True)
         

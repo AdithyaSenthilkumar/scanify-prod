@@ -19,40 +19,48 @@
             <span><i class="fa fa-filter"></i> Selection</span>
         </div>
         <div class="card-body">
-            <div class="row align-items-end">
+            <div class="row">
                 <div class="col-md-4">
-                    <label><strong>Find Scheme</strong></label>
-                    <div class="input-group">
-                        <input type="text" id="schemeSearch" class="form-control"
-                            placeholder="Scheme ID, doctor or stockist...">
-                        <div class="input-group-append">
-                            <button class="btn btn-secondary" type="button" onclick="loadSchemeOptions()">
-                                <i class="fa fa-search"></i>
-                            </button>
+                    <div class="form-group mb-3">
+                        <label><strong>Find Scheme</strong></label>
+                        <div class="input-group">
+                            <input type="text" id="schemeSearch" class="form-control"
+                                placeholder="Scheme ID, doctor or stockist...">
+                            <div class="input-group-append">
+                                <button class="btn btn-secondary" type="button" onclick="loadSchemeOptions()">
+                                    <i class="fa fa-search"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="col-md-4">
-                    <label><strong>Scheme Request <span class="text-danger">*</span></strong></label>
-                    <select id="schemeSelect" class="form-control">
-                        <option value="">-- Select Scheme --</option>
-                    </select>
-                    <small class="text-muted">Only submitted schemes in active division are shown</small>
+                    <div class="form-group mb-3">
+                        <label><strong>Scheme Request <span class="text-danger">*</span></strong></label>
+                        <select id="schemeSelect" class="form-control">
+                            <option value="">-- Select Scheme --</option>
+                        </select>
+                        <small class="text-muted">Only submitted schemes in active division are shown</small>
+                    </div>
                 </div>
                 <div class="col-md-4">
-                    <label><strong>Stockist Statement <span class="text-danger">*</span></strong></label>
-                    <select id="statementSelect" class="form-control" disabled>
-                        <option value="">-- Select Scheme first --</option>
-                    </select>
+                    <div class="form-group mb-3">
+                        <label><strong>Stockist Statement <span class="text-danger">*</span></strong></label>
+                        <select id="statementSelect" class="form-control" disabled>
+                            <option value="">-- Select Scheme first --</option>
+                        </select>
+                    </div>
                 </div>
             </div>
-            <div class="row mt-3">
+            <div class="row">
                 <div class="col-md-4">
-                    <label><strong>Deduction Date <span class="text-danger">*</span></strong></label>
-                    <input type="date" id="deductionDate" class="form-control" required>
+                    <div class="form-group mb-0">
+                        <label><strong>Deduction Date <span class="text-danger">*</span></strong></label>
+                        <input type="date" id="deductionDate" class="form-control" required>
+                    </div>
                 </div>
-                <div class="col-md-8">
-                    <div id="selectedSchemeInfo" class="alert alert-info mb-0" style="display:none;"></div>
+                <div class="col-md-8 d-flex align-items-end">
+                    <div id="selectedSchemeInfo" class="alert alert-info mb-0 w-100" style="display:none;"></div>
                 </div>
             </div>
         </div>
@@ -78,7 +86,7 @@
                                 <th>Product</th>
                                 <th>Pack</th>
                                 <th>Scheme Free Qty</th>
-                                <th>Statement Free Qty</th>
+                                <th>Statement Sales Qty</th>
                                 <th>Deduct Qty</th>
                                 <th>PTS Rate</th>
                                 <th class="text-right">Deducted Value</th>
@@ -323,12 +331,12 @@
     function renderDeductionItems(items) {
         let html = '';
         items.forEach(function (item, idx) {
-            const max = Math.min(Number(item.scheme_free_qty || 0), Number(item.current_free_qty || 0));
+            const max = Number(item.scheme_free_qty || 0);
             html += `<tr>
                 <td><strong>${item.product_name || '-'}</strong><br><small class="text-muted">${item.product_code || ''}</small></td>
                 <td>${item.pack || '-'}</td>
                 <td>${item.scheme_free_qty || 0}</td>
-                <td>${item.current_free_qty || 0}</td>
+                <td>${item.current_sales_qty || 0}</td>
                 <td>
                     <input type="number" class="form-control form-control-sm deduct-qty"
                         id="deduct-qty-${idx}" value="${item.deduct_qty || 0}" min="0" max="${max}"
@@ -381,7 +389,7 @@
                 product_name: item.product_name,
                 pack: item.pack,
                 scheme_free_qty: item.scheme_free_qty,
-                current_free_qty: item.current_free_qty,
+                current_sales_qty: item.current_sales_qty,
                 deduct_qty: qty,
                 pts: item.pts,
                 deducted_value: qty * (item.pts || 0),

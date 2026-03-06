@@ -1,0 +1,284 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}My Profile{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page profile-page">
+    <!-- Page Header -->
+    <div class="page-header">
+        <h1 class="page-title"><i class="fa fa-user-circle"></i> My Profile</h1>
+        <p class="page-subtitle">View and update your personal information</p>
+    </div>
+
+    <div class="profile-layout">
+        <!-- Left: Avatar Card -->
+        <div class="card">
+            <div class="avatar-section">
+                <div class="profile-avatar-large" id="profileAvatar">
+                    <!-- Populated by JS -->
+                </div>
+                <div class="avatar-name" id="profileFullName">—</div>
+                <div class="avatar-email" id="profileEmail">—</div>
+                <div class="info-badges">
+                    <span class="info-badge role" id="profileRoleBadge">—</span>
+                    <span class="info-badge division" id="profileDivisionBadge">—</span>
+                </div>
+                <input type="file" id="avatarFileInput" accept=".png,.jpg,.jpeg" style="display:none;">
+                <button class="btn btn-secondary btn-sm mt-2" onclick="$('#avatarFileInput').click()">
+                    <i class="fa fa-camera"></i> Change Photo
+                </button>
+                <div id="uploadProgress" class="text-muted mt-1" style="font-size:12px; display:none;">
+                    <i class="fa fa-spinner fa-spin"></i> Uploading...
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Info Card -->
+        <div class="card">
+            <div class="card-header">
+                <span><i class="fa fa-edit"></i> Personal Information</span>
+            </div>
+            <div class="card-body">
+                <form id="profileForm" autocomplete="off">
+                    <!-- Read-only fields -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label><strong>Email</strong></label>
+                                <input type="text" id="pEmail" class="form-control bg-light" readonly>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-group">
+                                <label><strong>Role</strong></label>
+                                <input type="text" id="pRole" class="form-control bg-light" readonly>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-group">
+                                <label><strong>Division</strong></label>
+                                <input type="text" id="pDivision" class="form-control bg-light" readonly>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <!-- Editable fields -->
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label><strong>First Name <span class="text-danger">*</span></strong></label>
+                                <input type="text" id="pFirstName" class="form-control" placeholder="First name" required>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label><strong>Middle Name</strong></label>
+                                <input type="text" id="pMiddleName" class="form-control" placeholder="Middle name">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label><strong>Last Name</strong></label>
+                                <input type="text" id="pLastName" class="form-control" placeholder="Last name">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label><strong>Mobile No</strong></label>
+                                <input type="text" id="pMobile" class="form-control" placeholder="Mobile number">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <button type="button" class="btn btn-primary" onclick="saveProfile()">
+                            <i class="fa fa-save"></i> Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let profileData = {};
+
+    $(document).ready(function () {
+        loadProfile();
+
+        // Avatar file selection
+        $('#avatarFileInput').on('change', function () {
+            let file = this.files[0];
+            if (!file) return;
+
+            // Validate type
+            let validTypes = ['image/png', 'image/jpeg', 'image/jpg'];
+            if (!validTypes.includes(file.type)) {
+                showAlert('Please select a PNG or JPEG image', 'danger');
+                return;
+            }
+
+            // Validate size (max 2MB)
+            if (file.size > 2 * 1024 * 1024) {
+                showAlert('Image must be smaller than 2 MB', 'danger');
+                return;
+            }
+
+            uploadAvatar(file);
+        });
+    });
+
+    function loadProfile() {
+        $.ajax({
+            url: '/api/method/scanify.api.get_my_profile',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({}),
+            success: function (r) {
+                profileData = r.message || {};
+                populateForm();
+            },
+            error: function () {
+                showAlert('Failed to load profile', 'danger');
+            }
+        });
+    }
+
+    function populateForm() {
+        let d = profileData;
+
+        // Read-only
+        $('#pEmail').val(d.email);
+        $('#pRole').val(d.role);
+        $('#pDivision').val(d.division);
+
+        // Editable
+        $('#pFirstName').val(d.first_name);
+        $('#pMiddleName').val(d.middle_name);
+        $('#pLastName').val(d.last_name);
+        $('#pMobile').val(d.mobile_no);
+
+        // Sidebar / header info
+        let fullName = [d.first_name, d.middle_name, d.last_name].filter(Boolean).join(' ') || d.email;
+        $('#profileFullName').text(fullName);
+        $('#profileEmail').text(d.email);
+        $('#profileRoleBadge').html('<i class="fa fa-shield-alt mr-1"></i> ' + (d.role || 'User'));
+        $('#profileDivisionBadge').html('<i class="fa fa-building mr-1"></i> ' + (d.division || '—'));
+
+        // Avatar
+        renderAvatar(d.user_image, d.first_name, d.email);
+    }
+
+    function renderAvatar(imageUrl, firstName, email) {
+        let el = $('#profileAvatar');
+        if (imageUrl) {
+            el.html('<img src="' + imageUrl + '" alt="">');
+        } else {
+            let initial = (firstName || email || '?')[0].toUpperCase();
+            el.html(initial);
+        }
+    }
+
+    function uploadAvatar(file) {
+        let formData = new FormData();
+        formData.append('file', file);
+        formData.append('is_private', '0');
+        formData.append('doctype', 'User');
+        formData.append('docname', profileData.email);
+
+        $('#uploadProgress').show();
+
+        $.ajax({
+            url: '/api/method/upload_file',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            headers: {
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            success: function (r) {
+                let fileUrl = r.message && r.message.file_url;
+                if (!fileUrl) {
+                    $('#uploadProgress').hide();
+                    showAlert('Upload failed — no URL returned', 'danger');
+                    return;
+                }
+
+                // Now update user_image on the User doc
+                $.ajax({
+                    url: '/api/method/scanify.api.update_user_image',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+                    data: JSON.stringify({ file_url: fileUrl }),
+                    success: function (res) {
+                        $('#uploadProgress').hide();
+                        if (res.message && res.message.success) {
+                            profileData.user_image = fileUrl;
+                            renderAvatar(fileUrl);
+                            showAlert('Profile photo updated!', 'success');
+                        } else {
+                            showAlert('Failed to save image', 'danger');
+                        }
+                    },
+                    error: function () {
+                        $('#uploadProgress').hide();
+                        showAlert('Error saving profile image', 'danger');
+                    }
+                });
+            },
+            error: function () {
+                $('#uploadProgress').hide();
+                showAlert('File upload failed', 'danger');
+            }
+        });
+    }
+
+    function saveProfile() {
+        let firstName = $('#pFirstName').val().trim();
+        if (!firstName) {
+            showAlert('First Name is required', 'danger');
+            return;
+        }
+
+        let btn = $(event.target).closest('.btn');
+        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Saving...');
+
+        $.ajax({
+            url: '/api/method/scanify.api.update_my_profile',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({
+                first_name: firstName,
+                middle_name: $('#pMiddleName').val().trim(),
+                last_name: $('#pLastName').val().trim(),
+                mobile_no: $('#pMobile').val().trim()
+            }),
+            success: function (r) {
+                btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save Changes');
+                if (r.message && r.message.success) {
+                    showAlert('Profile updated successfully!', 'success');
+                    let newFull = [$('#pFirstName').val(), $('#pMiddleName').val(), $('#pLastName').val()].filter(Boolean).join(' ');
+                    $('#profileFullName').text(newFull);
+                } else {
+                    showAlert((r.message && r.message.message) || 'Failed to update profile', 'danger');
+                }
+            },
+            error: function () {
+                btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save Changes');
+                showAlert('Error updating profile', 'danger');
+            }
+        });
+    }
+</script>
+{% endblock %}

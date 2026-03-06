@@ -65,13 +65,20 @@
                 </div>
 
                 <!-- User Menu -->
+                {% set _user_img = frappe.db.get_value("User", frappe.session.user, "user_image") %}
                 <div class="user-menu-simple">
                     <div class="user-trigger">
+                        {% if _user_img %}
+                        <div class="user-avatar">
+                            <img src="{{ _user_img }}" alt="" class="user-avatar-img">
+                        </div>
+                        {% else %}
                         <div class="user-avatar">
                             {{ frappe.session.user[0].upper() }}
                         </div>
+                        {% endif %}
                         <div class="user-info d-none d-md-block">
-                            <span class="user-name">{{ frappe.session.user }}</span>
+                            <span class="user-name">{{ frappe.session.user_fullname or frappe.session.user }}</span>
                             <span class="user-role">{{ user_role or 'User' }}</span>
                         </div>
                         <i class="fa fa-chevron-down ml-1 opacity-50"></i>
@@ -79,6 +86,10 @@
 
                     <div class="user-dropdown shadow-lg border-0">
                         <div class="dropdown-title">Account Settings</div>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="/portal/profile">
+                            <i class="fa fa-user-circle mr-2"></i> My Profile
+                        </a>
                         <div class="dropdown-divider"></div>
                         <a class="dropdown-item" href="/logout">
                             <i class="fa fa-sign-out-alt mr-2 text-danger"></i> Logout
@@ -174,23 +185,35 @@
                     </a>
                 </div>
 
-                <!-- Reports & Insights -->
+                <!-- Analytics -->
                 <div class="nav-section">
-                    <div class="nav-section-title">Reports and Insights</div>
+                    <div class="nav-section-title">Analytics</div>
+                    <a href="/portal/insights" class="nav-link">
+                        <i class="fa fa-chart-bar"></i>
+                        <span>Insights</span>
+                    </a>
                     <a href="/portal/year-wise-report" class="nav-link">
-                        <i class="fa fa-file-pdf"></i>
-                        <span>Year-wise Sales Target</span>
+                        <i class="fa fa-file-alt"></i>
+                        <span>Reports</span>
                     </a>
                 </div>
 
                 <!-- Audit Trail -->
                 <div class="nav-section">
                     <div class="nav-section-title">Audit Trail</div>
+                    <a href="/portal/audit-trail" class="nav-link">
+                        <i class="fa fa-history"></i>
+                        <span>Change History</span>
+                    </a>
                 </div>
 
                 <!-- User Management -->
                 <div class="nav-section">
                     <div class="nav-section-title">User Management</div>
+                    <a href="/portal/users" class="nav-link">
+                        <i class="fa fa-users"></i>
+                        <span>Users</span>
+                    </a>
                 </div>
 
             </nav>

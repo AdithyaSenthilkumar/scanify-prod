@@ -1532,6 +1532,8 @@ def approve_scheme_request(doc_name, comments):
         })
 
         doc.save()
+        # Submit the doc (docstatus=1) so it becomes available for scheme deduction
+        doc.submit()
         frappe.db.commit()
 
         # Send notification
@@ -2948,6 +2950,179 @@ def search_hq_targets(search="", division=None, limit=15):
 
     return hq_rows
 
+
+@frappe.whitelist()
+def get_hq_yearly_target_details(name):
+    """Fetch HQ Yearly Target details for portal editing."""
+    try:
+        doc = frappe.get_doc("HQ Yearly Target", name)
+        items = []
+        for item in doc.hq_targets:
+            hq_name = frappe.db.get_value("HQ Master", item.hq, "hq_name")
+            items.append({
+                "hq": item.hq,
+                "hq_name": hq_name or item.hq,
+                "team": item.team,
+                "apr": item.apr, "may": item.may, "jun": item.jun,
+                "jul": item.jul, "aug": item.aug, "sep": item.sep,
+                "oct": item.oct, "nov": item.nov, "dec": item.dec,
+                "jan": item.jan, "feb": item.feb, "mar": item.mar,
+            })
+        return {
+            "success": True,
+            "doc": {
+                "name": doc.name,
+                "financial_year": doc.financial_year,
+                "start_date": str(doc.start_date),
+                "end_date": str(doc.end_date),
+                "status": doc.status,
+                "docstatus": doc.docstatus,
+                "items": items
+            }
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get HQ Yearly Target Details Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def submit_hq_yearly_target_from_portal(name):
+    """Submit / Approve an HQ yearly target from the portal."""
+    try:
+        if not frappe.has_permission("HQ Yearly Target", "submit"):
+            return {"success": False, "message": "Not permitted to approve targets"}
+        doc = frappe.get_doc("HQ Yearly Target", name)
+        if doc.docstatus == 1:
+            return {"success": True, "message": "Already approved"}
+        doc.submit()
+        frappe.db.commit()
+        return {"success": True, "message": "Approved successfully"}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Approve HQ Yearly Target Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def update_hq_yearly_target_from_portal(name, financial_year, start_date, end_date, hq_targets, status="Draft"):
+    """Update existing draft HQ Yearly Target from portal."""
+    try:
+        if not frappe.has_permission("HQ Yearly Target", "write"):
+            return {"success": False, "message": "Not permitted"}
+
+        doc = frappe.get_doc("HQ Yearly Target", name)
+        if doc.docstatus == 1:
+            return {"success": False, "message": "Cannot edit an approved target"}
+
+        if isinstance(hq_targets, str):
+            hq_targets = frappe.parse_json(hq_targets)
+
+        doc.financial_year = financial_year
+        doc.start_date = start_date
+        doc.end_date = end_date
+        doc.status = status or "Draft"
+
+        doc.hq_targets = []
+        for raw in (hq_targets or []):
+            hq = raw.get("hq")
+            if not hq:
+                continue
+            meta = frappe.db.get_value("HQ Master", hq, ["team", "region"], as_dict=True)
+            doc.append("hq_targets", {
+                "hq": hq,
+                "team": meta.get("team") if meta else None,
+                "region": meta.get("region") if meta else None,
+                "apr": flt(raw.get("apr")),
+                "may": flt(raw.get("may")),
+                "jun": flt(raw.get("jun")),
+                "jul": flt(raw.get("jul")),
+                "aug": flt(raw.get("aug")),
+                "sep": flt(raw.get("sep")),
+                "oct": flt(raw.get("oct")),
+                "nov": flt(raw.get("nov")),
+                "dec": flt(raw.get("dec")),
+                "jan": flt(raw.get("jan")),
+                "feb": flt(raw.get("feb")),
+                "mar": flt(raw.get("mar")),
+            })
+
+        doc.save(ignore_permissions=False)
+        frappe.db.commit()
+        return {"success": True, "message": "Updated successfully", "name": doc.name}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Update HQ Yearly Target Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def resolve_hq_target_rows_from_file(division=None):
+    """Parse uploaded CSV/Excel bulk target file and resolve HQ names to IDs.
+    Required columns: HQ Name, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar
+    Returns resolved rows ready to populate the portal form.
+    """
+    try:
+        import pandas as pd
+        import io as _io
+
+        uploaded_file = frappe.request.files.get("file")
+        if not uploaded_file:
+            return {"success": False, "message": "No file uploaded"}
+
+        if not division:
+            division = get_user_division()
+
+        filename = uploaded_file.filename or ""
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        content = uploaded_file.read()
+
+        if ext == "csv":
+            df = pd.read_csv(_io.BytesIO(content), dtype=str)
+        elif ext in ("xlsx", "xls"):
+            df = pd.read_excel(_io.BytesIO(content), dtype=str)
+        else:
+            try:
+                df = pd.read_csv(_io.BytesIO(content), dtype=str)
+            except Exception:
+                df = pd.read_excel(_io.BytesIO(content), dtype=str)
+
+        df.columns = df.columns.str.strip()
+
+        hq_filters = {"status": "Active"}
+        if division:
+            hq_filters["division"] = ["in", [division, "Both"]]
+        all_hqs = frappe.get_all("HQ Master", filters=hq_filters, fields=["name", "hq_name"])
+        hq_by_name = {h.hq_name.strip().lower(): h for h in all_hqs}
+        hq_by_code = {h.name.strip().lower(): h for h in all_hqs}
+
+        resolved = []
+        errors = []
+        months = ["apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "jan", "feb", "mar"]
+
+        for idx, row in df.iterrows():
+            hq_input = str(row.get("HQ Name", "") or "").strip()
+            if not hq_input or hq_input.lower() in ("hq name", "hq"):
+                continue  # skip header-like rows
+
+            hq_rec = hq_by_name.get(hq_input.lower()) or hq_by_code.get(hq_input.lower())
+            if not hq_rec:
+                errors.append(f"Row {idx + 2}: HQ '{hq_input}' not found")
+                continue
+
+            result_row = {"hq": hq_rec.name, "hq_name": hq_rec.hq_name}
+            for m in months:
+                col_label = m.capitalize()
+                val = row.get(col_label, 0) or row.get(m.upper(), 0) or row.get(m, 0) or 0
+                try:
+                    result_row[m] = float(val) if str(val).strip() not in ("nan", "None", "") else 0.0
+                except (ValueError, TypeError):
+                    result_row[m] = 0.0
+            resolved.append(result_row)
+
+        return {"success": True, "rows": resolved, "errors": errors}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Resolve HQ Target Rows Error")
+        return {"success": False, "message": str(e)}
+
+
 @frappe.whitelist()
 def create_hq_yearly_target_from_portal(financial_year, start_date, end_date, status="Draft", hq_targets=None):
     """Create HQ Yearly Target with HQ-wise monthly values from portal screen."""
@@ -3471,8 +3646,8 @@ def fetch_deduction_items_portal(scheme_request, stockist_statement, division=No
                 "message": f"Stockist mismatch: Scheme ({scheme.stockist_code}) vs Statement ({statement.stockist_code})"
             }
 
-        # Build statement product map
-        stmt_map = {item.product_code: flt(item.free_qty) for item in statement.items}
+        # Build statement product map — use sales_qty for deduction display
+        stmt_map = {item.product_code: flt(item.sales_qty) for item in statement.items}
 
         items = []
         skipped = []
@@ -3482,13 +3657,13 @@ def fetch_deduction_items_portal(scheme_request, stockist_statement, division=No
                 continue
             product = frappe.get_doc("Product Master", scheme_item.product_code)
             scheme_free_qty = flt(scheme_item.free_quantity)
-            current_free_qty = stmt_map[scheme_item.product_code]
+            current_sales_qty = stmt_map[scheme_item.product_code]
             items.append({
                 "product_code": scheme_item.product_code,
                 "product_name": product.product_name,
                 "pack": product.pack,
                 "scheme_free_qty": scheme_free_qty,
-                "current_free_qty": current_free_qty,
+                "current_sales_qty": current_sales_qty,
                 "deduct_qty": scheme_free_qty,
                 "pts": flt(product.pts),
                 "deducted_value": scheme_free_qty * flt(product.pts),
@@ -3553,7 +3728,7 @@ def create_scheme_deduction_portal(scheme_request, stockist_statement, items, de
                 "product_name": item.get("product_name"),
                 "pack": item.get("pack"),
                 "scheme_free_qty": flt(item.get("scheme_free_qty", 0)),
-                "current_free_qty": flt(item.get("current_free_qty", 0)),
+                "current_free_qty": flt(item.get("current_sales_qty") or item.get("current_free_qty") or 0),
                 "deduct_qty": deduct_qty,
                 "pts": pts,
                 "deducted_value": deducted_value,
@@ -3564,6 +3739,8 @@ def create_scheme_deduction_portal(scheme_request, stockist_statement, items, de
         doc.total_deducted_qty = total_qty
         doc.total_deducted_value = total_value
         doc.insert(ignore_permissions=False)
+        # Auto-submit the deduction (no draft state needed)
+        doc.submit()
         frappe.db.commit()
 
         return {"success": True, "name": doc.name, "message": "Scheme deduction created successfully"}
@@ -3871,3 +4048,941 @@ def get_stockist_details(stockist_code):
         "region": region,
         "zone": zone,
     }
+
+
+# ============================================================================
+# INSIGHTS / ANALYTICS API
+# ============================================================================
+
+@frappe.whitelist()
+def get_insights_filter_options(division=None):
+    """Return filter dropdown options for Insights page."""
+    if not division:
+        division = get_user_division()
+
+    regions = frappe.db.sql(
+        "SELECT DISTINCT name FROM `tabRegion Master` ORDER BY name", as_list=1
+    )
+    teams = frappe.db.sql(
+        "SELECT DISTINCT name FROM `tabTeam Master` ORDER BY name", as_list=1
+    )
+    hqs = frappe.db.sql(
+        "SELECT DISTINCT name FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
+        (division,), as_list=1
+    )
+    financial_years = frappe.db.sql(
+        "SELECT DISTINCT financial_year FROM `tabHQ Yearly Target` WHERE division=%s ORDER BY financial_year DESC",
+        (division,), as_list=1
+    )
+
+    return {
+        "regions": [r[0] for r in regions],
+        "teams": [t[0] for t in teams],
+        "hqs": [h[0] for h in hqs],
+        "financial_years": [f[0] for f in financial_years],
+    }
+
+
+def _build_insights_conditions(division, from_date=None, to_date=None, region=None, team=None, hq=None, date_field="creation"):
+    """Helper to build WHERE conditions for insights queries."""
+    conditions = ["1=1"]
+    values = []
+
+    if division:
+        conditions.append("division = %s")
+        values.append(division)
+    if from_date:
+        conditions.append(f"{date_field} >= %s")
+        values.append(from_date)
+    if to_date:
+        conditions.append(f"{date_field} <= %s")
+        values.append(to_date)
+    if region:
+        conditions.append("region = %s")
+        values.append(region)
+    if team:
+        conditions.append("team = %s")
+        values.append(team)
+    if hq:
+        conditions.append("hq = %s")
+        values.append(hq)
+
+    return " AND ".join(conditions), values
+
+
+@frappe.whitelist()
+def get_insights_scheme_data(division=None, from_date=None, to_date=None, region=None, team=None, hq=None):
+    """Scheme analytics data — trends, approval funnel, top doctors, top HQs, region breakdown."""
+    if not division:
+        division = get_user_division()
+
+    cond, vals = _build_insights_conditions(division, from_date, to_date, region, team, hq, "application_date")
+
+    # Monthly scheme trend
+    monthly_trend = frappe.db.sql(f"""
+        SELECT DATE_FORMAT(application_date, '%%Y-%%m') as month,
+               COUNT(*) as count,
+               COALESCE(SUM(total_scheme_value), 0) as total_value
+        FROM `tabScheme Request`
+        WHERE {cond}
+        GROUP BY month ORDER BY month
+    """, vals, as_dict=1)
+
+    # Approval status breakdown
+    approval_breakdown = frappe.db.sql(f"""
+        SELECT approval_status as status, COUNT(*) as count
+        FROM `tabScheme Request`
+        WHERE {cond}
+        GROUP BY approval_status
+    """, vals, as_dict=1)
+
+    # Top 10 doctors by scheme value
+    top_doctors = frappe.db.sql(f"""
+        SELECT doctor_name, COALESCE(SUM(total_scheme_value), 0) as total_value, COUNT(*) as count
+        FROM `tabScheme Request`
+        WHERE {cond} AND doctor_name IS NOT NULL AND doctor_name != ''
+        GROUP BY doctor_code ORDER BY total_value DESC LIMIT 10
+    """, vals, as_dict=1)
+
+    # Top 10 HQs by scheme value
+    top_hqs = frappe.db.sql(f"""
+        SELECT hq, COALESCE(SUM(total_scheme_value), 0) as total_value, COUNT(*) as count
+        FROM `tabScheme Request`
+        WHERE {cond} AND hq IS NOT NULL AND hq != ''
+        GROUP BY hq ORDER BY total_value DESC LIMIT 10
+    """, vals, as_dict=1)
+
+    # Scheme value by region
+    region_breakdown = frappe.db.sql(f"""
+        SELECT region, COALESCE(SUM(total_scheme_value), 0) as total_value, COUNT(*) as count
+        FROM `tabScheme Request`
+        WHERE {cond} AND region IS NOT NULL AND region != ''
+        GROUP BY region ORDER BY total_value DESC
+    """, vals, as_dict=1)
+
+    # KPI: totals
+    kpi = frappe.db.sql(f"""
+        SELECT COUNT(*) as total_schemes,
+               SUM(CASE WHEN approval_status='Approved' THEN 1 ELSE 0 END) as approved,
+               COALESCE(SUM(total_scheme_value), 0) as total_value
+        FROM `tabScheme Request`
+        WHERE {cond}
+    """, vals, as_dict=1)[0]
+
+    return {
+        "monthly_trend": monthly_trend,
+        "approval_breakdown": approval_breakdown,
+        "top_doctors": top_doctors,
+        "top_hqs": top_hqs,
+        "region_breakdown": region_breakdown,
+        "kpi": kpi,
+    }
+
+
+@frappe.whitelist()
+def get_insights_statement_data(division=None, from_date=None, to_date=None, region=None, team=None, hq=None):
+    """Stock statement analytics — submissions, coverage, value trends."""
+    if not division:
+        division = get_user_division()
+
+    cond, vals = _build_insights_conditions(division, from_date, to_date, region, team, hq, "statement_month")
+
+    # Monthly statement count
+    monthly_statements = frappe.db.sql(f"""
+        SELECT DATE_FORMAT(statement_month, '%%Y-%%m') as month, COUNT(*) as count
+        FROM `tabStockist Statement`
+        WHERE {cond}
+        GROUP BY month ORDER BY month
+    """, vals, as_dict=1)
+
+    # Closing value trend
+    closing_value_trend = frappe.db.sql(f"""
+        SELECT DATE_FORMAT(statement_month, '%%Y-%%m') as month,
+               COALESCE(SUM(total_closing_value), 0) as total_closing
+        FROM `tabStockist Statement`
+        WHERE {cond}
+        GROUP BY month ORDER BY month
+    """, vals, as_dict=1)
+
+    # Coverage by HQ — unique stockists who submitted per HQ
+    hq_coverage = frappe.db.sql(f"""
+        SELECT hq, COUNT(DISTINCT stockist_code) as stockist_count
+        FROM `tabStockist Statement`
+        WHERE {cond} AND hq IS NOT NULL AND hq != ''
+        GROUP BY hq ORDER BY stockist_count DESC LIMIT 15
+    """, vals, as_dict=1)
+
+    # Extraction status
+    extraction_status = frappe.db.sql(f"""
+        SELECT COALESCE(extracted_data_status, 'Pending') as status, COUNT(*) as count
+        FROM `tabStockist Statement`
+        WHERE {cond}
+        GROUP BY extracted_data_status
+    """, vals, as_dict=1)
+
+    # KPI
+    kpi = frappe.db.sql(f"""
+        SELECT COUNT(*) as total_statements,
+               COUNT(DISTINCT stockist_code) as unique_stockists,
+               COALESCE(SUM(total_closing_value), 0) as total_closing_value
+        FROM `tabStockist Statement`
+        WHERE {cond}
+    """, vals, as_dict=1)[0]
+
+    return {
+        "monthly_statements": monthly_statements,
+        "closing_value_trend": closing_value_trend,
+        "hq_coverage": hq_coverage,
+        "extraction_status": extraction_status,
+        "kpi": kpi,
+    }
+
+
+@frappe.whitelist()
+def get_insights_deduction_data(division=None, from_date=None, to_date=None, region=None, team=None, hq=None):
+    """Scheme deduction analytics — monthly value, top stockists, status breakdown."""
+    if not division:
+        division = get_user_division()
+
+    # Deduction table doesn't have region/team/hq directly — join via scheme_request
+    base_cond = ["1=1"]
+    base_vals = []
+    if division:
+        base_cond.append("sd.division = %s")
+        base_vals.append(division)
+    if from_date:
+        base_cond.append("sd.deduction_date >= %s")
+        base_vals.append(from_date)
+    if to_date:
+        base_cond.append("sd.deduction_date <= %s")
+        base_vals.append(to_date)
+    if region:
+        base_cond.append("sr.region = %s")
+        base_vals.append(region)
+    if team:
+        base_cond.append("sr.team = %s")
+        base_vals.append(team)
+    if hq:
+        base_cond.append("sr.hq = %s")
+        base_vals.append(hq)
+
+    cond_str = " AND ".join(base_cond)
+
+    # Monthly deduction value
+    monthly_deductions = frappe.db.sql(f"""
+        SELECT DATE_FORMAT(sd.deduction_date, '%%Y-%%m') as month,
+               COUNT(*) as count,
+               COALESCE(SUM(sd.total_deducted_value), 0) as total_value
+        FROM `tabScheme Deduction` sd
+        LEFT JOIN `tabScheme Request` sr ON sr.name = sd.scheme_request
+        WHERE {cond_str}
+        GROUP BY month ORDER BY month
+    """, base_vals, as_dict=1)
+
+    # Top stockists by deduction value
+    top_stockists = frappe.db.sql(f"""
+        SELECT sm.stockist_name, sd.stockist_code,
+               COALESCE(SUM(sd.total_deducted_value), 0) as total_value,
+               COUNT(*) as count
+        FROM `tabScheme Deduction` sd
+        LEFT JOIN `tabScheme Request` sr ON sr.name = sd.scheme_request
+        LEFT JOIN `tabStockist Master` sm ON sm.name = sd.stockist_code
+        WHERE {cond_str} AND sd.stockist_code IS NOT NULL
+        GROUP BY sd.stockist_code ORDER BY total_value DESC LIMIT 10
+    """, base_vals, as_dict=1)
+
+    # Status breakdown
+    status_breakdown = frappe.db.sql(f"""
+        SELECT sd.status, COUNT(*) as count
+        FROM `tabScheme Deduction` sd
+        LEFT JOIN `tabScheme Request` sr ON sr.name = sd.scheme_request
+        WHERE {cond_str}
+        GROUP BY sd.status
+    """, base_vals, as_dict=1)
+
+    # KPI
+    kpi = frappe.db.sql(f"""
+        SELECT COUNT(*) as total_deductions,
+               COALESCE(SUM(sd.total_deducted_value), 0) as total_value
+        FROM `tabScheme Deduction` sd
+        LEFT JOIN `tabScheme Request` sr ON sr.name = sd.scheme_request
+        WHERE {cond_str}
+    """, base_vals, as_dict=1)[0]
+
+    return {
+        "monthly_deductions": monthly_deductions,
+        "top_stockists": top_stockists,
+        "status_breakdown": status_breakdown,
+        "kpi": kpi,
+    }
+
+
+@frappe.whitelist()
+def get_insights_masters_data(division=None):
+    """Masters overview — stockist count by HQ, HQ distribution by region."""
+    if not division:
+        division = get_user_division()
+
+    # Stockist count by HQ (top 15)
+    stockists_by_hq = frappe.db.sql("""
+        SELECT hq, COUNT(*) as count
+        FROM `tabStockist Master`
+        WHERE division = %s AND status = 'Active'
+        AND hq IS NOT NULL AND hq != ''
+        GROUP BY hq ORDER BY count DESC LIMIT 15
+    """, (division,), as_dict=1)
+
+    # HQ distribution by region
+    hqs_by_region = frappe.db.sql("""
+        SELECT region, COUNT(*) as count
+        FROM `tabHQ Master`
+        WHERE division = %s AND status = 'Active'
+        AND region IS NOT NULL AND region != ''
+        GROUP BY region ORDER BY count DESC
+    """, (division,), as_dict=1)
+
+    # Doctors by HQ (top 15)
+    doctors_by_hq = frappe.db.sql("""
+        SELECT hq, COUNT(*) as count
+        FROM `tabDoctor Master`
+        WHERE division = %s AND status = 'Active'
+        AND hq IS NOT NULL AND hq != ''
+        GROUP BY hq ORDER BY count DESC LIMIT 15
+    """, (division,), as_dict=1)
+
+    # KPIs
+    kpi = {
+        "active_stockists": frappe.db.count("Stockist Master", {"division": division, "status": "Active"}),
+        "active_hqs": frappe.db.count("HQ Master", {"division": division, "status": "Active"}),
+        "active_doctors": frappe.db.count("Doctor Master", {"division": division, "status": "Active"}),
+        "active_products": frappe.db.count("Product Master", {"division": division, "status": "Active"}),
+    }
+
+    return {
+        "stockists_by_hq": stockists_by_hq,
+        "hqs_by_region": hqs_by_region,
+        "doctors_by_hq": doctors_by_hq,
+        "kpi": kpi,
+    }
+
+
+@frappe.whitelist()
+def get_insights_targets_data(division=None, financial_year=None):
+    """Sales targets vs actuals — monthly comparison, region-wise breakdown."""
+    if not division:
+        division = get_user_division()
+
+    if not financial_year:
+        fy = frappe.db.sql(
+            "SELECT financial_year FROM `tabHQ Yearly Target` WHERE division=%s ORDER BY financial_year DESC LIMIT 1",
+            (division,), as_list=1
+        )
+        financial_year = fy[0][0] if fy else None
+
+    if not financial_year:
+        return {"monthly": [], "region_wise": [], "kpi": {"total_target": 0, "total_actual": 0}, "financial_year": None}
+
+    # Monthly targets
+    months_map = [
+        ("apr", "Apr"), ("may", "May"), ("jun", "Jun"),
+        ("jul", "Jul"), ("aug", "Aug"), ("sep", "Sep"),
+        ("oct", "Oct"), ("nov", "Nov"), ("dec", "Dec"),
+        ("jan", "Jan"), ("feb", "Feb"), ("mar", "Mar"),
+    ]
+
+    target_sums = frappe.db.sql("""
+        SELECT
+            COALESCE(SUM(ti.apr),0) as apr, COALESCE(SUM(ti.may),0) as may, COALESCE(SUM(ti.jun),0) as jun,
+            COALESCE(SUM(ti.jul),0) as jul, COALESCE(SUM(ti.aug),0) as aug, COALESCE(SUM(ti.sep),0) as sep,
+            COALESCE(SUM(ti.oct),0) as oct, COALESCE(SUM(ti.nov),0) as nov, COALESCE(SUM(ti.dec),0) as dec,
+            COALESCE(SUM(ti.jan),0) as jan, COALESCE(SUM(ti.feb),0) as feb, COALESCE(SUM(ti.mar),0) as mar,
+            COALESCE(SUM(ti.yearly_total),0) as yearly_total
+        FROM `tabHQ Yearly Target` yt
+        INNER JOIN `tabHQ Target Item` ti ON ti.parent = yt.name
+        WHERE yt.docstatus = 1 AND yt.division = %s AND yt.financial_year = %s
+    """, (division, financial_year), as_dict=1)[0]
+
+    # Build monthly actuals from scheme requests (approved value by month)
+    # Financial year format is like "2025-26" — parse start year
+    try:
+        start_year = int(financial_year.split("-")[0])
+    except Exception:
+        start_year = 2025
+
+    month_to_date = {
+        "apr": f"{start_year}-04", "may": f"{start_year}-05", "jun": f"{start_year}-06",
+        "jul": f"{start_year}-07", "aug": f"{start_year}-08", "sep": f"{start_year}-09",
+        "oct": f"{start_year}-10", "nov": f"{start_year}-11", "dec": f"{start_year}-12",
+        "jan": f"{start_year+1}-01", "feb": f"{start_year+1}-02", "mar": f"{start_year+1}-03",
+    }
+
+    actual_data = frappe.db.sql("""
+        SELECT DATE_FORMAT(application_date, '%%Y-%%m') as month,
+               COALESCE(SUM(total_scheme_value), 0) as actual_value
+        FROM `tabScheme Request`
+        WHERE division = %s AND approval_status = 'Approved'
+        AND application_date >= %s AND application_date <= %s
+        GROUP BY month
+    """, (division, f"{start_year}-04-01", f"{start_year+1}-03-31"), as_dict=1)
+
+    actual_map = {a["month"]: a["actual_value"] for a in actual_data}
+
+    monthly = []
+    for key, label in months_map:
+        monthly.append({
+            "month": label,
+            "target": flt(getattr(target_sums, key, 0) if hasattr(target_sums, key) else target_sums.get(key, 0)),
+            "actual": flt(actual_map.get(month_to_date.get(key, ""), 0)),
+        })
+
+    # Region-wise target vs actual
+    region_targets = frappe.db.sql("""
+        SELECT yt.region,
+               COALESCE(SUM(ti.yearly_total), 0) as target_value
+        FROM `tabHQ Yearly Target` yt
+        INNER JOIN `tabHQ Target Item` ti ON ti.parent = yt.name
+        WHERE yt.docstatus = 1 AND yt.division = %s AND yt.financial_year = %s
+        GROUP BY yt.region ORDER BY target_value DESC
+    """, (division, financial_year), as_dict=1)
+
+    region_actuals = frappe.db.sql("""
+        SELECT region, COALESCE(SUM(total_scheme_value), 0) as actual_value
+        FROM `tabScheme Request`
+        WHERE division = %s AND approval_status = 'Approved'
+        AND application_date >= %s AND application_date <= %s
+        AND region IS NOT NULL AND region != ''
+        GROUP BY region
+    """, (division, f"{start_year}-04-01", f"{start_year+1}-03-31"), as_dict=1)
+
+    actual_region_map = {a["region"]: a["actual_value"] for a in region_actuals}
+
+    region_wise = []
+    for rt in region_targets:
+        region_wise.append({
+            "region": rt["region"],
+            "target": flt(rt["target_value"]),
+            "actual": flt(actual_region_map.get(rt["region"], 0)),
+        })
+
+    total_target = flt(target_sums.get("yearly_total", 0))
+    total_actual = sum(flt(actual_map.get(month_to_date.get(k, ""), 0)) for k, _ in months_map)
+
+    return {
+        "monthly": monthly,
+        "region_wise": region_wise,
+        "kpi": {"total_target": total_target, "total_actual": total_actual},
+        "financial_year": financial_year,
+    }
+
+
+@frappe.whitelist()
+def get_insights_products_data(division=None, from_date=None, to_date=None, region=None, team=None, hq=None):
+    """Product movement insights — top products by closing value and by scheme value."""
+    if not division:
+        division = get_user_division()
+
+    # Top products by closing value from statements
+    stmt_cond = ["1=1"]
+    stmt_vals = []
+    if division:
+        stmt_cond.append("ss.division = %s")
+        stmt_vals.append(division)
+    if from_date:
+        stmt_cond.append("ss.statement_month >= %s")
+        stmt_vals.append(from_date)
+    if to_date:
+        stmt_cond.append("ss.statement_month <= %s")
+        stmt_vals.append(to_date)
+    if region:
+        stmt_cond.append("ss.region = %s")
+        stmt_vals.append(region)
+    if team:
+        stmt_cond.append("ss.team = %s")
+        stmt_vals.append(team)
+    if hq:
+        stmt_cond.append("ss.hq = %s")
+        stmt_vals.append(hq)
+
+    stmt_where = " AND ".join(stmt_cond)
+
+    top_products_closing = frappe.db.sql(f"""
+        SELECT si.product_name, si.product_code,
+               COALESCE(SUM(si.closing_value), 0) as total_closing,
+               COALESCE(SUM(si.sales_qty), 0) as total_sales_qty
+        FROM `tabStockist Statement Item` si
+        INNER JOIN `tabStockist Statement` ss ON ss.name = si.parent
+        WHERE {stmt_where} AND si.product_name IS NOT NULL AND si.product_name != ''
+        GROUP BY si.product_code ORDER BY total_closing DESC LIMIT 15
+    """, stmt_vals, as_dict=1)
+
+    # Top products by scheme value
+    sch_cond = ["1=1"]
+    sch_vals = []
+    if division:
+        sch_cond.append("sr.division = %s")
+        sch_vals.append(division)
+    if from_date:
+        sch_cond.append("sr.application_date >= %s")
+        sch_vals.append(from_date)
+    if to_date:
+        sch_cond.append("sr.application_date <= %s")
+        sch_vals.append(to_date)
+    if region:
+        sch_cond.append("sr.region = %s")
+        sch_vals.append(region)
+    if team:
+        sch_cond.append("sr.team = %s")
+        sch_vals.append(team)
+    if hq:
+        sch_cond.append("sr.hq = %s")
+        sch_vals.append(hq)
+
+    sch_where = " AND ".join(sch_cond)
+
+    top_products_scheme = frappe.db.sql(f"""
+        SELECT sri.product_name, sri.product_code,
+               COALESCE(SUM(sri.product_value), 0) as total_value,
+               COALESCE(SUM(sri.quantity), 0) as total_qty
+        FROM `tabScheme Request Item` sri
+        INNER JOIN `tabScheme Request` sr ON sr.name = sri.parent
+        WHERE {sch_where} AND sri.product_name IS NOT NULL AND sri.product_name != ''
+        GROUP BY sri.product_code ORDER BY total_value DESC LIMIT 15
+    """, sch_vals, as_dict=1)
+
+    return {
+        "top_products_closing": top_products_closing,
+        "top_products_scheme": top_products_scheme,
+    }
+
+
+# ============================================================
+#  PORTAL – USER MANAGEMENT & PROFILE APIs
+# ============================================================
+
+@frappe.whitelist()
+def get_portal_users():
+    """Return list of all non-Guest users for the Users management page (System Manager only)."""
+    if "System Manager" not in frappe.get_roles(frappe.session.user):
+        frappe.throw("Not permitted", frappe.PermissionError)
+
+    users = frappe.get_all(
+        "User",
+        filters={"name": ["not in", ["Guest", "Administrator"]], "user_type": "System User"},
+        fields=["name", "email", "first_name", "middle_name", "last_name", "full_name",
+                "mobile_no", "user_image", "enabled"],
+        order_by="full_name asc",
+        limit_page_length=500,
+    )
+
+    for u in users:
+        roles = frappe.get_roles(u["name"])
+        if "System Manager" in roles:
+            u["role"] = "System Manager"
+        elif "Sales Manager" in roles:
+            u["role"] = "Sales Manager"
+        else:
+            u["role"] = "User"
+        u["division"] = frappe.db.get_value("User", u["name"], "division") or ""
+
+    return users
+
+
+@frappe.whitelist()
+def create_portal_user(email, first_name, last_name=None, middle_name=None,
+                       role="User", division="Prima", mobile_no=None, password=None):
+    """Create a new portal user. Restricted to System Manager."""
+    if "System Manager" not in frappe.get_roles(frappe.session.user):
+        frappe.throw("Not permitted", frappe.PermissionError)
+
+    if not email or not first_name or not password:
+        frappe.throw("Email, First Name and Password are required")
+
+    if frappe.db.exists("User", email):
+        frappe.throw(f"User {email} already exists")
+
+    user = frappe.get_doc({
+        "doctype": "User",
+        "email": email,
+        "first_name": first_name,
+        "middle_name": middle_name or "",
+        "last_name": last_name or "",
+        "mobile_no": mobile_no or "",
+        "division": division,
+        "enabled": 1,
+        "send_welcome_email": 0,
+        "user_type": "System User",
+    })
+    user.insert(ignore_permissions=True)
+
+    # Set password
+    from frappe.utils.password import update_password as _update_password
+    _update_password(email, password)
+
+    # Assign role
+    role_map = {
+        "System Manager": "System Manager",
+        "Sales Manager": "Sales Manager",
+        "User": "Scanify User",
+    }
+    frappe_role = role_map.get(role, "Scanify User")
+    if not frappe.db.exists("Role", frappe_role):
+        frappe_role = role  # fall back to exact string
+
+    user.add_roles(frappe_role)
+    frappe.db.commit()
+
+    return {"success": True, "user": email, "message": f"User {email} created successfully"}
+
+
+@frappe.whitelist()
+def get_my_profile():
+    """Return the current user's profile data."""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw("Please login to continue", frappe.PermissionError)
+
+    doc = frappe.get_doc("User", user)
+    roles = frappe.get_roles(user)
+    if "System Manager" in roles:
+        role = "System Manager"
+    elif "Sales Manager" in roles:
+        role = "Sales Manager"
+    else:
+        role = "User"
+
+    return {
+        "email": doc.email,
+        "first_name": doc.first_name or "",
+        "middle_name": doc.middle_name or "",
+        "last_name": doc.last_name or "",
+        "full_name": doc.full_name or "",
+        "mobile_no": doc.mobile_no or "",
+        "user_image": doc.user_image or "",
+        "role": role,
+        "division": doc.division or "",
+    }
+
+
+@frappe.whitelist()
+def update_my_profile(first_name, middle_name=None, last_name=None, mobile_no=None):
+    """Update the current user's own profile fields."""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw("Please login to continue", frappe.PermissionError)
+
+    doc = frappe.get_doc("User", user)
+    doc.first_name = first_name
+    doc.middle_name = middle_name or ""
+    doc.last_name = last_name or ""
+    doc.mobile_no = mobile_no or ""
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return {"success": True, "message": "Profile updated successfully"}
+
+
+@frappe.whitelist()
+def update_user_image(file_url):
+    """Set the current user's profile image after upload."""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw("Please login to continue", frappe.PermissionError)
+
+    if not file_url:
+        frappe.throw("No file URL provided")
+
+    doc = frappe.get_doc("User", user)
+    doc.user_image = file_url
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return {"success": True, "user_image": file_url, "message": "Profile image updated"}
+
+
+# ───────────────────────────────────────────────────────────────
+# Audit Trail / Change History — Portal API
+# ───────────────────────────────────────────────────────────────
+
+# Category → internal doctype(s) mapping
+_AUDIT_CATEGORY_MAP = {
+    "Masters": [
+        "HQ Master", "Stockist Master", "Product Master",
+        "Doctor Master", "Team Master", "Region Master",
+        "Zone Master", "State Master",
+    ],
+    "Stock Statements": ["Stockist Statement"],
+    "Scheme Requests": ["Scheme Request"],
+    "Bulk Statement Upload": ["Bulk Statement Upload"],
+    "Scheme Deductions": ["Scheme Deduction"],
+    "Sales Targets": ["HQ Yearly Target"],
+}
+
+# Masters sub-type label → internal doctype
+_MASTER_SUBTYPE_MAP = {
+    "HQ": "HQ Master",
+    "Stockist": "Stockist Master",
+    "Product": "Product Master",
+    "Doctor": "Doctor Master",
+    "Team": "Team Master",
+    "Region": "Region Master",
+    "Zone": "Zone Master",
+    "State": "State Master",
+}
+
+# Reverse: doctype → user-facing label
+_DOCTYPE_LABEL_MAP = {
+    "HQ Master": "HQ Master",
+    "Stockist Master": "Stockist Master",
+    "Product Master": "Product Master",
+    "Doctor Master": "Doctor Master",
+    "Team Master": "Team Master",
+    "Region Master": "Region Master",
+    "Zone Master": "Zone Master",
+    "State Master": "State Master",
+    "Stockist Statement": "Stock Statement",
+    "Scheme Request": "Scheme Request",
+    "Bulk Statement Upload": "Bulk Upload",
+    "Scheme Deduction": "Scheme Deduction",
+    "HQ Yearly Target": "Sales Target",
+}
+
+# Fields to hide from diffs (system / internal)
+_SYSTEM_FIELDS = {
+    "modified", "modified_by", "creation", "owner", "docstatus",
+    "idx", "doctype", "name", "parent", "parenttype", "parentfield",
+    "_liked_by", "_comments", "_assign", "_user_tags",
+    "_seen", "amended_from",
+}
+
+
+def _get_user_display(email):
+    """Return a display-friendly name for an email address."""
+    if not email:
+        return "System"
+    full = frappe.db.get_value("User", email, "full_name")
+    if full and full.strip():
+        return full.strip()
+    return email.split("@")[0].title()
+
+
+def _parse_version_data(data_str):
+    """Parse a Version record's data JSON, return (changed, added, removed)."""
+    try:
+        data = json.loads(data_str) if isinstance(data_str, str) else data_str
+    except Exception:
+        return [], [], []
+    changed = data.get("changed", [])
+    added = data.get("added", [])
+    removed = data.get("removed", [])
+    return changed, added, removed
+
+
+def _field_label(doctype, fieldname):
+    """Map a field name to its human-readable label using DocType meta."""
+    try:
+        meta = frappe.get_meta(doctype)
+        df = meta.get_field(fieldname)
+        if df and df.label:
+            return df.label
+    except Exception:
+        pass
+    return fieldname.replace("_", " ").title()
+
+
+@frappe.whitelist()
+def get_audit_trail_portal(
+    category=None, sub_type=None, record_name=None,
+    changed_by=None, from_date=None, to_date=None,
+    page=1, page_size=25
+):
+    """Return paginated change-history entries for the portal."""
+    try:
+        roles = frappe.get_roles(frappe.session.user)
+        if "System Manager" not in roles and "Sales Manager" not in roles:
+            return {"success": False, "message": "Insufficient permissions"}
+
+        page = max(int(page), 1)
+        page_size = min(max(int(page_size), 5), 100)
+        offset = (page - 1) * page_size
+
+        # Determine which doctypes to query
+        if category and category in _AUDIT_CATEGORY_MAP:
+            doctypes = list(_AUDIT_CATEGORY_MAP[category])
+            if category == "Masters" and sub_type and sub_type in _MASTER_SUBTYPE_MAP:
+                doctypes = [_MASTER_SUBTYPE_MAP[sub_type]]
+        else:
+            # All tracked doctypes
+            doctypes = []
+            for dts in _AUDIT_CATEGORY_MAP.values():
+                doctypes.extend(dts)
+
+        if not doctypes:
+            return {"success": True, "data": [], "total": 0, "page": page, "page_size": page_size}
+
+        # Build SQL conditions
+        conditions = []
+        params = {}
+
+        dt_keys = ["dt%d" % i for i in range(len(doctypes))]
+        placeholders = ", ".join(["%%(%s)s" % k for k in dt_keys])
+        for i, dt in enumerate(doctypes):
+            params["dt%d" % i] = dt
+        conditions.append("v.ref_doctype IN (%s)" % placeholders)
+
+        if record_name:
+            conditions.append("v.docname LIKE %(record_name)s")
+            params["record_name"] = f"%{record_name}%"
+
+        if changed_by:
+            conditions.append("v.owner LIKE %(changed_by)s")
+            params["changed_by"] = f"%{changed_by}%"
+
+        if from_date:
+            conditions.append("v.creation >= %(from_date)s")
+            params["from_date"] = from_date
+
+        if to_date:
+            conditions.append("v.creation <= %(to_date)s")
+            params["to_date"] = to_date + " 23:59:59"
+
+        # Division filter for transactional docs
+        division = get_user_division()
+        div_doctypes_with_field = {
+            "Stockist Statement", "Scheme Request",
+            "Scheme Deduction", "HQ Yearly Target", "Bulk Statement Upload",
+        }
+        # Masters also have a division field on most records
+        master_doctypes = set(_AUDIT_CATEGORY_MAP["Masters"])
+        div_all = div_doctypes_with_field | master_doctypes
+        # We'll filter via a LEFT JOIN approach — only if all requested doctypes support division
+        # For simplicity, we add a sub-select condition when the category is specific
+        if division and category and category != "Masters":
+            # For transactional categories, filter by division on the parent record
+            if len(doctypes) == 1 and doctypes[0] in div_doctypes_with_field:
+                dt = doctypes[0]
+                tab = f"tab{dt}"
+                conditions.append(
+                    f"EXISTS (SELECT 1 FROM `{tab}` dd WHERE dd.name = v.docname "
+                    f"AND dd.division IN (%(div)s, 'Both'))"
+                )
+                params["div"] = division
+
+        where = " AND ".join(conditions) if conditions else "1=1"
+
+        # Count query
+        count_sql = f"SELECT COUNT(*) as cnt FROM `tabVersion` v WHERE {where}"
+        total = frappe.db.sql(count_sql, params, as_dict=True)[0].cnt
+
+        # Data query
+        data_sql = f"""
+            SELECT v.name, v.ref_doctype, v.docname, v.owner, v.creation, v.data
+            FROM `tabVersion` v
+            WHERE {where}
+            ORDER BY v.creation DESC
+            LIMIT %(limit)s OFFSET %(offset)s
+        """
+        params["limit"] = page_size
+        params["offset"] = offset
+
+        rows = frappe.db.sql(data_sql, params, as_dict=True)
+
+        result = []
+        for row in rows:
+            changed, added, removed = _parse_version_data(row.data)
+            # Filter out system fields
+            changed = [c for c in changed if c[0] not in _SYSTEM_FIELDS]
+            change_count = len(changed) + len(added) + len(removed)
+
+            result.append({
+                "id": row.name,
+                "record": row.docname,
+                "category": _DOCTYPE_LABEL_MAP.get(row.ref_doctype, row.ref_doctype),
+                "changed_by": _get_user_display(row.owner),
+                "timestamp": str(row.creation),
+                "change_count": change_count,
+                "has_diff": change_count > 0,
+            })
+
+        return {
+            "success": True,
+            "data": result,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Audit Trail Portal Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_audit_trail_detail(version_name):
+    """Return field-level diff for a single Version record."""
+    try:
+        roles = frappe.get_roles(frappe.session.user)
+        if "System Manager" not in roles and "Sales Manager" not in roles:
+            return {"success": False, "message": "Insufficient permissions"}
+
+        ver = frappe.db.get_value(
+            "Version", version_name,
+            ["ref_doctype", "docname", "data", "owner", "creation"],
+            as_dict=True,
+        )
+        if not ver:
+            return {"success": False, "message": "Record not found"}
+
+        changed, added, removed = _parse_version_data(ver.data)
+        ref_dt = ver.ref_doctype
+
+        changes = []
+        for c in changed:
+            fname = c[0]
+            if fname in _SYSTEM_FIELDS:
+                continue
+            changes.append({
+                "label": _field_label(ref_dt, fname),
+                "old_value": str(c[1]) if c[1] is not None else "",
+                "new_value": str(c[2]) if c[2] is not None else "",
+                "type": "changed",
+            })
+
+        for a in added:
+            # added is a list of [row_doctype, {field: val, ...}]
+            if isinstance(a, list) and len(a) >= 2:
+                row_dt = a[0]
+                row_data = a[1] if isinstance(a[1], dict) else {}
+                summary = ", ".join(
+                    f"{k}: {v}" for k, v in row_data.items()
+                    if k not in _SYSTEM_FIELDS and v
+                )
+                changes.append({
+                    "label": f"Row added",
+                    "old_value": "",
+                    "new_value": summary[:200] if summary else "(new row)",
+                    "type": "added",
+                })
+
+        for r in removed:
+            if isinstance(r, list) and len(r) >= 2:
+                row_dt = r[0]
+                row_data = r[1] if isinstance(r[1], dict) else {}
+                summary = ", ".join(
+                    f"{k}: {v}" for k, v in row_data.items()
+                    if k not in _SYSTEM_FIELDS and v
+                )
+                changes.append({
+                    "label": f"Row removed",
+                    "old_value": summary[:200] if summary else "(removed row)",
+                    "new_value": "",
+                    "type": "removed",
+                })
+
+        return {
+            "success": True,
+            "record": ver.docname,
+            "category": _DOCTYPE_LABEL_MAP.get(ref_dt, ref_dt),
+            "changed_by": _get_user_display(ver.owner),
+            "timestamp": str(ver.creation),
+            "changes": changes,
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Audit Trail Detail Error")
+        return {"success": False, "message": str(e)}

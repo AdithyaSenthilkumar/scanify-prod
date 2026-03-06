@@ -1,0 +1,467 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Change History{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page audit-trail-page">
+    <!-- Page Header -->
+    <div class="page-header">
+        <div>
+            <h1 class="page-title"><i class="fa fa-history"></i> Change History</h1>
+            <p class="page-subtitle">Track all changes across <strong id="divisionLabel">{{ division }}</strong> division</p>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <span><i class="fa fa-filter"></i> Filters</span>
+        </div>
+        <div class="card-body">
+            <div class="row align-items-end audit-filter-row">
+                <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6">
+                    <label><strong>Category</strong></label>
+                    <select id="categoryFilter" class="form-control" onchange="onCategoryChange()">
+                        <option value="">All Categories</option>
+                        <option value="Masters">Masters</option>
+                        <option value="Stock Statements">Stock Statements</option>
+                        <option value="Scheme Requests">Scheme Requests</option>
+                        <option value="Bulk Statement Upload">Bulk Statement Upload</option>
+                        <option value="Scheme Deductions">Scheme Deductions</option>
+                        <option value="Sales Targets">Sales Targets</option>
+                    </select>
+                </div>
+                <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6" id="subTypeCol" style="display:none;">
+                    <label><strong>Master Type</strong></label>
+                    <select id="subTypeFilter" class="form-control">
+                        <option value="">All Masters</option>
+                        <option value="HQ">HQ</option>
+                        <option value="Stockist">Stockist</option>
+                        <option value="Product">Product</option>
+                        <option value="Doctor">Doctor</option>
+                        <option value="Team">Team</option>
+                        <option value="Region">Region</option>
+                        <option value="Zone">Zone</option>
+                        <option value="State">State</option>
+                    </select>
+                </div>
+                <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6">
+                    <label><strong>Record ID</strong></label>
+                    <input type="text" id="recordFilter" class="form-control" placeholder="Search record...">
+                </div>
+                <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6">
+                    <label><strong>Changed By</strong></label>
+                    <input type="text" id="changedByFilter" class="form-control" placeholder="Name or email...">
+                </div>
+                <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6">
+                    <label><strong>From Date</strong></label>
+                    <input type="date" id="fromDate" class="form-control">
+                </div>
+                <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6">
+                    <label><strong>To Date</strong></label>
+                    <input type="date" id="toDate" class="form-control">
+                </div>
+                <div class="col-xl-auto col-lg-3 col-md-4 col-sm-6 ml-lg-auto">
+                    <div class="audit-filter-actions d-flex gap-2">
+                    <button class="btn btn-primary" onclick="loadAuditTrail(1)">
+                        <i class="fa fa-search"></i> Search
+                    </button>
+                    <button class="btn btn-secondary btn-clear-filter" onclick="clearFilters()" title="Clear filters" aria-label="Clear filters">
+                        <i class="fa fa-times"></i>
+                    </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loadingState" class="text-center py-5" style="display:none;">
+        <i class="fa fa-spinner fa-spin fa-2x text-muted"></i>
+        <p class="text-muted mt-3">Loading change history...</p>
+    </div>
+
+    <!-- Results Table -->
+    <div class="card" id="tableCard" style="display:none;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="fa fa-list"></i> Changes</span>
+            <span class="badge badge-info" id="totalCount">0</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Record</th>
+                            <th>Category</th>
+                            <th>Changed By</th>
+                            <th>Date &amp; Time</th>
+                            <th>Changes</th>
+                            <th class="text-center" style="width:120px;">Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="auditTbody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer" id="paginationFooter" style="display:none;">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="text-muted" id="pageInfo">Page 1 of 1</span>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-secondary" id="prevBtn" onclick="goPage(-1)" disabled>
+                        <i class="fa fa-chevron-left"></i> Prev
+                    </button>
+                    <button class="btn btn-sm btn-secondary" id="nextBtn" onclick="goPage(1)" disabled>
+                        Next <i class="fa fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" style="display:none;" class="text-center py-5">
+        <i class="fa fa-history fa-3x text-muted mb-3"></i>
+        <h5 class="text-muted">No changes found</h5>
+        <p class="text-muted">Try adjusting your filters or selecting a different category.</p>
+    </div>
+</div>
+
+<style>
+    .audit-trail-page .table thead th {
+        background: #f8fafc;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: var(--color-text-muted);
+        white-space: nowrap;
+    }
+    .audit-trail-page .record-id {
+        font-weight: 600;
+        color: var(--color-accent);
+    }
+    .audit-trail-page .category-badge {
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        background: #eff6ff;
+        color: #1d4ed8;
+        white-space: nowrap;
+    }
+    .audit-trail-page .change-badge {
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+    .audit-trail-page .change-badge.has-changes {
+        background: #ecfdf5;
+        color: #047857;
+    }
+    .audit-trail-page .change-badge.no-changes {
+        background: #f1f5f9;
+        color: #64748b;
+    }
+    .audit-trail-page .diff-panel {
+        background: #f8fafc;
+        border-top: 1px solid var(--color-border);
+    }
+    .audit-trail-page .diff-table {
+        width: 100%;
+        font-size: 13px;
+    }
+    .audit-trail-page .diff-table th {
+        background: #f1f5f9;
+        padding: 6px 12px;
+        font-size: 11px;
+        text-transform: uppercase;
+        color: var(--color-text-muted);
+    }
+    .audit-trail-page .diff-table td {
+        padding: 6px 12px;
+        border-bottom: 1px solid #e2e8f0;
+        word-break: break-word;
+        max-width: 300px;
+    }
+    .audit-trail-page .diff-old {
+        color: #b91c1c;
+        background: #fef2f2;
+    }
+    .audit-trail-page .diff-new {
+        color: #047857;
+        background: #ecfdf5;
+    }
+    .audit-trail-page .diff-type-badge {
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 8px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .audit-trail-page .diff-type-changed { background: #fef3c7; color: #92400e; }
+    .audit-trail-page .diff-type-added   { background: #d1fae5; color: #065f46; }
+    .audit-trail-page .diff-type-removed  { background: #fee2e2; color: #991b1b; }
+    .audit-trail-page .audit-filter-row > div {
+        margin-bottom: 10px;
+    }
+    .audit-trail-page .audit-filter-actions {
+        justify-content: flex-end;
+        white-space: nowrap;
+    }
+    .audit-trail-page .btn-clear-filter {
+        width: 38px;
+        min-width: 38px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    @media (max-width: 767.98px) {
+        .audit-trail-page .audit-filter-actions {
+            justify-content: flex-start;
+        }
+    }
+    .gap-2 { gap: 8px; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentPage = 1;
+    let totalPages = 1;
+    let diffCache = {};
+
+    function getActiveDivision() {
+        try {
+            const btn = document.querySelector('.division-name');
+            if (btn && btn.textContent.trim()) return btn.textContent.trim();
+        } catch (e) { }
+        const match = document.cookie.match(/(?:^|;\s*)division=([^;]*)/);
+        if (match) return decodeURIComponent(match[1]);
+        return '{{ division }}';
+    }
+
+    function fmtTimestamp(ts) {
+        if (!ts) return '-';
+        const d = new Date(ts);
+        const date = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+        return date + ' ' + time;
+    }
+
+    function onCategoryChange() {
+        const cat = $('#categoryFilter').val();
+        if (cat === 'Masters') {
+            $('#subTypeCol').show();
+        } else {
+            $('#subTypeCol').hide();
+            $('#subTypeFilter').val('');
+        }
+    }
+
+    function clearFilters() {
+        $('#categoryFilter').val('');
+        $('#subTypeFilter').val('');
+        $('#subTypeCol').hide();
+        $('#recordFilter').val('');
+        $('#changedByFilter').val('');
+        $('#fromDate').val('');
+        $('#toDate').val('');
+        diffCache = {};
+        loadAuditTrail(1);
+    }
+
+    function loadAuditTrail(page) {
+        page = page || 1;
+        currentPage = page;
+        diffCache = {};
+
+        const payload = {
+            category: $('#categoryFilter').val(),
+            sub_type: $('#subTypeFilter').val(),
+            record_name: $('#recordFilter').val(),
+            changed_by: $('#changedByFilter').val(),
+            from_date: $('#fromDate').val(),
+            to_date: $('#toDate').val(),
+            page: page,
+            page_size: 25,
+        };
+
+        $('#loadingState').show();
+        $('#tableCard').hide();
+        $('#emptyState').hide();
+
+        fetch('/api/method/scanify.api.get_audit_trail_portal', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(r => {
+            $('#loadingState').hide();
+            const res = r.message;
+            if (!res || !res.success) {
+                $('#emptyState').show();
+                return;
+            }
+            if (!res.data || !res.data.length) {
+                $('#emptyState').show();
+                return;
+            }
+            renderTable(res.data);
+            renderPagination(res.total, res.page, res.page_size);
+            $('#tableCard').show();
+        })
+        .catch(() => {
+            $('#loadingState').hide();
+            $('#emptyState').show();
+        });
+    }
+
+    function renderTable(rows) {
+        const html = rows.map(r => {
+            const changeBadge = r.has_diff
+                ? `<span class="change-badge has-changes">${r.change_count} field${r.change_count !== 1 ? 's' : ''}</span>`
+                : `<span class="change-badge no-changes">No changes</span>`;
+            const detailBtn = r.has_diff
+                ? `<button class="btn btn-sm btn-outline-primary" onclick="toggleDiff('${r.id}', this)">
+                     <i class="fa fa-eye"></i> View
+                   </button>`
+                : `<span class="text-muted">-</span>`;
+            return `
+                <tr id="row-${r.id}">
+                    <td><span class="record-id">${escHtml(r.record)}</span></td>
+                    <td><span class="category-badge">${escHtml(r.category)}</span></td>
+                    <td>${escHtml(r.changed_by)}</td>
+                    <td>${fmtTimestamp(r.timestamp)}</td>
+                    <td>${changeBadge}</td>
+                    <td class="text-center">${detailBtn}</td>
+                </tr>
+                <tr id="diff-${r.id}" style="display:none;">
+                    <td colspan="6" class="p-0 diff-panel">
+                        <div class="p-3" id="diff-content-${r.id}">
+                            <i class="fa fa-spinner fa-spin"></i> Loading...
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+        $('#auditTbody').html(html);
+        $('#totalCount').text(rows.length + ' shown');
+    }
+
+    function renderPagination(total, page, pageSize) {
+        totalPages = Math.ceil(total / pageSize);
+        if (totalPages <= 1) {
+            $('#paginationFooter').hide();
+            return;
+        }
+        $('#pageInfo').text(`Page ${page} of ${totalPages} (${total} total)`);
+        $('#prevBtn').prop('disabled', page <= 1);
+        $('#nextBtn').prop('disabled', page >= totalPages);
+        $('#paginationFooter').show();
+    }
+
+    function goPage(delta) {
+        const newPage = currentPage + delta;
+        if (newPage < 1 || newPage > totalPages) return;
+        loadAuditTrail(newPage);
+    }
+
+    function toggleDiff(versionId, btnEl) {
+        const diffRow = document.getElementById('diff-' + versionId);
+        if (!diffRow) return;
+
+        if (diffRow.style.display === 'none') {
+            diffRow.style.display = '';
+            $(btnEl).html('<i class="fa fa-eye-slash"></i> Hide');
+            if (diffCache[versionId]) {
+                renderDiff(versionId, diffCache[versionId]);
+            } else {
+                fetchDiff(versionId);
+            }
+        } else {
+            diffRow.style.display = 'none';
+            $(btnEl).html('<i class="fa fa-eye"></i> View');
+        }
+    }
+
+    function fetchDiff(versionId) {
+        fetch('/api/method/scanify.api.get_audit_trail_detail', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            body: JSON.stringify({ version_name: versionId })
+        })
+        .then(r => r.json())
+        .then(r => {
+            const res = r.message;
+            if (!res || !res.success) {
+                $('#diff-content-' + versionId).html(
+                    '<span class="text-danger">Could not load change details.</span>'
+                );
+                return;
+            }
+            diffCache[versionId] = res.changes;
+            renderDiff(versionId, res.changes);
+        })
+        .catch(() => {
+            $('#diff-content-' + versionId).html(
+                '<span class="text-danger">Error loading details.</span>'
+            );
+        });
+    }
+
+    function renderDiff(versionId, changes) {
+        if (!changes || !changes.length) {
+            $('#diff-content-' + versionId).html(
+                '<span class="text-muted">No detailed changes recorded.</span>'
+            );
+            return;
+        }
+
+        let html = `
+            <table class="diff-table">
+                <thead>
+                    <tr>
+                        <th style="width:30%">Field</th>
+                        <th style="width:30%">Previous Value</th>
+                        <th style="width:30%">New Value</th>
+                        <th style="width:10%">Type</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        changes.forEach(c => {
+            const typeCls = 'diff-type-' + c.type;
+            const typeLabel = c.type.charAt(0).toUpperCase() + c.type.slice(1);
+            html += `
+                <tr>
+                    <td><strong>${escHtml(c.label)}</strong></td>
+                    <td class="${c.type === 'removed' || c.type === 'changed' ? 'diff-old' : ''}">${escHtml(c.old_value) || '<em class="text-muted">empty</em>'}</td>
+                    <td class="${c.type === 'added' || c.type === 'changed' ? 'diff-new' : ''}">${escHtml(c.new_value) || '<em class="text-muted">empty</em>'}</td>
+                    <td><span class="diff-type-badge ${typeCls}">${typeLabel}</span></td>
+                </tr>
+            `;
+        });
+        html += '</tbody></table>';
+        $('#diff-content-' + versionId).html(html);
+    }
+
+    function escHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    $(document).ready(function () {
+        loadAuditTrail(1);
+    });
+</script>
+{% endblock %}

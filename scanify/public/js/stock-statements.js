@@ -48,7 +48,7 @@ function initialize_page() {
     clear_file();
   });
 
-  $(document).on('input', '#qc-tbody input, #full-tbody input', function () {
+  $(document).on('change', '#qc-tbody input, #full-tbody input', function () {
     recalc_row(this);
   });
 }
@@ -258,8 +258,13 @@ async function handle_extraction() {
     await enrich_data_with_master_info();
     set_step('step-enrich', 'done');
 
+    // Data is already saved to the doc during extraction.
+    // Show toast and redirect to list — user can QC/submit from the view page.
     $('#extraction-loader').fadeOut(300, () => {
-      display_results();
+      show_alert('Extraction completed successfully! Redirecting to statements list…', 'success');
+      setTimeout(() => {
+        window.location.href = '/portal/stock-statements-list';
+      }, 2000);
     });
 
   } catch (err) {
@@ -375,29 +380,68 @@ async function enrich_data_with_master_info() {
 }
 
 function do_row_calc(row) {
+  // Called once after OCR enrichment — calculates derived values without
+  // overwriting the closing qty/value that the OCR already extracted.
   const cf = row.conversion_factor || 1;
   const pts = row.pts || 0;
   const ptr = row.ptr || 0;
 
-  const c_op = row.openingqty / cf;
-  const c_pu = row.purchaseqty / cf;
-  const c_sa = row.salesqty / cf;
-  const c_fr = row.freeqty / cf;
-  const c_frs = row.freeqtyscheme / cf;
-  const c_rt = row.returnqty / cf;
-  const c_mo = row.miscoutqty / cf;
+  row.openingvalue  = (row.openingqty  / cf) * pts;
+  row.purchasevalue = (row.purchaseqty / cf) * pts;
 
-  row.openingvalue = c_op * pts;
-  row.purchasevalue = c_pu * pts;
+  // Sales value is based on sales qty only.
+  // Free-scheme deductions are handled outside QC by the scheme approval flow.
+  row.salesvaluepts = (row.salesqty / cf) * pts;
+  row.salesvalueptr = (row.salesqty / cf) * ptr;
 
-  const closing_base = c_op + c_pu - c_sa - c_fr - c_frs - c_rt - c_mo;
-  row.closingqty = closing_base * cf;
-  row.closingvalue = closing_base * pts;
+  // schemedeductedqty is NOT computed during QC — it is set only when a
+  // scheme deduction is applied and approved. Leave whatever OCR gave (0).
 
-  const deducted = (row.salesqty + row.freeqty - row.freeqtyscheme) / cf;
-  row.salesvaluepts = deducted * pts;
-  row.salesvalueptr = deducted * ptr;
-  row.schemedeductedqty = deducted * cf;
+  // Closing: OCR may have extracted qty, value, or both.
+  // Priority: if qty is present use it to derive value;
+  //           else if value is present derive qty from it.
+  // Never overwrite with a formula derived from other movements.
+  if (row.closingqty > 0) {
+    row.closingvalue = (row.closingqty / cf) * pts;
+  } else if (row.closingvalue > 0 && pts > 0) {
+    row.closingqty = (row.closingvalue / pts) * cf;
+  }
+}
+
+// Per-field recalculation used during QC editing.
+// Only recalculates the value DIRECTLY derived from the changed field.
+// Closing qty/value are isolated — only touched when closingqty itself is edited.
+// schemedeductedqty is NEVER touched here — it is set only by scheme approval.
+function calc_row_field(row, changed_field) {
+  const cf = row.conversion_factor || 1;
+  const pts = row.pts || 0;
+  const ptr = row.ptr || 0;
+
+  switch (changed_field) {
+    case 'openingqty':
+      row.openingvalue = (row.openingqty / cf) * pts;
+      break;
+    case 'purchaseqty':
+      row.purchasevalue = (row.purchaseqty / cf) * pts;
+      break;
+    case 'salesqty':
+      // Only sales qty drives the sales value columns.
+      row.salesvaluepts = (row.salesqty / cf) * pts;
+      row.salesvalueptr = (row.salesqty / cf) * ptr;
+      break;
+    case 'freeqty':
+    case 'returnqty':
+    case 'miscoutqty':
+      // These fields record physical movements but do not independently drive
+      // any value column in the QC phase — leave all calculated fields as-is.
+      break;
+    case 'closingqty':
+      // User explicitly corrected the closing qty — recalculate its value only.
+      row.closingvalue = (row.closingqty / cf) * pts;
+      break;
+    default:
+      break;
+  }
 }
 
 function display_results() {
@@ -490,25 +534,25 @@ function call_api(method, args) {
 /* ------------ Table & Modal rendering ------------ */
 
 const col_configs = [
-  { id: 'productcode', label: 'Code', readonly: true },
-  { id: 'productname', label: 'Product Name', readonly: true },
-  { id: 'pack', label: 'Pack', readonly: true },
-  { id: 'pts', label: 'PTS', readonly: true, curr: true },
-  { id: 'conversion_factor', label: 'Conv', readonly: true },
-  { id: 'openingqty', label: 'Opening' },
-  { id: 'purchaseqty', label: 'Purchase' },
-  { id: 'salesqty', label: 'Sales' },
-  { id: 'freeqty', label: 'Free' },
-  { id: 'freeqtyscheme', label: 'Appr Free' },
-  { id: 'returnqty', label: 'Return' },
-  { id: 'schemedeductedqty', label: 'Sch Ded', readonly: true },
-  { id: 'closingqty', label: 'Closing', readonly: true },
-  { id: 'miscoutqty', label: 'Misc Out' },
-  { id: 'openingvalue', label: 'Open Val', readonly: true, curr: true },
-  { id: 'purchasevalue', label: 'Purch Val', readonly: true, curr: true },
-  { id: 'salesvaluepts', label: 'Sales(PTS)', readonly: true, curr: true },
-  { id: 'salesvalueptr', label: 'Sales(PTR)', readonly: true, curr: true },
-  { id: 'closingvalue', label: 'Cls Val', readonly: true, curr: true }
+  { id: 'productcode',       label: 'Code',         readonly: true },
+  { id: 'productname',       label: 'Product Name', readonly: true },
+  { id: 'pack',              label: 'Pack',         readonly: true },
+  { id: 'pts',               label: 'PTS',          readonly: true, curr: true },
+  { id: 'conversion_factor', label: 'Conv',         readonly: true },
+  { id: 'openingqty',        label: 'Opening' },
+  { id: 'purchaseqty',       label: 'Purchase' },
+  { id: 'salesqty',          label: 'Sales' },
+  { id: 'freeqty',           label: 'Free' },
+  { id: 'returnqty',         label: 'Return' },
+  { id: 'closingqty',        label: 'Closing' },       // editable — OCR-extracted, user can correct
+  { id: 'miscoutqty',        label: 'Misc Out' },
+  { id: 'freeqtyscheme',     label: 'Free(Sch)',    readonly: true }, // scheme-managed, not QC-editable
+  { id: 'schemedeductedqty', label: 'Sch Ded',      readonly: true }, // set only on scheme approval
+  { id: 'openingvalue',      label: 'Open Val',     readonly: true, curr: true },
+  { id: 'purchasevalue',     label: 'Purch Val',    readonly: true, curr: true },
+  { id: 'salesvaluepts',     label: 'Sales(PTS)',   readonly: true, curr: true },
+  { id: 'salesvalueptr',     label: 'Sales(PTR)',   readonly: true, curr: true },
+  { id: 'closingvalue',      label: 'Cls Val',      readonly: true, curr: true }
 ];
 
 window.open_fullscreen_table = function () {
@@ -552,13 +596,16 @@ function render_qc_table() {
   thr += '</tr>';
   $thead.html(thr);
 
+  const textCols = ['productcode', 'productname', 'pack'];
   extracted_data.forEach((row, i) => {
     let tr = `<tr data-idx="${i}">`;
     col_configs.forEach(c => {
       if (!active_cols.includes(c.id)) return;
       if (c.readonly) {
-        const v = c.curr ? fmt(row[c.id]) : (row[c.id] || '');
-        tr += `<td class="text-right" id="cell-${i}-${c.id}">${v}</td>`;
+        const isText = textCols.includes(c.id);
+        const display = c.curr ? fmt(row[c.id], true) : (isText ? escape_html(row[c.id] != null ? row[c.id] : '') : (row[c.id] != null ? row[c.id] : ''));
+        const calcAttr = !isText ? ` data-calcfield="${c.id}"` : '';
+        tr += `<td class="${isText ? '' : 'text-right'}"${calcAttr}>${display}</td>`;
       } else {
         tr += `<td class="p-0"><input type="number" class="ss-edit-input qc-input" data-col="${c.id}" value="${row[c.id]}" min="0" step="any"></td>`;
       }
@@ -572,12 +619,15 @@ function render_full_edit_table() {
   const $tbody = $('#full-tbody');
   $tbody.empty();
 
+  const ftTextCols = ['productcode', 'productname', 'pack'];
   extracted_data.forEach((row, i) => {
     let tr = `<tr data-idx="${i}">`;
     col_configs.forEach(c => {
       if (c.readonly) {
-        const v = c.curr ? fmt(row[c.id]) : escape_html(row[c.id] || '');
-        tr += `<td class="text-right" id="fcell-${i}-${c.id}">${v}</td>`;
+        const isText = ftTextCols.includes(c.id);
+        const display = c.curr ? fmt(row[c.id], true) : escape_html(row[c.id] != null ? row[c.id] : '');
+        const calcAttr = !isText ? ` data-calcfield="${c.id}"` : '';
+        tr += `<td class="${isText ? '' : 'text-right'}"${calcAttr}>${display}</td>`;
       } else {
         tr += `<td class="p-0"><input type="number" class="ss-edit-input qc-input" data-col="${c.id}" value="${row[c.id]}" min="0" step="any"></td>`;
       }
@@ -595,14 +645,27 @@ function recalc_row(input_el) {
 
   const col = $(input_el).data('col');
   row[col] = parseFloat($(input_el).val() || 0);
-  do_row_calc(row);
 
-  col_configs.forEach(c => {
-    if (c.readonly) {
-      const v = c.curr ? fmt(row[c.id]) : row[c.id];
-      $tr.find(`#cell-${idx}-${c.id}`).text(v);
-      $(`#fcell-${idx}-${c.id}`).text(v);
-    }
+  // Recalculate only the derived values affected by this specific field change.
+  // Closing qty/value are NEVER recalculated from other movements.
+  calc_row_field(row, col);
+
+  // Only refresh the calculated display cells in THIS row that carry
+  // a data-calcfield attribute — never touch cells unrelated to the edit.
+  $tr.find('[data-calcfield]').each(function () {
+    const calcField = $(this).data('calcfield');
+    const cfg = col_configs.find(function (c) { return c.id === calcField; });
+    $(this).text(fmt(row[calcField], cfg && cfg.curr));
+  });
+
+  // Also refresh the matching row in the other table (full-table ↔ QC)
+  const otherSelector = $tr.closest('#qc-tbody').length
+    ? '#full-tbody tr[data-idx="' + idx + '"]'
+    : '#qc-tbody tr[data-idx="' + idx + '"]';
+  $(otherSelector).find('[data-calcfield]').each(function () {
+    const calcField = $(this).data('calcfield');
+    const cfg = col_configs.find(function (c) { return c.id === calcField; });
+    $(this).text(fmt(row[calcField], cfg && cfg.curr));
   });
 
   update_summary_cards();
