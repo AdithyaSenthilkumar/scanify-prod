@@ -954,3 +954,8 @@ a:hover {
         grid-template-columns: 1fr;
     }
 }
+/* Allow programmatic show/hide (used for click toggles) */
+.user-dropdown.show {
+    display: block;
+}
+

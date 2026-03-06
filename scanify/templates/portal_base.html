@@ -67,7 +67,7 @@
                 <!-- User Menu -->
                 {% set _user_img = frappe.db.get_value("User", frappe.session.user, "user_image") %}
                 <div class="user-menu-simple">
-                    <div class="user-trigger">
+                    <div class="user-trigger" onclick="toggleUserMenu(event)">
                         {% if _user_img %}
                         <div class="user-avatar">
                             <img src="{{ _user_img }}" alt="" class="user-avatar-img">
@@ -387,7 +387,22 @@
     </script>
 
 
-    {% block scripts %}{% endblock %}
+        <script>
+        $(document).on('click', function (e) {
+            if (!$(e.target).closest('.user-menu-simple').length) {
+                $('.user-dropdown').removeClass('show');
+            }
+        });
+
+        function toggleUserMenu(event) {
+            event.stopPropagation();
+            $('.user-dropdown').toggleClass('show');
+        }
+    </script>
+{% block scripts %}{% endblock %}
 </body>
 
 </html>
+
+
+
