@@ -8,10 +8,6 @@ def get_context(context):
     user = frappe.session.user
 
     # Only System Managers can access the Users page
-    roles = frappe.get_roles(user)
-    if "System Manager" not in roles:
-        frappe.local.flags.redirect_location = "/portal"
-        raise frappe.Redirect
 
     # Get division
     user_division = None

@@ -16,9 +16,5 @@ def get_context(context):
         division = frappe.db.get_value("User", user, "division")
     context.division = division or "Prima"
 
-    # Access control
-    roles = frappe.get_roles(user)
-    if "System Manager" not in roles and "Sales Manager" not in roles:
-        frappe.throw("You do not have permission to access this page", frappe.PermissionError)
 
     return context
