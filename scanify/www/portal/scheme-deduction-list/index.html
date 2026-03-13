@@ -81,6 +81,9 @@
         <h5 class="text-muted">No deductions found</h5>
         <p class="text-muted">Create a new deduction from an approved scheme request.</p>
     </div>
+
+    <!-- Pagination -->
+    <div id="deduction-pagination" class="d-flex justify-content-between align-items-center mt-3"></div>
 </div>
 
 <style>
@@ -99,6 +102,10 @@
 
 {% block scripts %}
 <script>
+    const DED_PAGE_SIZE = 25;
+    let dedCurrentPage = 1;
+    let allDeductions = [];
+
     function getActiveDivision() {
         try {
             const btn = document.querySelector('.division-name');
@@ -163,13 +170,17 @@
                 const data = r.message;
                 if (!data || !data.success) {
                     $('#emptyState').show();
+                    document.getElementById('deduction-pagination').innerHTML = '';
                     return;
                 }
                 if (!data.data || !data.data.length) {
                     $('#emptyState').show();
+                    document.getElementById('deduction-pagination').innerHTML = '';
                     return;
                 }
-                renderTable(data.data);
+                allDeductions = data.data;
+                dedCurrentPage = 1;
+                renderTable(allDeductions);
                 $('#tableCard').show();
             })
             .catch(() => {
@@ -179,7 +190,12 @@
     }
 
     function renderTable(rows) {
-        const html = rows.map(r => `
+        const totalPages = Math.ceil(rows.length / DED_PAGE_SIZE) || 1;
+        if (dedCurrentPage > totalPages) dedCurrentPage = totalPages;
+        const start = (dedCurrentPage - 1) * DED_PAGE_SIZE;
+        const pageRows = rows.slice(start, start + DED_PAGE_SIZE);
+
+        const html = pageRows.map(r => `
             <tr>
                 <td><strong>${r.name}</strong></td>
                 <td>${r.scheme_request || '-'}</td>
@@ -192,6 +208,31 @@
         `).join('');
 
         $('#deductionsTbody').html(html);
+        renderDedPagination(rows.length);
+    }
+
+    function renderDedPagination(total) {
+        const container = document.getElementById('deduction-pagination');
+        if (total <= DED_PAGE_SIZE) { container.innerHTML = ''; return; }
+        const totalPages = Math.ceil(total / DED_PAGE_SIZE);
+        const s = (dedCurrentPage - 1) * DED_PAGE_SIZE + 1;
+        const e = Math.min(dedCurrentPage * DED_PAGE_SIZE, total);
+        let html = '<small class="text-muted">Showing ' + s + '-' + e + ' of ' + total + '</small>';
+        html += '<nav><ul class="pagination pagination-sm mb-0">';
+        html += '<li class="page-item ' + (dedCurrentPage===1?'disabled':'') + '"><a class="page-link" href="#" onclick="goToDedPage(' + (dedCurrentPage-1) + ');return false;">&laquo;</a></li>';
+        var sp = Math.max(1, dedCurrentPage-2), ep = Math.min(totalPages, sp+4);
+        if (ep-sp<4) sp = Math.max(1, ep-4);
+        for (var i=sp;i<=ep;i++) html += '<li class="page-item '+(i===dedCurrentPage?'active':'')+'"><a class="page-link" href="#" onclick="goToDedPage('+i+');return false;">'+i+'</a></li>';
+        html += '<li class="page-item ' + (dedCurrentPage===totalPages?'disabled':'') + '"><a class="page-link" href="#" onclick="goToDedPage(' + (dedCurrentPage+1) + ');return false;">&raquo;</a></li>';
+        html += '</ul></nav>';
+        container.innerHTML = html;
+    }
+
+    function goToDedPage(page) {
+        const totalPages = Math.ceil(allDeductions.length / DED_PAGE_SIZE);
+        if (page < 1 || page > totalPages) return;
+        dedCurrentPage = page;
+        renderTable(allDeductions);
     }
 
     document.addEventListener('DOMContentLoaded', loadDeductions);

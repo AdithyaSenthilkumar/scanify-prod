@@ -52,10 +52,34 @@ $(document).ready(function () {
         }
     });
 
-    // HQ change → filter stockists
+    // HQ change → fill region/team, enable doctor search, load stockists by region
     $('#hqSelect').on('change', function () {
-        loadStockistsByHQ($(this).val());
-        // Also update doctor HQ if doctor selected and HQ auto-filled
+        const hq = $(this).val();
+        if (hq) {
+            const $opt = $(this).find('option:selected');
+            const region = $opt.attr('data-region') || '';
+            const regionName = $opt.attr('data-region-name') || region;
+            const team = $opt.attr('data-team') || '';
+            const teamName = $opt.attr('data-team-name') || team;
+            $('#regionDisplay').val(regionName);
+            $('#regionValue').val(region);
+            $('#teamDisplay').val(teamName);
+
+            // Enable doctor search
+            $('#doctorSearch').prop('disabled', false).attr('placeholder', 'Type doctor name, place, or code (min 2 chars)...');
+
+            // Load stockists from entire region
+            loadStockistsByRegion(region);
+        } else {
+            $('#regionDisplay').val('');
+            $('#regionValue').val('');
+            $('#teamDisplay').val('');
+            $('#doctorSearch').prop('disabled', true).attr('placeholder', 'Select an HQ first...');
+            $('#stockistSelect').html('<option value="">-- Select HQ first --</option>');
+        }
+
+        // Clear doctor selection when HQ changes
+        clearDoctorSelection();
     });
 
     // Form submit
@@ -82,8 +106,8 @@ function loadHQs() {
             if (r.message && r.message.length > 0) {
                 let html = '<option value="">-- Select HQ --</option>';
                 r.message.forEach(function (hq) {
-                    html += `<option value="${hq.name}" data-team="${hq.team || ''}" data-region="${hq.region || ''}">${hq.hq_name || hq.name}</option>`;
-                    hqDivisionMap[hq.name] = { team: hq.team, region: hq.region };
+                    html += `<option value="${hq.name}" data-team="${hq.team || ''}" data-team-name="${hq.team_name || hq.team || ''}" data-region="${hq.region || ''}" data-region-name="${hq.region_name || hq.region || ''}">${hq.hq_name || hq.name}</option>`;
+                    hqDivisionMap[hq.name] = { team: hq.team, region: hq.region, team_name: hq.team_name, region_name: hq.region_name };
                 });
                 $('#hqSelect').html(html);
             } else {
@@ -94,29 +118,30 @@ function loadHQs() {
     });
 }
 
-function loadStockistsByHQ(hq) {
-    if (!hq) {
+function loadStockistsByRegion(region) {
+    if (!region) {
         $('#stockistSelect').html('<option value="">-- Select HQ first --</option>');
         return;
     }
     $('#stockistSelect').html('<option value="">Loading...</option>');
     const division = getActiveDivision();
     $.ajax({
-        url: '/api/method/scanify.api.get_stockists_by_hq',
+        url: '/api/method/scanify.api.get_stockists_by_region',
         type: 'POST',
         contentType: 'application/json',
         headers: {
             'X-Frappe-CSRF-Token': frappe.csrf_token
         },
-        data: JSON.stringify({ hq: hq, division: division }),
+        data: JSON.stringify({ region: region, division: division }),
         success: function (r) {
             let html = '<option value="">-- Select Stockist --</option>';
             if (r.message && r.message.length > 0) {
                 r.message.forEach(function (s) {
-                    html += `<option value="${s.name}" data-name="${s.stockist_name}">${s.stockist_name} (${s.stockist_code || s.name})</option>`;
+                    const hqLabel = s.hq_name ? ` (HQ: ${s.hq_name})` : '';
+                    html += `<option value="${s.name}" data-name="${s.stockist_name}">${s.stockist_name}${hqLabel} — ${s.stockist_code || s.name}</option>`;
                 });
             } else {
-                html = '<option value="">No stockists found for this HQ</option>';
+                html = '<option value="">No stockists found in this region</option>';
             }
             $('#stockistSelect').html(html);
         },
@@ -125,6 +150,18 @@ function loadStockistsByHQ(hq) {
             $('#stockistSelect').html('<option value="">Error loading stockists</option>');
         }
     });
+}
+
+function clearDoctorSelection() {
+    selectedDoctor = null;
+    $('#doctorSearch').val('');
+    $('#doctorCode').val('');
+    $('#doctorName, #doctorPlace, #doctorSpecialization, #doctorHospital').val('');
+    $('#doctorFieldsRow').hide();
+    $('#doctorInfoPanel').hide();
+    $('#doctorLimitInfo').hide();
+    doctorProductLimits = {};
+    updateProductLimitWarnings();
 }
 
 function loadProducts() {
@@ -153,12 +190,13 @@ function loadProducts() {
 
 function searchDoctors(term) {
     const division = getActiveDivision();
+    const selectedHQ = $('#hqSelect').val() || '';
     $.ajax({
         url: '/api/method/scanify.api.search_doctors',
         type: 'POST',
         contentType: 'application/json',
         headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-        data: JSON.stringify({ searchterm: term, division: division }),
+        data: JSON.stringify({ searchterm: term, division: division, hq: selectedHQ }),
         success: function (r) {
             if (r.message && r.message.length > 0) {
                 let html = '';
@@ -220,11 +258,6 @@ function selectDoctor(el) {
     `);
     $('#doctorInfoPanel').show();
 
-    // Auto-fill HQ if doctor has one
-    if (selectedDoctor.hq && $('#hqSelect option[value="' + selectedDoctor.hq + '"]').length > 0) {
-        $('#hqSelect').val(selectedDoctor.hq);
-        loadStockistsByHQ(selectedDoctor.hq);
-    }
 
     // Load monthly limit info
     loadDoctorMonthlyLimit(selectedDoctor.code);
@@ -360,11 +393,22 @@ function checkProductLimit(rowId, productCode) {
     }
 }
 
+function getConversionFactor(packStr) {
+    if (!packStr) return 1;
+    packStr = String(packStr).trim().toUpperCase();
+    var match = packStr.match(/(\d+)\s*[xX]\s*(\d+)/);
+    if (match) return parseFloat(match[1]) || 1;
+    if (/UNIT|BOX|ML|GM|MG|'S/.test(packStr)) return 1;
+    return 1;
+}
+
 function calculateRow(rowId) {
     const qty = parseFloat($(`#qty-${rowId}`).val()) || 0;
     const freeQty = parseFloat($(`#freeqty-${rowId}`).val()) || 0;
     const rate = parseFloat($(`#rate-${rowId}`).val()) || 0;
     const specialRate = parseFloat($(`#specialrate-${rowId}`).val()) || 0;
+    const pack = $(`#pack-${rowId}`).val() || '';
+    const conversionFactor = getConversionFactor(pack);
 
     let schemePct = 0;
     if (specialRate > 0 && rate > 0) {
@@ -373,8 +417,14 @@ function calculateRow(rowId) {
         schemePct = (freeQty / qty) * 100;
     }
 
-    const effectiveRate = specialRate > 0 ? specialRate : rate;
-    const value = qty * effectiveRate;
+    let value = 0;
+    if (specialRate > 0) {
+        value = qty * specialRate;
+    } else if (freeQty > 0) {
+        value = (freeQty / conversionFactor) * rate;
+    } else {
+        value = qty * rate;
+    }
 
     $(`#schemepct-${rowId}`).val(schemePct.toFixed(2) + '%');
     $(`#value-${rowId}`).val('\u20B9 ' + formatCurrency(value));

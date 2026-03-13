@@ -1,0 +1,203 @@
+{% extends "scanify/templates/portal_base.html" %}
+
+{% block title %}Export Masters{% endblock %}
+
+{% block portal_content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center flex-wrap">
+        <div>
+            <h1 class="page-title">Export Masters</h1>
+            <p class="text-muted mb-0">Download master data in Excel, CSV, or PDF format</p>
+        </div>
+    </div>
+</div>
+
+<!-- Export Options Card -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="fa fa-cog mr-2"></i>Export Options</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-4 mb-3">
+                <label class="font-weight-bold">Master Type</label>
+                <select id="master-type" class="form-control">
+                    <option value="hq">HQ Master</option>
+                    <option value="stockist">Stockist Master</option>
+                    <option value="product">Product Master</option>
+                    <option value="doctor">Doctor Master</option>
+                    <option value="team">Team Master</option>
+                    <option value="region">Region Master</option>
+                    <option value="zone">Zone Master</option>
+                    <option value="state">State Master</option>
+                </select>
+            </div>
+            <div class="col-md-4 mb-3">
+                <label class="font-weight-bold">Format</label>
+                <select id="export-format" class="form-control">
+                    <option value="xlsx">Excel (.xlsx)</option>
+                    <option value="csv">CSV (.csv)</option>
+                    <option value="pdf">PDF (.pdf)</option>
+                </select>
+            </div>
+            <div class="col-md-4 mb-3 d-flex align-items-end">
+                <button class="btn btn-primary mr-2" onclick="exportSingleMaster()">
+                    <i class="fa fa-download mr-1"></i> Export
+                </button>
+                <button class="btn btn-secondary" onclick="exportAllMastersZip()">
+                    <i class="fa fa-file-archive mr-1"></i> Bulk Export (ZIP)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div id="export-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; justify-content:center; align-items:center;">
+    <div class="text-center bg-white rounded p-5 shadow-lg" style="min-width:320px;">
+        <i class="fa fa-spinner fa-spin fa-3x text-primary mb-3"></i>
+        <h5 id="export-overlay-msg">Generating export...</h5>
+        <p class="text-muted mb-0">This may take a moment for large datasets</p>
+    </div>
+</div>
+
+<script>
+const MASTER_CONFIGS = {
+    hq: {
+        title: 'HQ Master',
+        doctype: 'HQ Master',
+        columns: ['hq_code', 'hq_name', 'team_label', 'region_label', 'zone_label', 'per_capita', 'division', 'status'],
+        headers: ['HQ Code', 'HQ Name', 'Team', 'Region', 'Zone', 'Per Capita', 'Division', 'Status']
+    },
+    stockist: {
+        title: 'Stockist Master',
+        doctype: 'Stockist Master',
+        columns: ['stockist_code', 'stockist_name', 'hq_label', 'team_label', 'region_label', 'zone_label', 'address', 'contact_person', 'phone', 'email', 'division', 'status'],
+        headers: ['Stockist Code', 'Stockist Name', 'HQ', 'Team', 'Region', 'Zone', 'Address', 'Contact Person', 'Phone', 'Email', 'Division', 'Status']
+    },
+    product: {
+        title: 'Product Master',
+        doctype: 'Product Master',
+        columns: ['product_code', 'product_name', 'product_group', 'category', 'pack', 'pack_conversion', 'pts', 'ptr', 'mrp', 'gst_rate', 'division', 'status'],
+        headers: ['Product Code', 'Product Name', 'Product Group', 'Category', 'Pack', 'Pack Conversion', 'PTS', 'PTR', 'MRP', 'GST Rate', 'Division', 'Status']
+    },
+    doctor: {
+        title: 'Doctor Master',
+        doctype: 'Doctor Master',
+        columns: ['doctor_code', 'doctor_name', 'qualification', 'doctor_category', 'specialization', 'phone', 'place', 'hq_label', 'team_label', 'region_label', 'state_label', 'zone_label', 'chemist_name', 'division', 'status'],
+        headers: ['Doctor Code', 'Doctor Name', 'Qualification', 'Category', 'Specialization', 'Phone', 'Place', 'HQ', 'Team', 'Region', 'State', 'Zone', 'Chemist Name', 'Division', 'Status']
+    },
+    team: {
+        title: 'Team Master',
+        doctype: 'Team Master',
+        columns: ['team_code', 'team_name', 'region_label', 'sanctioned_strength', 'division', 'status'],
+        headers: ['Team Code', 'Team Name', 'Region', 'Sanctioned Strength', 'Division', 'Status']
+    },
+    region: {
+        title: 'Region Master',
+        doctype: 'Region Master',
+        columns: ['region_code', 'region_name', 'zone_label', 'state_label', 'division', 'status'],
+        headers: ['Region Code', 'Region Name', 'Zone', 'State', 'Division', 'Status']
+    },
+    zone: {
+        title: 'Zone Master',
+        doctype: 'Zone Master',
+        columns: ['zone_code', 'zone_name', 'division', 'status'],
+        headers: ['Zone Code', 'Zone Name', 'Division', 'Status']
+    },
+    state: {
+        title: 'State Master',
+        doctype: 'State Master',
+        columns: ['state_code', 'state_name', 'division', 'status'],
+        headers: ['State Code', 'State Name', 'Division', 'Status']
+    }
+};
+
+let currentDivision = '{{ division or "Prima" }}';
+
+window.addEventListener('load', function() {
+    // No preview needed - masters page is available for browsing
+});
+
+function exportSingleMaster() {
+    const masterKey = document.getElementById('master-type').value;
+    const format = document.getElementById('export-format').value;
+    const config = MASTER_CONFIGS[masterKey];
+
+    showExportOverlay('Generating ' + config.title + ' export...');
+
+    $.ajax({
+        url: '/api/method/scanify.api.export_master_data',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': window.csrf_token },
+        data: JSON.stringify({
+            master_type: masterKey,
+            format_type: format,
+            division: currentDivision
+        }),
+        success: function(r) {
+            hideExportOverlay();
+            if (r.message && r.message.success) {
+                window.open(r.message.file_url, '_blank');
+                showAlert(config.title + ' exported successfully!', 'success');
+            } else {
+                showAlert(r.message ? r.message.message : 'Export failed', 'danger');
+            }
+        },
+        error: function(xhr) {
+            hideExportOverlay();
+            showAlert('Export failed. Please try again.', 'danger');
+        }
+    });
+}
+
+function exportAllMastersZip() {
+    const format = document.getElementById('export-format').value;
+
+    showExportOverlay('Generating bulk export ZIP...');
+
+    $.ajax({
+        url: '/api/method/scanify.api.export_all_masters_zip',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': window.csrf_token },
+        data: JSON.stringify({
+            format_type: format,
+            division: currentDivision
+        }),
+        success: function(r) {
+            hideExportOverlay();
+            if (r.message && r.message.success) {
+                window.open(r.message.file_url, '_blank');
+                showAlert('All masters exported successfully!', 'success');
+            } else {
+                showAlert(r.message ? r.message.message : 'Bulk export failed', 'danger');
+            }
+        },
+        error: function(xhr) {
+            hideExportOverlay();
+            showAlert('Bulk export failed. Please try again.', 'danger');
+        }
+    });
+}
+
+function showExportOverlay(msg) {
+    document.getElementById('export-overlay-msg').textContent = msg || 'Generating export...';
+    document.getElementById('export-overlay').style.display = 'flex';
+}
+
+function hideExportOverlay() {
+    document.getElementById('export-overlay').style.display = 'none';
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = 'alert alert-' + type + ' alert-dismissible fade show';
+    alertDiv.style.cssText = 'position:fixed;top:80px;right:20px;z-index:10000;min-width:300px;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+    alertDiv.innerHTML = message + '<button type="button" class="close" data-dismiss="alert">&times;</button>';
+    document.body.appendChild(alertDiv);
+    setTimeout(function() { alertDiv.remove(); }, 4000);
+}
+</script>
+{% endblock %}

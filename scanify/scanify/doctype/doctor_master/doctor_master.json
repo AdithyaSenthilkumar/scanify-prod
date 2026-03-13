@@ -19,7 +19,7 @@
   "hq",
   "team",
   "region",
-  "state_name",
+  "state",
   "zone",
   "column_break_2",
   "chemist_name",
@@ -99,9 +99,10 @@
    "options": "Region Master"
   },
   {
-   "fieldname": "state_name",
-   "fieldtype": "Data",
-   "label": "State"
+   "fieldname": "state",
+   "fieldtype": "Link",
+   "label": "State",
+   "options": "State Master"
   },
   {
    "fieldname": "zone",

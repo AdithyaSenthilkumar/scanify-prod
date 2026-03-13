@@ -1,0 +1,417 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Delete Statement{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page delete-statement-page">
+    <div class="page-header d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="page-title"><i class="fa fa-trash-alt"></i> Delete Statement</h1>
+            <p class="page-subtitle">Search and delete a stockist statement for <strong>{{ division }}</strong> division</p>
+        </div>
+        <a href="/portal/stock-statements-list" class="btn btn-secondary">
+            <i class="fa fa-arrow-left"></i> Statements List
+        </a>
+    </div>
+
+    <!-- Search Card -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <span><i class="fa fa-search"></i> Find Statement</span>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label><strong>Search Stockist Statement</strong></label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text bg-white"><i class="fa fa-search text-muted"></i></span>
+                    </div>
+                    <input type="text" id="statementSearch" class="form-control"
+                        placeholder="Search by stockist name, code, or statement ID... (click to see latest)" autocomplete="off">
+                </div>
+                <input type="hidden" id="selectedStatement">
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Card (hidden until chosen) -->
+    <div class="card mb-4" id="summaryCard" style="display:none;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="fa fa-info-circle"></i> Statement Summary</span>
+            <span class="badge badge-secondary" id="summaryStatus"></span>
+        </div>
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <small class="text-muted d-block">Stockist</small>
+                    <strong id="sumStockistName">—</strong>
+                    <small class="text-muted d-block" id="sumStockistCode"></small>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted d-block">Statement Month</small>
+                    <strong id="sumMonth">—</strong>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted d-block">HQ</small>
+                    <strong id="sumHQ">—</strong>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted d-block">Region</small>
+                    <strong id="sumRegion">—</strong>
+                </div>
+                <div class="col-md-3">
+                    <small class="text-muted d-block">Created On</small>
+                    <strong id="sumCreated">—</strong>
+                </div>
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-2">
+                    <small class="text-muted d-block">Total Items</small>
+                    <strong id="sumItems">0</strong>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted d-block">Opening Value</small>
+                    <strong id="sumOpening">₹ 0</strong>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted d-block">Purchase Value</small>
+                    <strong id="sumPurchase">₹ 0</strong>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted d-block">Sales Value</small>
+                    <strong id="sumSales">₹ 0</strong>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted d-block">Closing Value</small>
+                    <strong id="sumClosing">₹ 0</strong>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted d-block">Uploaded File</small>
+                    <a href="#" id="sumFileLink" target="_blank" class="text-primary" style="display:none;">
+                        <i class="fa fa-paperclip"></i> View
+                    </a>
+                    <span id="sumNoFile" class="text-muted">—</span>
+                </div>
+            </div>
+
+            <hr>
+            <div class="text-right">
+                <button type="button" class="btn btn-danger" id="deleteBtn" onclick="openDeleteModal()">
+                    <i class="fa fa-trash-alt"></i> Delete This Statement
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fa fa-exclamation-triangle"></i> Confirm Deletion</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>You are about to permanently delete statement <strong id="modalStatementName"></strong>.</p>
+                <p class="text-danger"><strong>This action cannot be undone.</strong></p>
+                <div class="form-group">
+                    <label><strong>Reason for Deletion <span class="text-danger">*</span></strong></label>
+                    <textarea id="deleteReason" class="form-control" rows="3"
+                        placeholder="Please provide a reason for deleting this statement..."></textarea>
+                    <small class="text-muted">This will be logged in the audit trail.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn" onclick="confirmDelete()">
+                    <i class="fa fa-trash-alt"></i> Delete Permanently
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .stmt-search-dropdown {
+        position: absolute;
+        z-index: 9999;
+        max-height: 360px;
+        overflow-y: auto;
+        border: 1px solid var(--color-border, #dee2e6);
+        border-radius: 10px;
+        background: #fff;
+        box-shadow: 0 6px 24px rgba(0,0,0,0.15);
+    }
+    .stmt-search-dropdown .dropdown-header-label {
+        padding: 8px 14px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #6c757d;
+        background: #f8f9fa;
+        border-bottom: 1px solid #eee;
+        border-radius: 10px 10px 0 0;
+    }
+    .stmt-search-dropdown .search-result-item {
+        padding: 10px 14px;
+        cursor: pointer;
+        border-bottom: 1px solid #f1f5f9;
+    }
+    .stmt-search-dropdown .search-result-item:hover {
+        background: #f8fafc;
+    }
+    .stmt-search-dropdown .search-result-item:last-child {
+        border-bottom: none;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let searchTimeout = null;
+let selectedStatementName = null;
+let $dropdown = null;
+
+function getActiveDivision() {
+    try {
+        const btn = document.querySelector('.division-name');
+        if (btn && btn.textContent.trim()) return btn.textContent.trim();
+    } catch (e) {}
+    const match = document.cookie.match(/(?:^|;\s*)division=([^;]*)/);
+    if (match) return decodeURIComponent(match[1]);
+    return 'Prima';
+}
+
+function createDropdown() {
+    if ($dropdown) return;
+    $dropdown = $('<div class="stmt-search-dropdown"></div>').hide();
+    $('body').append($dropdown);
+}
+
+function positionDropdown() {
+    if (!$dropdown) return;
+    const $input = $('#statementSearch').closest('.input-group');
+    const offset = $input.offset();
+    const w = $input.outerWidth();
+    $dropdown.css({
+        top: offset.top + $input.outerHeight() + 4,
+        left: offset.left,
+        width: w
+    });
+}
+
+$(document).ready(function() {
+    createDropdown();
+
+    // Show latest on focus / click
+    $('#statementSearch').on('focus click', function() {
+        const term = $(this).val().trim();
+        if (!$dropdown.is(':visible')) {
+            searchStatements(term);
+        }
+    });
+
+    $('#statementSearch').on('input', function() {
+        clearTimeout(searchTimeout);
+        const term = $(this).val().trim();
+        searchTimeout = setTimeout(() => searchStatements(term), 300);
+    });
+
+    $(document).on('click', function(e) {
+        if (!$(e.target).closest('#statementSearch, .stmt-search-dropdown').length) {
+            hideSearchResults();
+        }
+    });
+
+    $(window).on('scroll resize', function() {
+        if ($dropdown && $dropdown.is(':visible')) {
+            positionDropdown();
+        }
+    });
+});
+
+function searchStatements(term) {
+    $.ajax({
+        url: '/api/method/scanify.api.search_stockist_statements',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify({ search_term: term || '', division: getActiveDivision() }),
+        success: function(r) {
+            positionDropdown();
+            if (r.message && r.message.length > 0) {
+                const headerLabel = term
+                    ? `${r.message.length} result${r.message.length > 1 ? 's' : ''}`
+                    : 'Latest Statements';
+                let html = `<div class="dropdown-header-label">${headerLabel}</div>`;
+                r.message.forEach(function(s) {
+                    const monthDisplay = s.statement_month ? formatMonth(s.statement_month) : '—';
+                    const statusBadge = s.docstatus === 1
+                        ? '<span class="badge badge-success ml-2">Submitted</span>'
+                        : '<span class="badge badge-warning ml-2">Draft</span>';
+                    html += `<div class="search-result-item" data-name="${escapeHtml(s.name)}">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${escapeHtml(s.stockist_name || '')}</strong>
+                                <span class="text-muted">(${escapeHtml(s.stockist_code || s.name)})</span>
+                            </div>
+                            <div>${statusBadge}</div>
+                        </div>
+                        <small class="text-muted">${escapeHtml(s.name)} &middot; ${monthDisplay} &middot; ${escapeHtml(s.hq || '')}</small>
+                    </div>`;
+                });
+                $dropdown.html(html).show();
+                // Bind click on result items
+                $dropdown.find('.search-result-item').off('click').on('click', function() {
+                    selectStatement($(this).attr('data-name'));
+                });
+            } else {
+                $dropdown.html('<div class="p-3 text-muted text-center">No statements found</div>').show();
+            }
+        },
+        error: function() {
+            positionDropdown();
+            $dropdown.html('<div class="p-3 text-muted text-center">Search failed</div>').show();
+        }
+    });
+}
+
+function hideSearchResults() {
+    if ($dropdown) $dropdown.hide().html('');
+}
+
+function selectStatement(name) {
+    hideSearchResults();
+    selectedStatementName = name;
+    $('#selectedStatement').val(name);
+    $('#statementSearch').val(name);
+    loadStatementSummary(name);
+}
+
+function loadStatementSummary(name) {
+    $.ajax({
+        url: '/api/method/scanify.api.get_statement_summary',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify({ doc_name: name }),
+        success: function(r) {
+            if (r.message && r.message.success) {
+                const d = r.message;
+                $('#sumStockistName').text(d.stockist_name || '—');
+                $('#sumStockistCode').text(d.stockist_code || '');
+                $('#sumMonth').text(d.statement_month ? formatMonth(d.statement_month) : '—');
+                $('#sumHQ').text(d.hq || '—');
+                $('#sumRegion').text(d.region || '—');
+                $('#sumCreated').text(d.creation ? new Date(d.creation).toLocaleDateString('en-IN') : '—');
+                $('#sumItems').text(d.total_items || 0);
+                $('#sumOpening').text('₹ ' + formatCurrency(d.total_opening_value || 0));
+                $('#sumPurchase').text('₹ ' + formatCurrency(d.total_purchase_value || 0));
+                $('#sumSales').text('₹ ' + formatCurrency(d.total_sales_value || 0));
+                $('#sumClosing').text('₹ ' + formatCurrency(d.total_closing_value || 0));
+
+                const statusText = d.docstatus === 1 ? 'Submitted' : 'Draft';
+                const statusClass = d.docstatus === 1 ? 'badge-success' : 'badge-warning';
+                $('#summaryStatus').text(statusText).removeClass('badge-success badge-warning badge-secondary').addClass(statusClass);
+
+                if (d.uploaded_file) {
+                    $('#sumFileLink').attr('href', d.uploaded_file).show();
+                    $('#sumNoFile').hide();
+                } else {
+                    $('#sumFileLink').hide();
+                    $('#sumNoFile').show();
+                }
+
+                $('#summaryCard').fadeIn(300);
+            } else {
+                showAlert('Failed to load statement details', 'danger');
+            }
+        },
+        error: function() {
+            showAlert('Error loading statement details', 'danger');
+        }
+    });
+}
+
+function openDeleteModal() {
+    if (!selectedStatementName) return;
+    $('#modalStatementName').text(selectedStatementName);
+    $('#deleteReason').val('');
+    $('#deleteModal').modal('show');
+}
+
+function confirmDelete() {
+    const reason = $('#deleteReason').val().trim();
+    if (!reason) {
+        showAlert('Please provide a reason for deletion', 'warning');
+        $('#deleteReason').focus();
+        return;
+    }
+    if (reason.length < 5) {
+        showAlert('Reason must be at least 5 characters', 'warning');
+        $('#deleteReason').focus();
+        return;
+    }
+
+    const $btn = $('#confirmDeleteBtn');
+    $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Deleting...');
+
+    $.ajax({
+        url: '/api/method/scanify.api.delete_stockist_statement',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify({ doc_name: selectedStatementName, reason: reason }),
+        success: function(r) {
+            $btn.prop('disabled', false).html('<i class="fa fa-trash-alt"></i> Delete Permanently');
+            $('#deleteModal').modal('hide');
+            if (r.message && r.message.success) {
+                showAlert('Statement deleted successfully. Reason logged to audit trail.', 'success');
+                selectedStatementName = null;
+                $('#selectedStatement').val('');
+                $('#statementSearch').val('');
+                $('#summaryCard').fadeOut(300);
+                setTimeout(() => { window.location.href = '/portal/stock-statements-list'; }, 2000);
+            } else {
+                showAlert(r.message && r.message.message || 'Deletion failed', 'danger');
+            }
+        },
+        error: function(xhr) {
+            $btn.prop('disabled', false).html('<i class="fa fa-trash-alt"></i> Delete Permanently');
+            $('#deleteModal').modal('hide');
+            const errMsg = xhr.responseJSON && xhr.responseJSON._server_messages
+                ? JSON.parse(JSON.parse(xhr.responseJSON._server_messages)[0]).message
+                : 'Deletion failed. Please try again.';
+            showAlert(errMsg, 'danger');
+        }
+    });
+}
+
+function formatMonth(dateStr) {
+    try {
+        const d = new Date(dateStr);
+        return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    } catch(e) { return dateStr; }
+}
+
+function formatCurrency(v) {
+    return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0);
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function showAlert(msg, type) {
+    const a = $(`<div class="alert alert-${type} alert-dismissible fade show" role="alert"
+        style="position:fixed;top:70px;right:20px;z-index:9999;min-width:350px;box-shadow:0 4px 6px rgba(0,0,0,.15);max-width:500px;">
+        <strong>${msg}</strong>
+        <button type="button" class="close" data-dismiss="alert">&times;</button></div>`);
+    $('body').append(a);
+    setTimeout(() => a.fadeOut(() => a.remove()), 5000);
+}
+</script>
+{% endblock %}

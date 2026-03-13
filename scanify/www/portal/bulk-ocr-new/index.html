@@ -487,10 +487,9 @@
             return new Promise((resolve, reject) => {
                 const fd = new FormData();
                 fd.append('file', file, file.name);
-                fd.append('is_private', '0');
 
                 const xhr = new XMLHttpRequest();
-                xhr.open('POST', '/api/method/upload_file', true);
+                xhr.open('POST', '/api/method/scanify.api.upload_bulk_zip', true);
                 xhr.setRequestHeader('X-Frappe-CSRF-Token', CSRF);
 
                 xhr.upload.onprogress = e => {

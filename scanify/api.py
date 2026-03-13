@@ -428,18 +428,31 @@ IMPORTANT:
                     if file_ext == ".pdf":
                         import fitz  # PyMuPDF
                         pdf = fitz.open(file_path)
-                        page = pdf[0]
-                        pix = page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))
-                        img_data = pix.tobytes("png")
-                        image_part = genai_types.Part.from_bytes(data=img_data, mime_type="image/png")
+                        max_pages = 20  # Guard against very large PDFs
+                        page_count = min(len(pdf), max_pages)
+                        if len(pdf) > max_pages:
+                            frappe.logger().warning(
+                                f"PDF has {len(pdf)} pages, processing only first {max_pages} pages"
+                            )
+                        image_parts = []
+                        for page_idx in range(page_count):
+                            page = pdf[page_idx]
+                            pix = page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))
+                            img_data = pix.tobytes("png")
+                            image_parts.append(
+                                genai_types.Part.from_bytes(data=img_data, mime_type="image/png")
+                            )
+                        pdf.close()
                     else:
-                        image_part = genai_types.Part.from_bytes(
-                            data=file_data, mime_type=mime_type or "image/jpeg"
-                        )
+                        image_parts = [
+                            genai_types.Part.from_bytes(
+                                data=file_data, mime_type=mime_type or "image/jpeg"
+                            )
+                        ]
 
                     response = genai_client.models.generate_content(
                         model=model_name,
-                        contents=[prompt, image_part]
+                        contents=[prompt] + image_parts
                     )
 
                 elif file_ext in [".csv", ".txt"]:
@@ -707,6 +720,44 @@ def get_bulk_job_status(docname):
 
 
 @frappe.whitelist()
+def upload_bulk_zip():
+    """
+    Custom ZIP upload endpoint for portal users who lack desk access.
+    Frappe's built-in upload_file restricts non-desk users to a MIME allowlist
+    that excludes application/zip, causing a 417.  This endpoint explicitly
+    validates that the caller has write permission on Bulk Statement Upload and
+    then saves the file with ignore_permissions=True so the ZIP is accepted.
+    """
+    if frappe.session.user == "Guest":
+        frappe.throw("Authentication required", frappe.AuthenticationError)
+
+    frappe.has_permission("Bulk Statement Upload", "write", throw=True)
+
+    files = frappe.request.files
+    if "file" not in files:
+        frappe.throw("No file provided")
+
+    uploaded = files["file"]
+    filename = uploaded.filename or "bulk_upload.zip"
+    if not filename.lower().endswith(".zip"):
+        frappe.throw("Only ZIP files are accepted here")
+
+    content = uploaded.stream.read()
+
+    file_doc = frappe.get_doc({
+        "doctype": "File",
+        "file_name": filename,
+        "is_private": 0,
+        "content": content,
+        "folder": "Home",
+    })
+    file_doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {"file_url": file_doc.file_url}
+
+
+@frappe.whitelist()
 def get_bulk_jobs_list(division=None):
     """
     Return list of bulk OCR jobs for the portal list page.
@@ -916,11 +967,11 @@ def process_bulk_extraction(docname, month, zip_file_url):
                     if existing:
                         results.append({
                             "file": file,
-                            "status": "Skipped",
-                            "message": f"Statement already exists: {existing}",
+                            "status": "Failed",
+                            "message": f"Statement already exists for this stockist in this month: {existing}. Duplicate rejected.",
                             "stockist": stockist_name
                         })
-                        skipped_count += 1
+                        failed_count += 1
                         # Save partial log so UI can show in-flight progress
                         doc.extraction_log = json.dumps(results)
                         doc.save(ignore_permissions=True)
@@ -1104,8 +1155,8 @@ def bulk_extract_statements(month, zip_file_url):
                         if existing:
                             results.append({
                                 "file": file,
-                                "status": "Skipped",
-                                "message": f"Statement already exists: {existing}",
+                                "status": "Failed",
+                                "message": f"Statement already exists for this stockist in this month: {existing}. Duplicate rejected.",
                                 "stockist": stockist_code
                             })
                             continue
@@ -2332,6 +2383,17 @@ def get_user_hqs(division=None):
         fields=["name", "hq_name", "team", "region"],
         order_by="hq_name asc",
     )
+
+    # Fetch display names for team and region links
+    team_names = {}
+    region_names = {}
+    for hq in hqs:
+        if hq.team and hq.team not in team_names:
+            team_names[hq.team] = frappe.db.get_value("Team Master", hq.team, "team_name") or hq.team
+        if hq.region and hq.region not in region_names:
+            region_names[hq.region] = frappe.db.get_value("Region Master", hq.region, "region_name") or hq.region
+        hq["team_name"] = team_names.get(hq.team, hq.team or "")
+        hq["region_name"] = region_names.get(hq.region, hq.region or "")
     
     return hqs
 
@@ -2372,27 +2434,32 @@ def get_stockists_by_hq(hq, division=None):
     return stockists
 
 @frappe.whitelist()
-def search_doctors(searchterm=None, search_term=None, division=None):
-    """Search doctors by name or code"""
+def search_doctors(searchterm=None, search_term=None, division=None, hq=None):
+    """Search doctors by name or code, optionally filtered by HQ"""
     term = searchterm or search_term or ""
     if not division:
         division = get_user_division()
     
     division_clause = ""
+    hq_clause = ""
     params = {"term": f"%{term}%"}
     if division and division != "Both":
         division_clause = "AND (division = %(division)s OR division = 'Both')"
         params["division"] = division
+    if hq:
+        hq_clause = "AND hq = %(hq)s"
+        params["hq"] = hq
     
     doctors = frappe.db.sql("""
         SELECT name, doctor_code, doctor_name, place, specialization, hospital_address, hq, team, region
         FROM `tabDoctor Master`
         WHERE status = 'Active'
         {division_clause}
+        {hq_clause}
         AND (doctor_name LIKE %(term)s OR doctor_code LIKE %(term)s OR place LIKE %(term)s)
         ORDER BY doctor_name
         LIMIT 20
-    """.format(division_clause=division_clause), params, as_dict=True)
+    """.format(division_clause=division_clause, hq_clause=hq_clause), params, as_dict=True)
     
     return doctors
 
@@ -2493,9 +2560,8 @@ def save_master_record(doctype, name, data):
     """
     Save a master record.
 
-    Region/Team/Zone/State Masters now use auto-generated codes (R0001, T0001, Z0001, ST0001).
+    Region/Team/Zone/State/HQ Masters now use auto-generated codes (R0001, T0001, Z0001, ST0001, HQ0001).
     Division is injected from session when not provided.
-    HQ Master is renamed when hq_name changes (field:hq_name naming).
     """
     try:
         data = frappe.parse_json(data) if isinstance(data, str) else data
@@ -2509,6 +2575,7 @@ def save_master_record(doctype, name, data):
 
         # Strip auto-generated code fields — backend sets them via before_save hook
         for _dt, _cf in [
+            ('HQ Master', 'hq_code'),
             ('Doctor Master', 'doctor_code'),
             ('Region Master', 'region_code'),
             ('Team Master', 'team_code'),
@@ -2579,24 +2646,6 @@ def save_master_record(doctype, name, data):
                 match = frappe.db.get_value(linked_doctype, lookup_filters, 'name')
                 if match:
                     data[field] = match
-
-        # -----------------------------
-        # RENAME SUPPORT
-        # Only HQ Master (autoname=field:hq_name) needs rename when hq_name changes.
-        # Region/Team/Zone/State use auto-generated codes — their name (R0001) never changes.
-        # -----------------------------
-        if name and doctype == 'HQ Master':
-            if 'hq_name' in data:
-                old_val = getattr(doc, 'hq_name', None)
-                new_val = data['hq_name']
-                if old_val and new_val and new_val != old_val:
-                    if frappe.db.exists('HQ Master', new_val):
-                        return {
-                            'success': False,
-                            'message': f"HQ '{new_val}' already exists."
-                        }
-                    frappe.rename_doc('HQ Master', name, new_val)
-                    doc = frappe.get_doc('HQ Master', new_val)
 
         # -----------------------------
         # APPLY DATA & SAVE
@@ -3369,7 +3418,7 @@ def get_column_mapping(doctype):
             "HQ": "hq",
             "Team": "team",
             "Region": "region",
-            "State": "state_name",
+            "State": "state",
             "Zone": "zone",
             "Chemist Name": "chemist_name",
             "Status": "status"
@@ -4982,3 +5031,539 @@ def get_audit_trail_detail(version_name):
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Audit Trail Detail Error")
         return {"success": False, "message": str(e)}
+
+
+# =============================================================================
+# EXPORT MASTERS
+# =============================================================================
+
+# Master export configuration — maps frontend keys to doctypes and column definitions
+_EXPORT_MASTER_CONFIGS = {
+    "hq": {
+        "title": "HQ Master",
+        "doctype": "HQ Master",
+        "columns": ["hq_code", "hq_name", "team", "region", "zone", "per_capita", "division", "status"],
+        "headers": ["HQ Code", "HQ Name", "Team", "Region", "Zone", "Per Capita", "Division", "Status"],
+        "resolve": {"team": "Team Master:team_name", "region": "Region Master:region_name", "zone": "Zone Master:zone_name"},
+    },
+    "stockist": {
+        "title": "Stockist Master",
+        "doctype": "Stockist Master",
+        "columns": ["stockist_code", "stockist_name", "hq", "team", "region", "zone", "address", "contact_person", "phone", "email", "division", "status"],
+        "headers": ["Stockist Code", "Stockist Name", "HQ", "Team", "Region", "Zone", "Address", "Contact Person", "Phone", "Email", "Division", "Status"],
+        "resolve": {"hq": "HQ Master:hq_name", "team": "Team Master:team_name", "region": "Region Master:region_name", "zone": "Zone Master:zone_name"},
+    },
+    "product": {
+        "title": "Product Master",
+        "doctype": "Product Master",
+        "columns": ["product_code", "product_name", "product_group", "category", "pack", "pack_conversion", "pts", "ptr", "mrp", "gst_rate", "division", "status"],
+        "headers": ["Product Code", "Product Name", "Product Group", "Category", "Pack", "Pack Conversion", "PTS", "PTR", "MRP", "GST Rate", "Division", "Status"],
+        "resolve": {},
+    },
+    "doctor": {
+        "title": "Doctor Master",
+        "doctype": "Doctor Master",
+        "columns": ["doctor_code", "doctor_name", "qualification", "doctor_category", "specialization", "phone", "place", "hq", "team", "region", "state", "zone", "chemist_name", "division", "status"],
+        "headers": ["Doctor Code", "Doctor Name", "Qualification", "Category", "Specialization", "Phone", "Place", "HQ", "Team", "Region", "State", "Zone", "Chemist Name", "Division", "Status"],
+        "resolve": {"hq": "HQ Master:hq_name", "team": "Team Master:team_name", "region": "Region Master:region_name", "state": "State Master:state_name", "zone": "Zone Master:zone_name"},
+    },
+    "team": {
+        "title": "Team Master",
+        "doctype": "Team Master",
+        "columns": ["team_code", "team_name", "region", "sanctioned_strength", "division", "status"],
+        "headers": ["Team Code", "Team Name", "Region", "Sanctioned Strength", "Division", "Status"],
+        "resolve": {"region": "Region Master:region_name"},
+    },
+    "region": {
+        "title": "Region Master",
+        "doctype": "Region Master",
+        "columns": ["region_code", "region_name", "zone", "state", "division", "status"],
+        "headers": ["Region Code", "Region Name", "Zone", "State", "Division", "Status"],
+        "resolve": {"zone": "Zone Master:zone_name", "state": "State Master:state_name"},
+    },
+    "zone": {
+        "title": "Zone Master",
+        "doctype": "Zone Master",
+        "columns": ["zone_code", "zone_name", "division", "status"],
+        "headers": ["Zone Code", "Zone Name", "Division", "Status"],
+        "resolve": {},
+    },
+    "state": {
+        "title": "State Master",
+        "doctype": "State Master",
+        "columns": ["state_code", "state_name", "division", "status"],
+        "headers": ["State Code", "State Name", "Division", "Status"],
+        "resolve": {},
+    },
+}
+
+
+def _fetch_export_data(config, division):
+    """Fetch and resolve data for a master export."""
+    doctype = config["doctype"]
+    filters = {}
+    if division:
+        filters["division"] = ["in", [division, "Both"]]
+
+    data = frappe.get_all(
+        doctype,
+        filters=filters,
+        fields=["name"] + config["columns"],
+        order_by="name asc",
+        limit_page_length=0,
+    )
+
+    # Resolve Link fields to human-readable labels
+    resolve_map = config.get("resolve", {})
+    # Build caches for each linked doctype to avoid N+1 queries
+    resolve_caches = {}
+    for field, spec in resolve_map.items():
+        linked_dt, label_field = spec.split(":")
+        all_vals = frappe.get_all(linked_dt, fields=["name", label_field], limit_page_length=0)
+        resolve_caches[field] = {v["name"]: v[label_field] for v in all_vals}
+
+    for row in data:
+        for field, spec in resolve_map.items():
+            val = row.get(field)
+            if val and field in resolve_caches:
+                row[field] = resolve_caches[field].get(val, val)
+
+    return data
+
+
+def _generate_excel(config, data, division):
+    """Generate a professional Excel file for a master."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = config["title"]
+
+    # Company header
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(config["headers"]))
+    ws["A1"] = "Stedman Pharmaceuticals Pvt Ltd"
+    ws["A1"].font = Font(bold=True, size=14, color="1e293b")
+    ws["A1"].alignment = Alignment(horizontal="center")
+
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(config["headers"]))
+    ws["A2"] = config["title"]
+    ws["A2"].font = Font(bold=True, size=12, color="4f46e5")
+    ws["A2"].alignment = Alignment(horizontal="center")
+
+    ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=len(config["headers"]))
+    ws["A3"] = f"Division: {division or 'All'}  |  Exported: {frappe.utils.now_datetime().strftime('%d %b %Y, %I:%M %p')}"
+    ws["A3"].font = Font(size=10, color="64748b")
+    ws["A3"].alignment = Alignment(horizontal="center")
+
+    # Column headers at row 5
+    header_fill = PatternFill(start_color="1e293b", end_color="1e293b", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=10)
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin", color="d1d5db"),
+        right=Side(style="thin", color="d1d5db"),
+        top=Side(style="thin", color="d1d5db"),
+        bottom=Side(style="thin", color="d1d5db"),
+    )
+
+    for col_idx, header in enumerate(config["headers"], 1):
+        cell = ws.cell(row=5, column=col_idx)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+
+    # Data rows starting at row 6
+    alt_fill = PatternFill(start_color="f8fafc", end_color="f8fafc", fill_type="solid")
+    data_align = Alignment(vertical="center", wrap_text=True)
+
+    for row_idx, row in enumerate(data):
+        excel_row = row_idx + 6
+        for col_idx, col_key in enumerate(config["columns"], 1):
+            cell = ws.cell(row=excel_row, column=col_idx)
+            cell.value = row.get(col_key, "")
+            cell.alignment = data_align
+            cell.border = thin_border
+            if row_idx % 2 == 1:
+                cell.fill = alt_fill
+
+    # Auto-fit column widths
+    for col_idx, col_key in enumerate(config["columns"], 1):
+        max_len = len(config["headers"][col_idx - 1])
+        for row in data[:100]:  # Sample first 100 rows
+            val = str(row.get(col_key, "") or "")
+            if len(val) > max_len:
+                max_len = len(val)
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 4, 40)
+
+    # Footer
+    footer_row = len(data) + 7
+    ws.merge_cells(start_row=footer_row, start_column=1, end_row=footer_row, end_column=len(config["headers"]))
+    ws.cell(row=footer_row, column=1).value = f"Total Records: {len(data)}"
+    ws.cell(row=footer_row, column=1).font = Font(bold=True, size=10, color="64748b")
+
+    return wb
+
+
+def _generate_csv_content(config, data):
+    """Generate CSV content for a master."""
+    import csv
+    import io
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(config["headers"])
+
+    for row in data:
+        writer.writerow([row.get(col, "") for col in config["columns"]])
+
+    return output.getvalue()
+
+
+def _generate_pdf_html(config, data, division):
+    """Generate professional HTML for PDF conversion via wkhtmltopdf."""
+    export_date = frappe.utils.now_datetime().strftime("%d %b %Y, %I:%M %p")
+    num_cols = len(config["headers"])
+
+    # Build table rows
+    rows_html = ""
+    for idx, row in enumerate(data):
+        bg = "#f8fafc" if idx % 2 == 1 else "#ffffff"
+        rows_html += f'<tr style="background:{bg};">'
+        for col in config["columns"]:
+            val = row.get(col, "") or ""
+            rows_html += f'<td style="padding:6px 8px;border:1px solid #e2e8f0;font-size:9px;">{val}</td>'
+        rows_html += "</tr>"
+
+    # Build header cells
+    header_cells = ""
+    for h in config["headers"]:
+        header_cells += f'<th style="padding:8px;border:1px solid #334155;background:#1e293b;color:#fff;font-size:9px;text-align:center;">{h}</th>'
+
+    html = f"""
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            @page {{
+                size: {"landscape" if num_cols > 6 else "portrait"};
+                margin: 15mm;
+            }}
+            body {{
+                font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+                color: #1e293b;
+                margin: 0;
+            }}
+            .header {{
+                text-align: center;
+                margin-bottom: 20px;
+                border-bottom: 2px solid #4f46e5;
+                padding-bottom: 12px;
+            }}
+            .header h1 {{
+                font-size: 18px;
+                margin: 0;
+                color: #1e293b;
+            }}
+            .header h2 {{
+                font-size: 14px;
+                margin: 4px 0;
+                color: #4f46e5;
+                font-weight: 600;
+            }}
+            .header p {{
+                font-size: 10px;
+                color: #64748b;
+                margin: 4px 0 0 0;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 10px;
+            }}
+            .footer {{
+                text-align: center;
+                margin-top: 15px;
+                font-size: 9px;
+                color: #94a3b8;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Stedman Pharmaceuticals Pvt Ltd</h1>
+            <h2>{config["title"]}</h2>
+            <p>Division: {division or "All"}  &bull;  Exported: {export_date}  &bull;  Total Records: {len(data)}</p>
+        </div>
+        <table>
+            <thead><tr>{header_cells}</tr></thead>
+            <tbody>{rows_html}</tbody>
+        </table>
+        <div class="footer">
+            &copy; {frappe.utils.now_datetime().year} Stedman Pharmaceuticals Pvt Ltd &bull; Generated by Scanify
+        </div>
+    </body>
+    </html>
+    """
+    return html
+
+
+@frappe.whitelist()
+def export_master_data(master_type, format_type="xlsx", division=None):
+    """Export a single master to Excel, CSV, or PDF."""
+    try:
+        if master_type not in _EXPORT_MASTER_CONFIGS:
+            return {"success": False, "message": f"Unknown master type: {master_type}"}
+
+        config = _EXPORT_MASTER_CONFIGS[master_type]
+        data = _fetch_export_data(config, division)
+
+        timestamp = frappe.utils.now_datetime().strftime("%Y%m%d_%H%M%S")
+        safe_title = config["title"].replace(" ", "_")
+
+        files_dir = frappe.get_site_path("public", "files")
+        os.makedirs(files_dir, exist_ok=True)
+
+        if format_type == "xlsx":
+            wb = _generate_excel(config, data, division)
+            filename = f"{safe_title}_{timestamp}.xlsx"
+            wb.save(os.path.join(files_dir, filename))
+
+        elif format_type == "csv":
+            csv_content = _generate_csv_content(config, data)
+            filename = f"{safe_title}_{timestamp}.csv"
+            with open(os.path.join(files_dir, filename), "w", encoding="utf-8-sig") as f:
+                f.write(csv_content)
+
+        elif format_type == "pdf":
+            html = _generate_pdf_html(config, data, division)
+            from frappe.utils.pdf import get_pdf
+            pdf_content = get_pdf(html)
+            filename = f"{safe_title}_{timestamp}.pdf"
+            with open(os.path.join(files_dir, filename), "wb") as f:
+                f.write(pdf_content)
+
+        else:
+            return {"success": False, "message": f"Unsupported format: {format_type}"}
+
+        return {
+            "success": True,
+            "message": f"{config['title']} exported successfully",
+            "file_url": f"/files/{filename}",
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Export Master Data Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def export_all_masters_zip(format_type="xlsx", division=None):
+    """Export all masters into individual files and bundle them in a ZIP."""
+    try:
+        import zipfile
+        import tempfile
+
+        timestamp = frappe.utils.now_datetime().strftime("%Y%m%d_%H%M%S")
+        zip_filename = f"All_Masters_{timestamp}.zip"
+        files_dir = frappe.get_site_path("public", "files")
+        os.makedirs(files_dir, exist_ok=True)
+        zip_filepath = os.path.join(files_dir, zip_filename)
+
+        with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zf:
+            for master_key, config in _EXPORT_MASTER_CONFIGS.items():
+                data = _fetch_export_data(config, division)
+                safe_title = config["title"].replace(" ", "_")
+
+                if format_type == "xlsx":
+                    wb = _generate_excel(config, data, division)
+                    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+                        wb.save(tmp.name)
+                        zf.write(tmp.name, f"{safe_title}.xlsx")
+                        os.unlink(tmp.name)
+
+                elif format_type == "csv":
+                    csv_content = _generate_csv_content(config, data)
+                    zf.writestr(f"{safe_title}.csv", csv_content)
+
+                elif format_type == "pdf":
+                    html = _generate_pdf_html(config, data, division)
+                    from frappe.utils.pdf import get_pdf
+                    pdf_content = get_pdf(html)
+                    zf.writestr(f"{safe_title}.pdf", pdf_content)
+
+        return {
+            "success": True,
+            "message": "All masters exported successfully",
+            "file_url": f"/files/{zip_filename}",
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Export All Masters ZIP Error")
+        return {"success": False, "message": str(e)}
+
+
+# ===================== DELETE STATEMENT APIs =====================
+
+@frappe.whitelist()
+def search_stockist_statements(search_term="", division=None):
+    """Search stockist statements by stockist name, code or statement name"""
+    if not division:
+        division = get_user_division()
+
+    term = f"%{search_term}%"
+    division_clause = ""
+    params = {"term": term}
+
+    if division and division != "Both":
+        division_clause = "AND ss.division IN (%(division)s, 'Both')"
+        params["division"] = division
+
+    results = frappe.db.sql("""
+        SELECT ss.name, ss.stockist_code, ss.stockist_name, ss.statement_month,
+               ss.hq, ss.region, ss.docstatus, ss.division
+        FROM `tabStockist Statement` ss
+        WHERE (ss.stockist_name LIKE %(term)s
+               OR ss.stockist_code LIKE %(term)s
+               OR ss.name LIKE %(term)s)
+        {division_clause}
+        ORDER BY ss.modified DESC
+        LIMIT 20
+    """.format(division_clause=division_clause), params, as_dict=True)
+
+    return results
+
+
+@frappe.whitelist()
+def get_statement_summary(doc_name):
+    """Get full metadata summary for a stockist statement"""
+    try:
+        doc = frappe.get_doc("Stockist Statement", doc_name)
+        return {
+            "success": True,
+            "name": doc.name,
+            "stockist_code": doc.stockist_code,
+            "stockist_name": doc.stockist_name,
+            "statement_month": str(doc.statement_month) if doc.statement_month else None,
+            "hq": doc.hq,
+            "team": doc.team,
+            "region": doc.region,
+            "zone": doc.zone,
+            "division": doc.division,
+            "docstatus": doc.docstatus,
+            "creation": str(doc.creation) if doc.creation else None,
+            "uploaded_file": doc.uploaded_file,
+            "total_items": len(doc.items) if doc.items else 0,
+            "total_opening_value": flt(doc.total_opening_value),
+            "total_purchase_value": flt(doc.total_purchase_value),
+            "total_sales_value": flt(doc.total_sales_value_pts),
+            "total_closing_value": flt(doc.total_closing_value),
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Statement Summary Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def delete_stockist_statement(doc_name, reason):
+    """Delete a stockist statement with a mandatory reason logged to audit trail"""
+    try:
+        reason = (reason or "").strip()
+        if not reason or len(reason) < 5:
+            return {"success": False, "message": "A reason of at least 5 characters is required."}
+
+        if not frappe.db.exists("Stockist Statement", doc_name):
+            return {"success": False, "message": f"Statement {doc_name} does not exist."}
+
+        doc = frappe.get_doc("Stockist Statement", doc_name)
+
+        # Store summary before deletion for audit trail
+        summary = (
+            f"Stockist: {doc.stockist_name} ({doc.stockist_code}), "
+            f"Month: {doc.statement_month}, HQ: {doc.hq}, "
+            f"Items: {len(doc.items) if doc.items else 0}"
+        )
+
+        # Add Comment for audit trail (persists after doc deletion)
+        frappe.get_doc({
+            "doctype": "Comment",
+            "comment_type": "Info",
+            "reference_doctype": "Stockist Statement",
+            "reference_name": doc_name,
+            "content": f"<b>Statement Deleted</b><br>Reason: {frappe.utils.escape_html(reason)}<br>{summary}",
+            "comment_email": frappe.session.user,
+        }).insert(ignore_permissions=True)
+
+        # Cancel first if submitted
+        if doc.docstatus == 1:
+            doc.flags.ignore_permissions = True
+            doc.cancel()
+
+        # Delete the document
+        frappe.delete_doc("Stockist Statement", doc_name, ignore_permissions=True, force=True)
+        frappe.db.commit()
+
+        return {"success": True, "message": f"Statement {doc_name} deleted. Reason logged to audit trail."}
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Delete Stockist Statement Error")
+        return {"success": False, "message": str(e)}
+
+
+# ===================== SCHEME REQUEST: STOCKISTS BY REGION =====================
+
+@frappe.whitelist()
+def get_stockists_by_region(region, division=None):
+    """Get all active stockists in a region (across all HQs in that region)"""
+    if not division:
+        division = get_user_division()
+
+    filters = {"region": region, "status": "Active"}
+    if division and division != "Both":
+        filters["division"] = ["in", [division, "Both"]]
+
+    stockists = frappe.get_all(
+        "Stockist Master",
+        filters=filters,
+        fields=["name", "stockist_code", "stockist_name", "hq"],
+        order_by="stockist_name asc"
+    )
+
+    # Fetch HQ names for display
+    hq_names = {}
+    for s in stockists:
+        if s.hq and s.hq not in hq_names:
+            hq_names[s.hq] = frappe.db.get_value("HQ Master", s.hq, "hq_name") or s.hq
+        s["hq_name"] = hq_names.get(s.hq, s.hq or "")
+
+    return stockists
+
+
+# ===================== DUPLICATE STATEMENT CHECK =====================
+
+@frappe.whitelist()
+def check_statement_exists(stockist_code, statement_month):
+    """Check if a stockist statement already exists for the given stockist + month"""
+    if not stockist_code or not statement_month:
+        return {"exists": False}
+
+    # Normalise month to first-of-month
+    if len(statement_month) == 7:
+        statement_month = statement_month + "-01"
+
+    existing = frappe.db.exists("Stockist Statement", {
+        "stockist_code": stockist_code,
+        "statement_month": statement_month
+    })
+
+    if existing:
+        return {
+            "exists": True,
+            "statement_name": existing,
+            "message": f"A statement already exists for this stockist in this month: {existing}"
+        }
+
+    return {"exists": False}

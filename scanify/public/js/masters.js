@@ -2,6 +2,8 @@ let currentMasterType = 'hq';
 let currentDivision = '';
 let allRecords = [];
 let filteredRecords = [];
+let currentPage = 1;
+const PAGE_SIZE = 25;
 
 // Single master mode: when this page only shows one master type (e.g. Division Master page)
 let singleMasterMode = (typeof window.MASTERS_SINGLE_MODE !== 'undefined') ? window.MASTERS_SINGLE_MODE : null;
@@ -12,6 +14,7 @@ const masterConfigs = {
         title: 'HQ Master',
         doctype: 'HQ Master',
         fields: [
+            { name: 'hq_code', label: 'HQ Code', type: 'text', system_generated: true, readonly_on_edit: true },
             { name: 'hq_name', label: 'HQ Name', type: 'text', required: true },
             // team_select: dropdown filtered by division; selecting team auto-fills region & zone
             { name: 'team', label: 'Team', type: 'team_select', required: true },
@@ -23,8 +26,8 @@ const masterConfigs = {
             { name: 'region_label', label: 'Region', type: 'display_only' },
             { name: 'zone_label', label: 'Zone', type: 'display_only' }
         ],
-        columns: ['hq_name', 'team_label', 'region_label', 'zone_label', 'per_capita', 'status'],
-        searchFields: ['hq_name', 'team_label', 'region_label', 'zone_label'],
+        columns: ['hq_code', 'hq_name', 'team_label', 'region_label', 'zone_label', 'per_capita', 'status'],
+        searchFields: ['hq_code', 'hq_name', 'team_label', 'region_label', 'zone_label'],
         excelColumns: ['HQ Name', 'Team', 'Region', 'Zone', 'Per Capita', 'Status'],
         excelSample: ['Chennai Central', 'Team A', 'South', 'Zone A', 2, 'Active']
     },
@@ -114,14 +117,15 @@ const masterConfigs = {
             { name: 'hq', label: 'HQ', type: 'hq_select' },
             { name: 'team', label: 'Team', type: 'text', readonly_always: true, help: 'Auto-filled from HQ' },
             { name: 'region', label: 'Region', type: 'text', readonly_always: true, help: 'Auto-filled from HQ' },
-            { name: 'state_name', label: 'State', type: 'text' },
+            { name: 'state', label: 'State', type: 'state_select' },
             { name: 'zone', label: 'Zone', type: 'text', readonly_always: true, help: 'Auto-filled from HQ' },
             { name: 'chemist_name', label: 'Chemist Name', type: 'text' },
             { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true },
-            { name: 'hq_label', label: 'HQ', type: 'display_only' }
+            { name: 'hq_label', label: 'HQ', type: 'display_only' },
+            { name: 'state_label', label: 'State', type: 'display_only' }
         ],
-        columns: ['doctor_code', 'doctor_name', 'place', 'specialization', 'hq_label', 'phone', 'status'],
-        searchFields: ['doctor_code', 'doctor_name', 'place', 'phone', 'chemist_name'],
+        columns: ['doctor_code', 'doctor_name', 'place', 'specialization', 'hq_label', 'state_label', 'phone', 'status'],
+        searchFields: ['doctor_code', 'doctor_name', 'place', 'phone', 'chemist_name', 'state_label'],
         excelColumns: [
             'Doctor Name', 'Qualification', 'Doctor Category',
             'Specialization', 'Phone', 'Place', 'Hospital Address', 'House Address',
@@ -431,7 +435,7 @@ function buildFilterControls(config) {
     $('#filter-controls').empty().hide();
 }
 
-// Render table
+// Render table with pagination
 function renderTable() {
     const config = masterConfigs[currentMasterType];
 
@@ -445,11 +449,19 @@ function renderTable() {
                 </tr>
             `);
         $('#record-count').text('0');
+        renderPagination(0);
         return;
     }
 
+    const totalRecords = filteredRecords.length;
+    const totalPages = Math.ceil(totalRecords / PAGE_SIZE);
+    if (currentPage > totalPages) currentPage = totalPages;
+    if (currentPage < 1) currentPage = 1;
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const pageRecords = filteredRecords.slice(start, start + PAGE_SIZE);
+
     let html = '';
-    filteredRecords.forEach(record => {
+    pageRecords.forEach(record => {
         html += '<tr>';
         config.columns.forEach(col => {
             html += `<td>${record[col] || '-'}</td>`;
@@ -468,7 +480,43 @@ function renderTable() {
     });
 
     $('#table-body').html(html);
-    $('#record-count').text(filteredRecords.length);
+    $('#record-count').text(totalRecords);
+    renderPagination(totalRecords);
+}
+
+function renderPagination(totalRecords) {
+    let container = document.getElementById('masters-pagination');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'masters-pagination';
+        container.className = 'card-footer d-flex justify-content-between align-items-center';
+        const cardBody = document.querySelector('#data-table');
+        if (cardBody && cardBody.parentNode) cardBody.parentNode.appendChild(container);
+    }
+    if (totalRecords === 0) { container.innerHTML = ''; return; }
+    const totalPages = Math.ceil(totalRecords / PAGE_SIZE);
+    const start = (currentPage - 1) * PAGE_SIZE + 1;
+    const end = Math.min(currentPage * PAGE_SIZE, totalRecords);
+    let html = `<small class="text-muted">Showing ${start}-${end} of ${totalRecords}</small>`;
+    html += '<nav><ul class="pagination pagination-sm mb-0">';
+    html += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="goToMastersPage(${currentPage - 1});return false;">&laquo;</a></li>`;
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, startPage + 4);
+    if (endPage - startPage < 4) startPage = Math.max(1, endPage - 4);
+    for (let i = startPage; i <= endPage; i++) {
+        html += `<li class="page-item ${i === currentPage ? 'active' : ''}"><a class="page-link" href="#" onclick="goToMastersPage(${i});return false;">${i}</a></li>`;
+    }
+    html += `<li class="page-item ${currentPage === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="goToMastersPage(${currentPage + 1});return false;">&raquo;</a></li>`;
+    html += '</ul></nav>';
+    container.innerHTML = html;
+}
+
+function goToMastersPage(page) {
+    const totalPages = Math.ceil(filteredRecords.length / PAGE_SIZE);
+    if (page < 1 || page > totalPages) return;
+    currentPage = page;
+    renderTable();
+    document.getElementById('data-table').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function filterRecords() {
@@ -489,6 +537,7 @@ function filterRecords() {
         return true;
     });
 
+    currentPage = 1;
     renderTable();
 }
 

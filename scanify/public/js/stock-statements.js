@@ -33,6 +33,11 @@ function initialize_page() {
   init_stockist_search();
   init_file_upload();
 
+  // Check for duplicate when month changes
+  $('#statement-month').on('change', function () {
+    check_duplicate_statement();
+  });
+
   $('#statement-form').on('submit', async function (e) {
     e.preventDefault();
     await handle_extraction();
@@ -131,6 +136,7 @@ function render_stockist_results(stockists) {
       $('#stockist-code').val(st.stockist_code);
       $('.link-dropdown').remove();
       await populate_stockist_details(st.stockist_code);
+      check_duplicate_statement();
     });
 
     $menu.append($item);
@@ -167,6 +173,38 @@ async function populate_stockist_details(stockist_code) {
     $('#stockist-info').text('');
     show_alert('Unable to fetch stockist details', 'warning');
   }
+}
+
+/* ---------------- Duplicate statement check ---------------- */
+function check_duplicate_statement() {
+  const stockist_code = $('#stockist-code').val();
+  const month = $('#statement-month').val();
+
+  // Clear previous warning
+  $('#duplicate-warning').remove();
+  $('#extract-btn').prop('disabled', false);
+
+  if (!stockist_code || !month) return;
+
+  $.ajax({
+    url: '/api/method/scanify.api.check_statement_exists',
+    type: 'POST',
+    contentType: 'application/json',
+    headers: { 'X-Frappe-CSRF-Token': get_csrf_token() },
+    data: JSON.stringify({ stockist_code: stockist_code, statement_month: month }),
+    success: function (r) {
+      if (r.message && r.message.exists) {
+        const warn = `<div id="duplicate-warning" class="alert alert-danger mt-3" role="alert">
+          <i class="fa fa-exclamation-triangle"></i>
+          <strong>Duplicate Statement!</strong> A statement already exists for this stockist in the selected month:
+          <strong>${r.message.statement_name}</strong>.
+          Please choose a different stockist or month.
+        </div>`;
+        $('#stockist-meta-row').after(warn);
+        $('#extract-btn').prop('disabled', true);
+      }
+    }
+  });
 }
 
 /* ---------------- File upload UI ---------------- */
@@ -217,6 +255,20 @@ async function handle_extraction() {
   if (!stockist_code) return show_alert('Please select a stockist', 'warning');
   if (!month) return show_alert('Please select a statement month', 'warning');
   if (!file) return show_alert('Please upload a statement file', 'warning');
+
+  // Safety guard: check for duplicate before proceeding
+  try {
+    const dupCheck = await call_api('scanify.api.check_statement_exists', {
+      stockist_code: stockist_code,
+      statement_month: month
+    });
+    if (dupCheck && dupCheck.exists) {
+      show_alert(`A statement already exists for this stockist in this month: ${dupCheck.statement_name}. Cannot upload duplicate.`, 'danger');
+      return;
+    }
+  } catch (e) {
+    console.error('Duplicate check failed:', e);
+  }
 
   $('#entry-card').fadeOut(300);
   setTimeout(() => { $('#extraction-loader').fadeIn(300); }, 300);

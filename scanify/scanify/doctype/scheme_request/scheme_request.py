@@ -1,6 +1,7 @@
 # scanify/scanify/doctype/scheme_request/scheme_request.py
 
 import frappe
+import re
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate, getdate, get_first_day, get_last_day
 from datetime import datetime
@@ -33,12 +34,37 @@ class SchemeRequest(Document):
             return
         
         for item in self.items:
-            rate = flt(item.special_rate or 0) if item.special_rate else flt(item.product_rate or 0)
+            pts = flt(item.product_rate or 0)
             quantity = flt(item.quantity or 0)
-            item.product_value = quantity * rate
+            free_qty = flt(item.free_quantity or 0)
+            special_rate = flt(item.special_rate or 0)
+
+            if special_rate > 0:
+                item.product_value = quantity * special_rate
+            elif free_qty > 0:
+                pack = item.pack or ''
+                if not pack and item.product_code:
+                    pack = frappe.db.get_value("Product Master", item.product_code, "pack") or ''
+                conversion_factor = self._get_conversion_factor(pack)
+                item.product_value = (free_qty / conversion_factor) * pts
+            else:
+                item.product_value = quantity * pts
+
             total += item.product_value
         
         self.total_scheme_value = total
+
+    @staticmethod
+    def _get_conversion_factor(pack_str):
+        if not pack_str:
+            return 1
+        pack_str = str(pack_str).strip().upper()
+        match = re.match(r'(\d+)\s*[xX]\s*(\d+)', pack_str)
+        if match:
+            return flt(match.group(1)) or 1
+        if any(ind in pack_str for ind in ['UNIT', 'BOX', 'ML', 'GM', 'MG', "'S"]):
+            return 1
+        return 1
     
     # REMOVED: validate_attachments method - attachments are now optional
     
@@ -139,9 +165,21 @@ class SchemeRequest(Document):
             
             item.scheme_percentage = scheme_pct
             
-            # Recalculate product value
-            rate = item.special_rate if item.special_rate else item.product_rate
-            item.product_value = flt(item.quantity) * flt(rate)
+            # Recalculate product value with conversion factor for free qty
+            pts = flt(item.product_rate or 0)
+            special_rate = flt(item.special_rate or 0)
+            free_qty = flt(item.free_quantity or 0)
+
+            if special_rate > 0:
+                item.product_value = flt(item.quantity) * special_rate
+            elif free_qty > 0:
+                pack = item.pack or ''
+                if not pack and item.product_code:
+                    pack = frappe.db.get_value("Product Master", item.product_code, "pack") or ''
+                conversion_factor = self._get_conversion_factor(pack)
+                item.product_value = (free_qty / conversion_factor) * pts
+            else:
+                item.product_value = flt(item.quantity) * pts
 
 
 @frappe.whitelist()

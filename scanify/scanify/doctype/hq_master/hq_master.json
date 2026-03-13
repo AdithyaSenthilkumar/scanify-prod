@@ -1,11 +1,12 @@
 {
   "actions": [],
   "allow_rename": 1,
-  "autoname": "field:hq_name",
+  "autoname": "format:HQ{####}",
   "creation": "2025-11-28 22:00:00",
   "doctype": "DocType",
   "engine": "InnoDB",
   "field_order": [
+    "hq_code",
     "hq_name",
     "division",
     "region",
@@ -16,12 +17,19 @@
   ],
   "fields": [
     {
+      "fieldname": "hq_code",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "HQ Code",
+      "read_only": 1,
+      "unique": 1
+    },
+    {
       "fieldname": "hq_name",
       "fieldtype": "Data",
       "in_list_view": 1,
       "label": "HQ Name",
-      "reqd": 1,
-      "unique": 1
+      "reqd": 1
     },
     {
       "fieldname": "team",
@@ -73,7 +81,7 @@
   "modified_by": "Administrator",
   "module": "Scanify",
   "name": "HQ Master",
-  "naming_rule": "By fieldname",
+  "naming_rule": "Expression (old style)",
   "owner": "Administrator",
   "permissions": [
     {
