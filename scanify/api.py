@@ -5697,3 +5697,1069 @@ def check_statement_exists(stockist_code, statement_month):
         }
 
     return {"exists": False}
+
+
+# ─────────────────────────────────────────────────────
+# Primary Sales Upload, List & Export
+# ─────────────────────────────────────────────────────
+
+# Column mapping from Excel headers → doctype fields
+_PRIMARY_SALES_COL_MAP = {
+    "stockistcode": "stockist_code",
+    "product_head": "product_head",
+    "stockistname": "stockist_name",
+    "citypool": "citypool",
+    "team": "team",
+    "region": "region",
+    "act_region": "act_region",
+    "zonee": "zonee",
+    "invoiceno": "invoiceno",
+    "invoicedate": "invoicedate",
+    "pcode": "pcode",
+    "product": "product",
+    "pack": "pack",
+    "batchno": "batchno",
+    "quantity": "quantity",
+    "freeqty": "freeqty",
+    "expqty": "expqty",
+    "pts": "pts",
+    "ptsvalue": "ptsvalue",
+    "ptr": "ptr",
+    "ptrvalue": "ptrvalue",
+    "mrp": "mrp",
+    "mrpvalue": "mrpvalue",
+    "nrv": "nrv",
+    "nrvvalue": "nrvvalue",
+    "dsort": "dsort",
+    "direct_party": "direct_party",
+    "iscancelled": "iscancelled",
+}
+
+_NUMERIC_FIELDS = {
+    "quantity", "freeqty", "expqty",
+    "pts", "ptsvalue", "ptr", "ptrvalue",
+    "mrp", "mrpvalue", "nrv", "nrvvalue", "dsort",
+}
+
+_BOOL_FIELDS = {"direct_party", "iscancelled"}
+
+
+def _parse_bool(val):
+    """Convert various truthy representations to 1/0."""
+    if val is None:
+        return 0
+    if isinstance(val, bool):
+        return 1 if val else 0
+    if isinstance(val, (int, float)):
+        return 1 if val else 0
+    s = str(val).strip().lower()
+    return 1 if s in ("true", "1", "yes", "y") else 0
+
+
+def _parse_num(val):
+    """Safely parse a numeric value."""
+    if val is None:
+        return 0
+    try:
+        return flt(val)
+    except Exception:
+        return 0
+
+
+@frappe.whitelist()
+def process_primary_sales_upload(upload_month, file_url):
+    """
+    Process an uploaded Excel file of primary sales data.
+    Validates columns, maps to masters, and creates Primary Sales Data records.
+    """
+    import openpyxl
+    from datetime import datetime
+
+    user_division = get_user_division() or "Prima"
+
+    # Validate month format (YYYY-MM)
+    if not upload_month or not re.match(r"^\d{4}-\d{2}$", str(upload_month)):
+        return {"success": False, "error": "Invalid month format. Use YYYY-MM."}
+
+    # Get the file path
+    file_path = frappe.get_site_path(file_url.lstrip("/"))
+    if not os.path.exists(file_path):
+        # Try with 'private' prefix
+        file_path = frappe.get_site_path("private", "files", os.path.basename(file_url))
+    if not os.path.exists(file_path):
+        return {"success": False, "error": "Uploaded file not found on server."}
+
+    # Create upload record
+    upload_doc = frappe.get_doc({
+        "doctype": "Primary Sales Upload",
+        "upload_month": upload_month,
+        "division": user_division,
+        "uploaded_by": frappe.session.user,
+        "upload_date": frappe.utils.now(),
+        "file": file_url,
+        "status": "Processing",
+    })
+    upload_doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    errors = []
+    success_count = 0
+    total_rows = 0
+
+    try:
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        ws = wb.active
+
+        # Read headers from row 1
+        raw_headers = [cell.value for cell in ws[1]]
+        headers = []
+        for h in raw_headers:
+            if h is None:
+                headers.append(None)
+            else:
+                headers.append(str(h).strip().lower())
+
+        # Validate required columns exist
+        required_cols = {"stockistcode", "iscancelled"}
+        found_cols = set(h for h in headers if h)
+        missing = required_cols - found_cols
+        if missing:
+            upload_doc.status = "Failed"
+            upload_doc.error_log = f"Missing required columns: {', '.join(missing)}"
+            upload_doc.save(ignore_permissions=True)
+            frappe.db.commit()
+            return {"success": False, "error": f"Missing required columns: {', '.join(missing)}"}
+
+        # Build caches for validation
+        stockist_cache = {}
+        for s in frappe.get_all("Stockist Master",
+                                filters={"division": ["in", [user_division, "Both"]]},
+                                fields=["stockist_code", "name"],
+                                limit_page_length=0):
+            stockist_cache[s.stockist_code] = s.name
+
+        product_cache = {}
+        for p in frappe.get_all("Product Master",
+                                filters={"division": ["in", [user_division, "Both", "ASPR", "Wellness"]]},
+                                fields=["product_code", "name"],
+                                limit_page_length=0):
+            product_cache[p.product_code] = p.name
+
+        # Process rows
+        batch_size = 100
+        batch = []
+
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            # Skip completely empty rows
+            if all(v is None for v in row):
+                continue
+
+            total_rows += 1
+            row_data = {}
+
+            for col_idx, val in enumerate(row):
+                if col_idx >= len(headers) or headers[col_idx] is None:
+                    continue
+                excel_col = headers[col_idx]
+                if excel_col in _PRIMARY_SALES_COL_MAP:
+                    field_name = _PRIMARY_SALES_COL_MAP[excel_col]
+                    if field_name in _BOOL_FIELDS:
+                        row_data[field_name] = _parse_bool(val)
+                    elif field_name in _NUMERIC_FIELDS:
+                        row_data[field_name] = _parse_num(val)
+                    elif field_name == "invoicedate":
+                        if isinstance(val, datetime):
+                            row_data[field_name] = val.strftime("%Y-%m-%d")
+                        elif val:
+                            row_data[field_name] = str(val)
+                        else:
+                            row_data[field_name] = None
+                    else:
+                        row_data[field_name] = str(val).strip() if val else ""
+
+            is_cancelled = row_data.get("iscancelled", 0)
+
+            # Validate stockist_code (always required)
+            stockist_code = row_data.get("stockist_code", "")
+            if not stockist_code:
+                errors.append(f"Row {row_idx}: Missing stockist code")
+                continue
+
+            # For non-cancelled rows, validate product code if present
+            pcode = row_data.get("pcode", "")
+            if not is_cancelled and pcode:
+                # Warn if product not found but still store the data
+                if pcode not in product_cache:
+                    errors.append(f"Row {row_idx}: Product code '{pcode}' not found in Product Master (data saved anyway)")
+
+            # Warn if stockist not found but still store the data
+            if stockist_code not in stockist_cache:
+                errors.append(f"Row {row_idx}: Stockist code '{stockist_code}' not found in Stockist Master (data saved anyway)")
+
+            # Build the record
+            row_data["upload_month"] = upload_month
+            row_data["division"] = user_division
+            row_data["upload_ref"] = upload_doc.name
+            row_data["doctype"] = "Primary Sales Data"
+
+            batch.append(row_data)
+            success_count += 1
+
+            # Insert in batches
+            if len(batch) >= batch_size:
+                for rec in batch:
+                    doc = frappe.get_doc(rec)
+                    doc.insert(ignore_permissions=True)
+                batch = []
+                frappe.db.commit()
+
+        # Insert remaining
+        if batch:
+            for rec in batch:
+                doc = frappe.get_doc(rec)
+                doc.insert(ignore_permissions=True)
+            frappe.db.commit()
+
+        wb.close()
+
+    except Exception as e:
+        frappe.db.rollback()
+        upload_doc.reload()
+        upload_doc.status = "Failed"
+        upload_doc.error_log = str(e)
+        upload_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.log_error(f"Primary Sales Upload Error: {str(e)}", "Primary Sales Upload")
+        return {"success": False, "error": str(e)}
+
+    # Update upload record
+    upload_doc.reload()
+    upload_doc.total_rows = total_rows
+    upload_doc.success_count = success_count
+    upload_doc.error_count = len([e for e in errors if "not found" not in e])
+    upload_doc.status = "Completed"
+    if errors:
+        upload_doc.error_log = "\n".join(errors[:200])
+    upload_doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "success": True,
+        "total_rows": total_rows,
+        "success_count": success_count,
+        "error_count": len(errors),
+        "errors": errors[:20],
+        "upload_name": upload_doc.name,
+    }
+
+
+@frappe.whitelist()
+def get_primary_sales_data(division, page=1, page_size=50,
+                           upload_month=None, zonee=None, region=None,
+                           team=None, product_head=None, iscancelled=None,
+                           stockist_search=None, pcode=None, product_search=None,
+                           invoiceno=None):
+    """Fetch paginated primary sales data with filters."""
+
+    page = int(page)
+    page_size = min(int(page_size), 200)
+    offset = (page - 1) * page_size
+
+    conditions = ["division = %(division)s"]
+    params = {"division": division, "page_size": page_size, "offset": offset}
+
+    if upload_month:
+        conditions.append("upload_month = %(upload_month)s")
+        params["upload_month"] = upload_month
+
+    if zonee:
+        conditions.append("zonee = %(zonee)s")
+        params["zonee"] = zonee
+
+    if region:
+        conditions.append("region = %(region)s")
+        params["region"] = region
+
+    if team:
+        conditions.append("team = %(team)s")
+        params["team"] = team
+
+    if product_head:
+        conditions.append("product_head = %(product_head)s")
+        params["product_head"] = product_head
+
+    if iscancelled is not None and iscancelled != "":
+        conditions.append("iscancelled = %(iscancelled)s")
+        params["iscancelled"] = int(iscancelled)
+
+    if stockist_search:
+        conditions.append("(stockist_code LIKE %(stockist_search)s OR stockist_name LIKE %(stockist_search)s)")
+        params["stockist_search"] = f"%{stockist_search}%"
+
+    if pcode:
+        conditions.append("pcode LIKE %(pcode)s")
+        params["pcode"] = f"%{pcode}%"
+
+    if product_search:
+        conditions.append("product LIKE %(product_search)s")
+        params["product_search"] = f"%{product_search}%"
+
+    if invoiceno:
+        conditions.append("invoiceno LIKE %(invoiceno)s")
+        params["invoiceno"] = f"%{invoiceno}%"
+
+    where_clause = " AND ".join(conditions)
+
+    total = frappe.db.sql(
+        f"SELECT COUNT(*) FROM `tabPrimary Sales Data` WHERE {where_clause}",
+        params
+    )[0][0]
+
+    rows = frappe.db.sql(
+        f"""SELECT
+            name,
+            stockist_code, stockist_name, product_head, pcode, product, pack,
+            invoiceno, invoicedate, batchno,
+            quantity, freeqty, expqty,
+            pts, ptsvalue, ptr, ptrvalue,
+            mrp, mrpvalue, nrv, nrvvalue,
+            team, region, zonee, citypool,
+            direct_party, iscancelled, upload_month, dsort
+        FROM `tabPrimary Sales Data`
+        WHERE {where_clause}
+        ORDER BY stockist_code, invoicedate, pcode
+        LIMIT %(page_size)s OFFSET %(offset)s""",
+        params, as_dict=True
+    )
+
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@frappe.whitelist()
+def get_primary_sales_count(month, division):
+    """Get count of primary sales records for a given month and division."""
+    count = frappe.db.count("Primary Sales Data", filters={
+        "upload_month": month,
+        "division": division,
+    })
+    return count
+
+
+@frappe.whitelist()
+def export_primary_sales_data(month, division):
+    """Export primary sales data as Excel for the given month and division."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    if not month or not division:
+        frappe.throw("Month and division are required")
+
+    rows = frappe.db.sql("""
+        SELECT
+            stockist_code, product_head, stockist_name, citypool,
+            team, region, act_region, zonee,
+            invoiceno, invoicedate, pcode, product, pack, batchno,
+            quantity, freeqty, expqty,
+            pts, ptsvalue, ptr, ptrvalue,
+            mrp, mrpvalue, nrv, nrvvalue,
+            dsort, direct_party, iscancelled
+        FROM `tabPrimary Sales Data`
+        WHERE upload_month = %(month)s AND division = %(division)s
+        ORDER BY stockist_code, invoicedate, pcode
+    """, {"month": month, "division": division}, as_dict=True)
+
+    if not rows:
+        frappe.throw(f"No data found for {month} in {division} division")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"Primary Sales {month}"
+
+    # Excel column headers (matching original upload format)
+    excel_headers = [
+        "stockistcode", "product_head", "stockistname", "citypool",
+        "team", "region", "act_region", "zonee",
+        "invoiceno", "invoicedate", "pcode", "product", "pack", "batchno",
+        "quantity", "freeqty", "expqty",
+        "pts", "ptsvalue", "ptr", "ptrvalue",
+        "mrp", "mrpvalue", "nrv", "nrvvalue",
+        "dsort", "direct_party", "iscancelled",
+    ]
+
+    # Field mapping for data rows
+    field_keys = [
+        "stockist_code", "product_head", "stockist_name", "citypool",
+        "team", "region", "act_region", "zonee",
+        "invoiceno", "invoicedate", "pcode", "product", "pack", "batchno",
+        "quantity", "freeqty", "expqty",
+        "pts", "ptsvalue", "ptr", "ptrvalue",
+        "mrp", "mrpvalue", "nrv", "nrvvalue",
+        "dsort", "direct_party", "iscancelled",
+    ]
+
+    # Header styling
+    header_font = Font(bold=True, size=11, color="FFFFFF")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
+
+    # Write headers
+    for col_idx, header in enumerate(excel_headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    # Write data
+    for row_idx, row in enumerate(rows, 2):
+        for col_idx, key in enumerate(field_keys, 1):
+            val = row.get(key, "")
+            if key in ("direct_party", "iscancelled"):
+                val = True if val else False
+            elif key == "invoicedate" and val:
+                val = str(val)
+            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            cell.border = thin_border
+
+    # Auto-width columns
+    for col in ws.columns:
+        max_length = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            if cell.value:
+                max_length = max(max_length, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = min(max_length + 3, 30)
+
+    # Freeze header row
+    ws.freeze_panes = "A2"
+
+    # Save to temp file and serve
+    fname = f"Primary_Sales_{division}_{month}.xlsx"
+    file_path = os.path.join(tempfile.gettempdir(), fname)
+    wb.save(file_path)
+
+    with open(file_path, "rb") as f:
+        file_content = f.read()
+
+    # Clean up
+    try:
+        os.remove(file_path)
+    except OSError:
+        pass
+
+    frappe.local.response.filename = fname
+    frappe.local.response.filecontent = file_content
+    frappe.local.response.type = "download"
+
+
+@frappe.whitelist()
+def save_primary_sales_record(name=None, data=None):
+    """Create or update a Primary Sales Data record."""
+    try:
+        data = frappe.parse_json(data) if isinstance(data, str) else data
+        if not data:
+            return {"success": False, "message": "No data provided"}
+
+        current_division = get_user_division() or "Prima"
+        data["division"] = current_division
+
+        # Numeric fields
+        num_fields = [
+            "quantity", "freeqty", "expqty", "pts", "ptsvalue",
+            "ptr", "ptrvalue", "mrp", "mrpvalue", "nrv", "nrvvalue", "dsort"
+        ]
+        for nf in num_fields:
+            val = data.get(nf)
+            if val is not None and val != "":
+                try:
+                    data[nf] = float(val)
+                except (ValueError, TypeError):
+                    data[nf] = 0
+            else:
+                data[nf] = 0
+
+        # Boolean fields
+        for bf in ["iscancelled", "direct_party"]:
+            val = data.get(bf)
+            data[bf] = 1 if val in (1, "1", True, "true", "True") else 0
+
+        if name:
+            doc = frappe.get_doc("Primary Sales Data", name)
+            doc.update(data)
+        else:
+            doc = frappe.new_doc("Primary Sales Data")
+            doc.update(data)
+
+        doc.save(ignore_permissions=False)
+        frappe.db.commit()
+
+        return {"success": True, "message": "Record saved successfully", "name": doc.name}
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Save Primary Sales Record Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def delete_primary_sales_record(name):
+    """Delete a Primary Sales Data record."""
+    try:
+        frappe.delete_doc("Primary Sales Data", name, ignore_permissions=False)
+        frappe.db.commit()
+        return {"success": True, "message": "Record deleted successfully"}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Delete Primary Sales Record Error")
+        return {"success": False, "message": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# STOCKIST REPORTS
+# ──────────────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def get_stockist_report_filter_options(division=None):
+    """Return dropdown options for the Stockist Reports page (active masters only)."""
+    if not division:
+        division = get_user_division()
+
+    regions = frappe.db.sql(
+        "SELECT DISTINCT name FROM `tabRegion Master` ORDER BY name", as_list=1
+    )
+    teams = frappe.db.sql(
+        "SELECT DISTINCT name FROM `tabTeam Master` ORDER BY name", as_list=1
+    )
+    hqs = frappe.db.sql(
+        "SELECT DISTINCT name FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
+        (division,), as_list=1,
+    )
+    stockists = frappe.db.sql(
+        "SELECT name, stockist_name FROM `tabStockist Master` WHERE division=%s AND status='Active' ORDER BY stockist_name",
+        (division,), as_dict=True,
+    )
+    months = frappe.db.sql(
+        "SELECT DISTINCT upload_month FROM `tabPrimary Sales Data` WHERE division=%s ORDER BY upload_month DESC",
+        (division,), as_list=1,
+    )
+    statement_months = frappe.db.sql(
+        "SELECT DISTINCT DATE_FORMAT(statement_month, '%%Y-%%m-%%d') as m FROM `tabStockist Statement` WHERE division=%s AND docstatus=1 ORDER BY statement_month DESC",
+        (division,), as_list=1,
+    )
+
+    return {
+        "regions": [r[0] for r in regions],
+        "teams": [t[0] for t in teams],
+        "hqs": [h[0] for h in hqs],
+        "stockists": [{"code": s.name, "name": s.stockist_name} for s in stockists],
+        "months": [m[0] for m in months],
+        "statement_months": [m[0] for m in statement_months],
+    }
+
+
+@frappe.whitelist()
+def get_stockist_primary_sales_report(division=None, sales_type="primary", region=None,
+                                       from_date=None, to_date=None):
+    """Report 1 – Stockist Wise Primary Sales Report.
+    sales_type: 'primary' (iscancelled=0) or 'creditnote' (iscancelled=1).
+    """
+    if not division:
+        division = get_user_division()
+    is_cancelled = 1 if sales_type == "creditnote" else 0
+
+    conditions = ["division = %(division)s", "iscancelled = %(is_cancelled)s"]
+    params = {"division": division, "is_cancelled": is_cancelled}
+
+    if region:
+        conditions.append("region = %(region)s")
+        params["region"] = region
+    if from_date:
+        conditions.append("invoicedate >= %(from_date)s")
+        params["from_date"] = from_date
+    if to_date:
+        conditions.append("invoicedate <= %(to_date)s")
+        params["to_date"] = to_date
+
+    where = " AND ".join(conditions)
+
+    rows = frappe.db.sql(f"""
+        SELECT stockist_code, stockist_name, pcode AS product_code,
+               product AS product_name, pack,
+               SUM(quantity) AS total_qty, SUM(ptsvalue) AS total_value
+        FROM `tabPrimary Sales Data`
+        WHERE {where}
+        GROUP BY stockist_code, stockist_name, pcode, product, pack
+        ORDER BY stockist_name, pcode
+    """, params, as_dict=True)
+
+    return {"success": True, "data": rows}
+
+
+@frappe.whitelist()
+def get_stockist_secondary_sales_report(division=None, region=None,
+                                         from_date=None, to_date=None):
+    """Report 2 – Stockist Wise Secondary Sales Report (from submitted Stockist Statements)."""
+    if not division:
+        division = get_user_division()
+
+    conditions = ["ss.division = %(division)s", "ss.docstatus = 1"]
+    params = {"division": division}
+
+    if region:
+        conditions.append("ss.region = %(region)s")
+        params["region"] = region
+    if from_date:
+        conditions.append("ss.statement_month >= %(from_date)s")
+        params["from_date"] = from_date
+    if to_date:
+        conditions.append("ss.statement_month <= %(to_date)s")
+        params["to_date"] = to_date
+
+    where = " AND ".join(conditions)
+
+    rows = frappe.db.sql(f"""
+        SELECT ss.stockist_code, ss.stockist_name,
+               si.product_code, si.product_name, si.pack,
+               SUM(si.sales_qty) AS total_qty,
+               SUM(si.sales_value_pts) AS total_value
+        FROM `tabStockist Statement` ss
+        INNER JOIN `tabStockist Statement Item` si
+            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+        WHERE {where}
+        GROUP BY ss.stockist_code, ss.stockist_name,
+                 si.product_code, si.product_name, si.pack
+        ORDER BY ss.stockist_name, si.product_code
+    """, params, as_dict=True)
+
+    return {"success": True, "data": rows}
+
+
+@frappe.whitelist()
+def get_stockist_moving_trend_report(division=None, sales_type="secondary",
+                                      stockist_code=None):
+    """Report 3 – Moving Trend (monthly pivot Apr-Mar) for a single stockist.
+    sales_type: 'primary' uses Primary Sales Data; 'secondary' uses Statement Items.
+    """
+    if not division:
+        division = get_user_division()
+    if not stockist_code:
+        return {"success": False, "message": "Stockist code is required"}
+
+    month_labels = ["apr", "may", "jun", "jul", "aug", "sep",
+                    "oct", "nov", "dec", "jan", "feb", "mar"]
+
+    if sales_type == "primary":
+        rows = frappe.db.sql("""
+            SELECT pcode AS product_code, product AS product_name, pack,
+                   MONTH(invoicedate) AS m, YEAR(invoicedate) AS y,
+                   SUM(quantity) AS qty
+            FROM `tabPrimary Sales Data`
+            WHERE division = %(division)s AND stockist_code = %(stockist)s
+                  AND iscancelled = 0
+            GROUP BY pcode, product, pack, MONTH(invoicedate), YEAR(invoicedate)
+            ORDER BY pcode, y, m
+        """, {"division": division, "stockist": stockist_code}, as_dict=True)
+    else:
+        rows = frappe.db.sql("""
+            SELECT si.product_code, si.product_name, si.pack,
+                   MONTH(ss.statement_month) AS m, YEAR(ss.statement_month) AS y,
+                   SUM(si.sales_qty) AS qty
+            FROM `tabStockist Statement` ss
+            INNER JOIN `tabStockist Statement Item` si
+                ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+            WHERE ss.division = %(division)s AND ss.stockist_code = %(stockist)s
+                  AND ss.docstatus = 1
+            GROUP BY si.product_code, si.product_name, si.pack,
+                     MONTH(ss.statement_month), YEAR(ss.statement_month)
+            ORDER BY si.product_code, y, m
+        """, {"division": division, "stockist": stockist_code}, as_dict=True)
+
+    # Derive the financial year range from data
+    if not rows:
+        return {"success": True, "data": [], "fy_label": ""}
+
+    all_dates = [(r.y, r.m) for r in rows]
+    min_y = min(d[0] for d in all_dates)
+    max_y = max(d[0] for d in all_dates)
+
+    # Determine FY boundaries (Apr of min year to Mar of max year+1)
+    fy_start_year = min_y if min(d[1] for d in all_dates if d[0] == min_y) >= 4 else min_y - 1
+    fy_end_year = max_y + 1 if max(d[1] for d in all_dates if d[0] == max_y) >= 4 else max_y
+    fy_label = f"Apr {str(fy_start_year)[2:]} to Mar {str(fy_end_year)[2:]}"
+
+    # Map month number to FY column index: Apr(4)→0 … Mar(3)→11
+    month_map = {4: 0, 5: 1, 6: 2, 7: 3, 8: 4, 9: 5,
+                 10: 6, 11: 7, 12: 8, 1: 9, 2: 10, 3: 11}
+
+    products = {}
+    for r in rows:
+        key = r.product_code
+        if key not in products:
+            products[key] = {
+                "product_code": r.product_code,
+                "product_name": r.product_name,
+                "pack": r.pack,
+                "months": [0] * 12,
+                "total": 0,
+            }
+        idx = month_map.get(r.m)
+        if idx is not None:
+            products[key]["months"][idx] += flt(r.qty)
+            products[key]["total"] += flt(r.qty)
+
+    data = list(products.values())
+    return {"success": True, "data": data, "fy_label": fy_label, "month_labels": month_labels}
+
+
+@frappe.whitelist()
+def get_stockist_closing_stock_report(division=None, region=None,
+                                       from_date=None, to_date=None):
+    """Report 4 – Stockist Wise Closing Stock Report (from submitted Stockist Statements)."""
+    if not division:
+        division = get_user_division()
+
+    conditions = ["ss.division = %(division)s", "ss.docstatus = 1"]
+    params = {"division": division}
+
+    if region:
+        conditions.append("ss.region = %(region)s")
+        params["region"] = region
+    if from_date:
+        conditions.append("ss.statement_month >= %(from_date)s")
+        params["from_date"] = from_date
+    if to_date:
+        conditions.append("ss.statement_month <= %(to_date)s")
+        params["to_date"] = to_date
+
+    where = " AND ".join(conditions)
+
+    rows = frappe.db.sql(f"""
+        SELECT ss.stockist_code, ss.stockist_name,
+               si.product_code, si.product_name, si.pack,
+               SUM(si.opening_qty) AS opening_qty,
+               SUM(si.purchase_qty) AS purchase_qty,
+               SUM(si.sales_qty) AS sales_qty,
+               SUM(si.free_qty) AS free_qty,
+               SUM(si.free_qty_scheme) AS scheme_free_qty,
+               SUM(si.closing_qty) AS closing_qty
+        FROM `tabStockist Statement` ss
+        INNER JOIN `tabStockist Statement Item` si
+            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+        WHERE {where}
+        GROUP BY ss.stockist_code, ss.stockist_name,
+                 si.product_code, si.product_name, si.pack
+        ORDER BY ss.stockist_name, si.product_code
+    """, params, as_dict=True)
+
+    return {"success": True, "data": rows}
+
+
+@frappe.whitelist()
+def get_hq_wise_stockist_report(division=None, region=None):
+    """Report 5 – HQ Wise Stockist Report (active stockists grouped by HQ)."""
+    if not division:
+        division = get_user_division()
+
+    conditions = ["sm.division = %(division)s", "sm.status = 'Active'"]
+    params = {"division": division}
+
+    if region:
+        conditions.append("hm.region = %(region)s")
+        params["region"] = region
+
+    where = " AND ".join(conditions)
+
+    rows = frappe.db.sql(f"""
+        SELECT sm.name AS stockist_code, sm.stockist_name,
+               sm.hq, COALESCE(hm.hq_name, sm.hq) AS hq_name,
+               COALESCE(hm.team, '') AS team,
+               COALESCE(hm.region, sm.region) AS region
+        FROM `tabStockist Master` sm
+        LEFT JOIN `tabHQ Master` hm ON hm.name = sm.hq
+        WHERE {where}
+        ORDER BY hm.hq_name, sm.stockist_name
+    """, params, as_dict=True)
+
+    # Group by HQ
+    grouped = {}
+    for r in rows:
+        hq_key = r.hq or "Unassigned"
+        if hq_key not in grouped:
+            grouped[hq_key] = {
+                "hq_code": r.hq,
+                "hq_name": r.hq_name,
+                "team": r.team,
+                "region": r.region,
+                "stockists": [],
+            }
+        grouped[hq_key]["stockists"].append({
+            "stockist_code": r.stockist_code,
+            "stockist_name": r.stockist_name,
+        })
+
+    return {"success": True, "data": list(grouped.values())}
+
+
+@frappe.whitelist()
+def get_stockist_address_report(division=None, region=None, criteria="ALL"):
+    """Report 6 – Stockist Address Report.
+    criteria: ALL, HQ WISE, TEAM WISE, CITY WISE, STOCKIST NAME
+    """
+    if not division:
+        division = get_user_division()
+
+    conditions = ["sm.division = %(division)s", "sm.status = 'Active'"]
+    params = {"division": division}
+
+    if region:
+        conditions.append("sm.region = %(region)s")
+        params["region"] = region
+
+    where = " AND ".join(conditions)
+
+    order_map = {
+        "ALL": "sm.stockist_name",
+        "HQ WISE": "sm.hq, sm.stockist_name",
+        "TEAM WISE": "sm.team, sm.stockist_name",
+        "CITY WISE": "sm.city, sm.stockist_name",
+        "STOCKIST NAME": "sm.stockist_name",
+    }
+    order_by = order_map.get(criteria, "sm.stockist_name")
+
+    rows = frappe.db.sql(f"""
+        SELECT sm.name AS stockist_code, sm.stockist_name,
+               sm.address, sm.city, sm.phone,
+               sm.hq, sm.team, sm.region
+        FROM `tabStockist Master` sm
+        WHERE {where}
+        ORDER BY {order_by}
+    """, params, as_dict=True)
+
+    # If grouping is needed, build groups
+    group_field = None
+    if criteria == "HQ WISE":
+        group_field = "hq"
+    elif criteria == "TEAM WISE":
+        group_field = "team"
+    elif criteria == "CITY WISE":
+        group_field = "city"
+
+    if group_field:
+        grouped = {}
+        for r in rows:
+            key = r.get(group_field) or "Unassigned"
+            grouped.setdefault(key, []).append(r)
+        return {"success": True, "data": rows, "groups": grouped, "group_field": group_field}
+
+    return {"success": True, "data": rows, "groups": None, "group_field": None}
+
+
+@frappe.whitelist()
+def export_stockist_report_excel(report_type, division=None, **kwargs):
+    """Generate a styled Excel workbook for any of the 6 stockist report types."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    if not division:
+        division = get_user_division()
+
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+    header_font = Font(bold=True, size=11, color="FFFFFF")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    group_font = Font(bold=True, size=11)
+    group_fill = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+
+    def write_header_row(ws, row_num, headers):
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=row_num, column=col, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+
+    def write_data_row(ws, row_num, values):
+        for col, v in enumerate(values, 1):
+            cell = ws.cell(row=row_num, column=col, value=v)
+            cell.border = thin_border
+
+    def write_group_row(ws, row_num, label, num_cols):
+        cell = ws.cell(row=row_num, column=1, value=label)
+        cell.font = group_font
+        cell.fill = group_fill
+        for c in range(1, num_cols + 1):
+            ws.cell(row=row_num, column=c).fill = group_fill
+            ws.cell(row=row_num, column=c).border = thin_border
+
+    def write_title_rows(ws, title, subtitle=""):
+        ws.cell(row=1, column=1, value=title).font = Font(bold=True, size=14)
+        if subtitle:
+            ws.cell(row=2, column=1, value=subtitle).font = Font(size=11, italic=True)
+        return 4  # data starts at row 4
+
+    region = kwargs.get("region", "")
+    from_date = kwargs.get("from_date", "")
+    to_date = kwargs.get("to_date", "")
+    sales_type = kwargs.get("sales_type", "primary")
+    stockist_code = kwargs.get("stockist_code", "")
+    criteria = kwargs.get("criteria", "ALL")
+    period_label = f"{from_date} to {to_date}" if from_date and to_date else ""
+    region_label = region or "All Regions"
+
+    if report_type == "primary_sales":
+        ws.title = "Primary Sales"
+        result = get_stockist_primary_sales_report(division, sales_type, region, from_date, to_date)
+        data = result.get("data", [])
+        type_label = "Credit Note" if sales_type == "creditnote" else "Primary"
+        row = write_title_rows(ws, f"Stockist Wise {type_label} Sales Report – {division}",
+                               f"Region: {region_label}  |  Period: {period_label}")
+        headers = ["Stockist Code", "Stockist Name", "Product Code", "Product Name", "Pack", "Quantity", "Value (PTS)"]
+        write_header_row(ws, row, headers)
+        row += 1
+        current_stockist = None
+        for d in data:
+            if d.stockist_code != current_stockist:
+                current_stockist = d.stockist_code
+                write_group_row(ws, row, f"{d.stockist_name} ({d.stockist_code})", len(headers))
+                row += 1
+            write_data_row(ws, row, [d.stockist_code, d.stockist_name, d.product_code,
+                                     d.product_name, d.pack, flt(d.total_qty), flt(d.total_value)])
+            row += 1
+
+    elif report_type == "secondary_sales":
+        ws.title = "Secondary Sales"
+        result = get_stockist_secondary_sales_report(division, region, from_date, to_date)
+        data = result.get("data", [])
+        row = write_title_rows(ws, f"Stockist Wise Secondary Sales Report – {division}",
+                               f"Region: {region_label}  |  Period: {period_label}")
+        headers = ["Stockist Code", "Stockist Name", "Product Code", "Product Name", "Pack", "Quantity", "Value (PTS)"]
+        write_header_row(ws, row, headers)
+        row += 1
+        current_stockist = None
+        for d in data:
+            if d.stockist_code != current_stockist:
+                current_stockist = d.stockist_code
+                write_group_row(ws, row, f"{d.stockist_name} ({d.stockist_code})", len(headers))
+                row += 1
+            write_data_row(ws, row, [d.stockist_code, d.stockist_name, d.product_code,
+                                     d.product_name, d.pack, flt(d.total_qty), flt(d.total_value)])
+            row += 1
+
+    elif report_type == "moving_trend":
+        ws.title = "Moving Trend"
+        result = get_stockist_moving_trend_report(division, sales_type, stockist_code)
+        data = result.get("data", [])
+        fy_label = result.get("fy_label", "")
+        ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
+        type_label = "Primary" if sales_type == "primary" else "Secondary"
+        row = write_title_rows(ws, f"Moving Trend ({type_label} Sales) – {division}",
+                               f"Stockist: {stockist_code}  |  {fy_label}")
+        headers = ["Product Code", "Product Name", "Pack"] + ml + ["Total"]
+        write_header_row(ws, row, headers)
+        row += 1
+        for d in data:
+            vals = [d["product_code"], d["product_name"], d["pack"]] + d["months"] + [d["total"]]
+            write_data_row(ws, row, vals)
+            row += 1
+
+    elif report_type == "closing_stock":
+        ws.title = "Closing Stock"
+        result = get_stockist_closing_stock_report(division, region, from_date, to_date)
+        data = result.get("data", [])
+        row = write_title_rows(ws, f"Stockist Wise Closing Stock Report – {division}",
+                               f"Region: {region_label}  |  Period: {period_label}")
+        headers = ["Stockist Code", "Stockist Name", "Product Code", "Product Name", "Pack",
+                    "Opening Qty", "Purchase Qty", "Sales Qty", "Free Qty", "Scheme Free Qty", "Closing Qty"]
+        write_header_row(ws, row, headers)
+        row += 1
+        current_stockist = None
+        for d in data:
+            if d.stockist_code != current_stockist:
+                current_stockist = d.stockist_code
+                write_group_row(ws, row, f"{d.stockist_name} ({d.stockist_code})", len(headers))
+                row += 1
+            write_data_row(ws, row, [d.stockist_code, d.stockist_name, d.product_code, d.product_name,
+                                     d.pack, flt(d.opening_qty), flt(d.purchase_qty), flt(d.sales_qty),
+                                     flt(d.free_qty), flt(d.scheme_free_qty), flt(d.closing_qty)])
+            row += 1
+
+    elif report_type == "hq_wise":
+        ws.title = "HQ Wise Stockists"
+        result = get_hq_wise_stockist_report(division, region)
+        data = result.get("data", [])
+        row = write_title_rows(ws, f"HQ Wise Stockist Report – {division}",
+                               f"Region: {region_label}")
+        headers = ["HQ", "HQ Name", "Team", "Region", "Stockist Code", "Stockist Name"]
+        write_header_row(ws, row, headers)
+        row += 1
+        for hq_group in data:
+            write_group_row(ws, row, f"{hq_group['hq_name']} ({hq_group['hq_code']})", len(headers))
+            row += 1
+            for s in hq_group["stockists"]:
+                write_data_row(ws, row, [hq_group["hq_code"], hq_group["hq_name"],
+                                         hq_group["team"], hq_group["region"],
+                                         s["stockist_code"], s["stockist_name"]])
+                row += 1
+
+    elif report_type == "address":
+        ws.title = "Stockist Address"
+        result = get_stockist_address_report(division, region, criteria)
+        data = result.get("data", [])
+        groups = result.get("groups")
+        row = write_title_rows(ws, f"Stockist Address Report – {division}",
+                               f"Region: {region_label}  |  Criteria: {criteria}")
+        headers = ["Stockist Code", "Stockist Name", "Address", "City", "Phone", "HQ", "Team", "Region"]
+        write_header_row(ws, row, headers)
+        row += 1
+        if groups:
+            for grp_name, grp_rows in groups.items():
+                write_group_row(ws, row, str(grp_name), len(headers))
+                row += 1
+                for d in grp_rows:
+                    write_data_row(ws, row, [d.stockist_code, d.stockist_name, d.address or "",
+                                             d.city or "", d.phone or "", d.hq or "", d.team or "", d.region or ""])
+                    row += 1
+        else:
+            for d in data:
+                write_data_row(ws, row, [d.stockist_code, d.stockist_name, d.address or "",
+                                         d.city or "", d.phone or "", d.hq or "", d.team or "", d.region or ""])
+                row += 1
+    else:
+        frappe.throw("Invalid report type")
+
+    # Auto-fit column widths
+    for col in ws.columns:
+        max_len = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            if cell.value:
+                max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
+
+    # Save to temp file and respond
+    from io import BytesIO
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    xlsx_data = output.getvalue()
+
+    filename = f"Stockist_Report_{report_type}_{division}.xlsx"
+    frappe.local.response.filename = filename
+    frappe.local.response.filecontent = xlsx_data
+    frappe.local.response.type = "download"
+    frappe.local.response.content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

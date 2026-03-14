@@ -1,0 +1,699 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Primary Sales Data{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page primary-sales-list-page">
+    <div class="page-header d-flex justify-content-between align-items-center mb-4 flex-wrap" style="gap:10px;">
+        <div>
+            <h1 class="page-title"><i class="fa fa-table"></i> Primary Sales Data</h1>
+            <p class="page-subtitle text-muted mb-0">Viewing primary sales for {{ division }} division</p>
+        </div>
+        <div class="d-flex align-items-center" style="gap:10px;">
+            <span class="text-muted" id="row-count-label" style="font-size:13px;"></span>
+            <button class="btn btn-success btn-sm text-nowrap" onclick="showAddModal()">
+                <i class="fa fa-plus mr-1"></i> Add New
+            </button>
+            <a href="/portal/upload-primary-sales" class="btn btn-primary btn-sm text-nowrap">
+                <i class="fa fa-upload mr-1"></i> Upload Data
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body py-3 px-3">
+            <div class="row" style="row-gap:10px;">
+                <div class="col-md-2 col-6">
+                    <select class="form-control form-control-sm" id="f-month">
+                        <option value="">All Months</option>
+                        {% for m in available_months %}
+                        <option value="{{ m.upload_month }}">{{ m.upload_month }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 col-6">
+                    <select class="form-control form-control-sm" id="f-zone">
+                        <option value="">All Zones</option>
+                        {% for z in zones %}
+                        <option value="{{ z.zone_name }}">{{ z.zone_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 col-6">
+                    <select class="form-control form-control-sm" id="f-region">
+                        <option value="">All Regions</option>
+                        {% for r in regions %}
+                        <option value="{{ r.region_name }}">{{ r.region_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 col-6">
+                    <select class="form-control form-control-sm" id="f-team">
+                        <option value="">All Teams</option>
+                        {% for t in teams %}
+                        <option value="{{ t.team_name }}">{{ t.team_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 col-6">
+                    <select class="form-control form-control-sm" id="f-product-head">
+                        <option value="">All Product Groups</option>
+                        {% for pg in product_groups %}
+                        <option value="{{ pg }}">{{ pg }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 col-6">
+                    <select class="form-control form-control-sm" id="f-cancelled">
+                        <option value="">All Records</option>
+                        <option value="0">Active Only</option>
+                        <option value="1">Cancelled Only</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row mt-2" style="row-gap:10px;">
+                <div class="col-md-3 col-6">
+                    <input type="text" class="form-control form-control-sm" id="f-stockist" placeholder="Search Stockist Code/Name...">
+                </div>
+                <div class="col-md-2 col-6">
+                    <input type="text" class="form-control form-control-sm" id="f-pcode" placeholder="Product Code...">
+                </div>
+                <div class="col-md-2 col-6">
+                    <input type="text" class="form-control form-control-sm" id="f-product" placeholder="Product Name...">
+                </div>
+                <div class="col-md-2 col-6">
+                    <input type="text" class="form-control form-control-sm" id="f-invoice" placeholder="Invoice No...">
+                </div>
+                <div class="col-md-3 col-6 d-flex align-items-center" style="gap:8px;">
+                    <button class="btn btn-sm btn-primary flex-grow-1" id="btn-search" onclick="loadData(1)">
+                        <i class="fa fa-search mr-1"></i> Search
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="clearFilters()">
+                        <i class="fa fa-times mr-1"></i> Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0 border">
+            <div class="table-responsive" style="max-height: 65vh; overflow-y: auto;">
+                <table class="table table-hover table-sm mb-0" id="data-table">
+                    <thead>
+                        <tr>
+                            <th style="min-width:70px;position:sticky;left:0;z-index:11;background:#f8f9fa;">Actions</th>
+                            <th style="min-width:90px;">Stockist Code</th>
+                            <th style="min-width:180px;">Stockist Name</th>
+                            <th style="min-width:110px;">Product Head</th>
+                            <th style="min-width:70px;">P.Code</th>
+                            <th style="min-width:180px;">Product</th>
+                            <th>Pack</th>
+                            <th>Invoice No</th>
+                            <th style="min-width:90px;">Invoice Date</th>
+                            <th>Batch</th>
+                            <th class="text-right">Qty</th>
+                            <th class="text-right">Free</th>
+                            <th class="text-right">Exp</th>
+                            <th class="text-right">PTS</th>
+                            <th class="text-right">PTS Val</th>
+                            <th class="text-right">PTR</th>
+                            <th class="text-right">PTR Val</th>
+                            <th class="text-right">MRP</th>
+                            <th class="text-right">MRP Val</th>
+                            <th class="text-right">NRV</th>
+                            <th class="text-right">NRV Val</th>
+                            <th>Team</th>
+                            <th>Region</th>
+                            <th>Zone</th>
+                            <th>City</th>
+                            <th class="text-center">Direct</th>
+                            <th class="text-center">Cancelled</th>
+                            <th>Month</th>
+                        </tr>
+                    </thead>
+                    <tbody id="data-tbody">
+                        <tr>
+                            <td colspan="28" class="text-center py-4 text-muted">
+                                <i class="fa fa-search mr-1"></i> Use filters above then click Search to load data
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="d-flex justify-content-between align-items-center mt-3" id="pagination-wrapper">
+        <div class="text-muted" id="pagination-info" style="font-size:13px;"></div>
+        <nav>
+            <ul class="pagination pagination-sm mb-0" id="pagination-controls"></ul>
+        </nav>
+    </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">Add New Record</h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+                <form id="edit-form">
+                    <input type="hidden" id="record-id">
+
+                    <!-- Meta -->
+                    <div class="row mb-3">
+                        <div class="col-md-3">
+                            <label>Upload Month <span class="text-danger">*</span></label>
+                            <input type="month" class="form-control form-control-sm" name="upload_month" required>
+                        </div>
+                        <div class="col-md-3 d-flex align-items-end pb-1">
+                            <div class="custom-control custom-checkbox">
+                                <input type="checkbox" class="custom-control-input" id="chk-cancelled" name="iscancelled">
+                                <label class="custom-control-label" for="chk-cancelled">Is Cancelled</label>
+                            </div>
+                        </div>
+                        <div class="col-md-3 d-flex align-items-end pb-1">
+                            <div class="custom-control custom-checkbox">
+                                <input type="checkbox" class="custom-control-input" id="chk-direct" name="direct_party">
+                                <label class="custom-control-label" for="chk-direct">Direct Party</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="my-2">
+                    <h6 class="text-muted mb-2"><i class="fa fa-user mr-1"></i> Stockist &amp; Geography</h6>
+                    <div class="row mb-2">
+                        <div class="col-md-3 mb-2">
+                            <label>Stockist Code <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-sm" name="stockist_code" required>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Stockist Name</label>
+                            <input type="text" class="form-control form-control-sm" name="stockist_name">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>City/Pool</label>
+                            <input type="text" class="form-control form-control-sm" name="citypool">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Actual Region</label>
+                            <input type="text" class="form-control form-control-sm" name="act_region">
+                        </div>
+                    </div>
+                    <div class="row mb-2">
+                        <div class="col-md-3 mb-2">
+                            <label>Zone</label>
+                            <select class="form-control form-control-sm" name="zonee">
+                                <option value="">-- Select --</option>
+                                {% for z in zones %}
+                                <option value="{{ z.zone_name }}">{{ z.zone_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Region</label>
+                            <select class="form-control form-control-sm" name="region">
+                                <option value="">-- Select --</option>
+                                {% for r in regions %}
+                                <option value="{{ r.region_name }}">{{ r.region_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Team</label>
+                            <select class="form-control form-control-sm" name="team">
+                                <option value="">-- Select --</option>
+                                {% for t in teams %}
+                                <option value="{{ t.team_name }}">{{ t.team_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <hr class="my-2">
+                    <h6 class="text-muted mb-2"><i class="fa fa-file-invoice mr-1"></i> Invoice &amp; Product</h6>
+                    <div class="row mb-2">
+                        <div class="col-md-3 mb-2">
+                            <label>Invoice No</label>
+                            <input type="text" class="form-control form-control-sm" name="invoiceno">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Invoice Date</label>
+                            <input type="date" class="form-control form-control-sm" name="invoicedate">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Product Code</label>
+                            <input type="text" class="form-control form-control-sm" name="pcode">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Product</label>
+                            <input type="text" class="form-control form-control-sm" name="product">
+                        </div>
+                    </div>
+                    <div class="row mb-2">
+                        <div class="col-md-3 mb-2">
+                            <label>Product Head</label>
+                            <select class="form-control form-control-sm" name="product_head">
+                                <option value="">-- Select --</option>
+                                {% for pg in product_groups %}
+                                <option value="{{ pg }}">{{ pg }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Pack</label>
+                            <input type="text" class="form-control form-control-sm" name="pack">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Batch No</label>
+                            <input type="text" class="form-control form-control-sm" name="batchno">
+                        </div>
+                    </div>
+
+                    <hr class="my-2">
+                    <h6 class="text-muted mb-2"><i class="fa fa-cubes mr-1"></i> Quantities</h6>
+                    <div class="row mb-2">
+                        <div class="col-md-3 mb-2">
+                            <label>Quantity</label>
+                            <input type="number" class="form-control form-control-sm" name="quantity" step="0.01">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Free Qty</label>
+                            <input type="number" class="form-control form-control-sm" name="freeqty" step="0.01">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>Expiry Qty</label>
+                            <input type="number" class="form-control form-control-sm" name="expqty" step="0.01">
+                        </div>
+                    </div>
+
+                    <hr class="my-2">
+                    <h6 class="text-muted mb-2"><i class="fa fa-rupee-sign mr-1"></i> Pricing</h6>
+                    <div class="row mb-2">
+                        <div class="col-md-3 mb-2">
+                            <label>PTS</label>
+                            <input type="number" class="form-control form-control-sm" name="pts" step="0.01">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>PTS Value</label>
+                            <input type="number" class="form-control form-control-sm" name="ptsvalue" step="0.01">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>PTR</label>
+                            <input type="number" class="form-control form-control-sm" name="ptr" step="0.01">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>PTR Value</label>
+                            <input type="number" class="form-control form-control-sm" name="ptrvalue" step="0.01">
+                        </div>
+                    </div>
+                    <div class="row mb-2">
+                        <div class="col-md-3 mb-2">
+                            <label>MRP</label>
+                            <input type="number" class="form-control form-control-sm" name="mrp" step="0.01">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>MRP Value</label>
+                            <input type="number" class="form-control form-control-sm" name="mrpvalue" step="0.01">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>NRV</label>
+                            <input type="number" class="form-control form-control-sm" name="nrv" step="0.01">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label>NRV Value</label>
+                            <input type="number" class="form-control form-control-sm" name="nrvvalue" step="0.01">
+                        </div>
+                    </div>
+                    <div class="row mb-2">
+                        <div class="col-md-3 mb-2">
+                            <label>D-Sort</label>
+                            <input type="number" class="form-control form-control-sm" name="dsort" step="1">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveRecord()">
+                    <i class="fa fa-save mr-1"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.primary-sales-list-page { animation: fadeIn 0.3s ease; }
+.primary-sales-list-page .table { font-size: 12px; }
+.primary-sales-list-page .table thead th {
+    position: sticky; top: 0; z-index: 10;
+    background: #f8f9fa; white-space: nowrap;
+    font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.3px; border-bottom: 2px solid #dee2e6;
+}
+.primary-sales-list-page .table tbody tr { transition: background 0.15s ease; }
+.primary-sales-list-page .table tbody tr:hover { background: #f0f4ff; }
+.primary-sales-list-page .table td { white-space: nowrap; vertical-align: middle; padding: 0.35rem 0.5rem; }
+.primary-sales-list-page .cancelled-row { background: #fff5f5 !important; }
+.primary-sales-list-page .cancelled-row td { color: #999; }
+.primary-sales-list-page .font-weight-600 { font-weight: 600; }
+.primary-sales-list-page .action-col { white-space: nowrap; }
+.primary-sales-list-page .action-col .btn { font-size: 11px; margin: 0 1px; }
+#editModal .modal-body label { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+#editModal .modal-body h6 { font-size: 13px; font-weight: 700; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var PAGE_SIZE = 50;
+var currentPage = 1;
+var division = "{{ division }}";
+var currentRows = [];
+var debounceTimer;
+
+function getFilters() {
+    return {
+        upload_month: document.getElementById('f-month').value,
+        zonee: document.getElementById('f-zone').value,
+        region: document.getElementById('f-region').value,
+        team: document.getElementById('f-team').value,
+        product_head: document.getElementById('f-product-head').value,
+        iscancelled: document.getElementById('f-cancelled').value,
+        stockist_search: document.getElementById('f-stockist').value.trim(),
+        pcode: document.getElementById('f-pcode').value.trim(),
+        product_search: document.getElementById('f-product').value.trim(),
+        invoiceno: document.getElementById('f-invoice').value.trim()
+    };
+}
+
+function clearFilters() {
+    document.getElementById('f-month').value = '';
+    document.getElementById('f-zone').value = '';
+    document.getElementById('f-region').value = '';
+    document.getElementById('f-team').value = '';
+    document.getElementById('f-product-head').value = '';
+    document.getElementById('f-cancelled').value = '';
+    document.getElementById('f-stockist').value = '';
+    document.getElementById('f-pcode').value = '';
+    document.getElementById('f-product').value = '';
+    document.getElementById('f-invoice').value = '';
+    document.getElementById('data-tbody').innerHTML = '<tr><td colspan="28" class="text-center py-4 text-muted"><i class="fa fa-search mr-1"></i> Use filters above then click Search to load data</td></tr>';
+    document.getElementById('pagination-controls').innerHTML = '';
+    document.getElementById('pagination-info').textContent = '';
+    document.getElementById('row-count-label').textContent = '';
+}
+
+function loadData(page) {
+    currentPage = page || 1;
+    var filters = getFilters();
+    filters.division = division;
+    filters.page = currentPage;
+    filters.page_size = PAGE_SIZE;
+
+    var tbody = document.getElementById('data-tbody');
+    tbody.innerHTML = '<tr><td colspan="28" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary mr-2"></div>Loading...</td></tr>';
+
+    $.ajax({
+        url: '/api/method/scanify.api.get_primary_sales_data',
+        type: 'GET',
+        data: filters,
+        success: function(resp) {
+            var data = resp.message;
+            renderTable(data.rows);
+            renderPagination(data.total, data.page, data.page_size);
+            document.getElementById('row-count-label').textContent = data.total + ' records found';
+        },
+        error: function(xhr) {
+            tbody.innerHTML = '<tr><td colspan="28" class="text-center py-4 text-danger"><i class="fa fa-exclamation-circle mr-1"></i> Error loading data</td></tr>';
+        }
+    });
+}
+
+function renderTable(rows) {
+    var tbody = document.getElementById('data-tbody');
+    currentRows = rows || [];
+    if (!rows || rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="28" class="text-center py-4 text-muted">No records found matching your filters.</td></tr>';
+        return;
+    }
+
+    var html = '';
+    for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var cancelled = r.iscancelled ? 1 : 0;
+        var rowBg = cancelled ? '#fff5f5' : (i % 2 === 0 ? '#fff' : '#fafbfc');
+        html += '<tr class="' + (cancelled ? 'cancelled-row' : '') + '">';
+        html += '<td class="text-center action-col" style="position:sticky;left:0;z-index:1;background:' + rowBg + ';">';
+        html += '<button class="btn btn-sm btn-outline-primary p-0 px-1" onclick="editRecord(\'' + esc(r.name) + '\')" title="Edit"><i class="fa fa-edit"></i></button> ';
+        html += '<button class="btn btn-sm btn-outline-danger p-0 px-1" onclick="deleteRecord(\'' + esc(r.name) + '\')" title="Delete"><i class="fa fa-trash"></i></button>';
+        html += '</td>';
+        html += '<td class="font-weight-600">' + esc(r.stockist_code) + '</td>';
+        html += '<td>' + esc(r.stockist_name) + '</td>';
+        html += '<td>' + esc(r.product_head) + '</td>';
+        html += '<td>' + esc(r.pcode) + '</td>';
+        html += '<td>' + esc(r.product) + '</td>';
+        html += '<td>' + esc(r.pack) + '</td>';
+        html += '<td>' + esc(r.invoiceno) + '</td>';
+        html += '<td>' + (r.invoicedate || '-') + '</td>';
+        html += '<td>' + esc(r.batchno) + '</td>';
+        html += '<td class="text-right">' + fmtNum(r.quantity) + '</td>';
+        html += '<td class="text-right">' + fmtNum(r.freeqty) + '</td>';
+        html += '<td class="text-right">' + fmtNum(r.expqty) + '</td>';
+        html += '<td class="text-right">' + fmtNum(r.pts) + '</td>';
+        html += '<td class="text-right">' + fmtNum(r.ptsvalue) + '</td>';
+        html += '<td class="text-right">' + fmtNum(r.ptr) + '</td>';
+        html += '<td class="text-right">' + fmtNum(r.ptrvalue) + '</td>';
+        html += '<td class="text-right">' + fmtNum(r.mrp) + '</td>';
+        html += '<td class="text-right">' + fmtNum(r.mrpvalue) + '</td>';
+        html += '<td class="text-right">' + fmtNum(r.nrv) + '</td>';
+        html += '<td class="text-right">' + fmtNum(r.nrvvalue) + '</td>';
+        html += '<td>' + esc(r.team) + '</td>';
+        html += '<td>' + esc(r.region) + '</td>';
+        html += '<td>' + esc(r.zonee) + '</td>';
+        html += '<td>' + esc(r.citypool) + '</td>';
+        html += '<td class="text-center">' + (r.direct_party ? '<i class="fa fa-check text-success"></i>' : '-') + '</td>';
+        html += '<td class="text-center">' + (cancelled ? '<i class="fa fa-times text-danger"></i>' : '-') + '</td>';
+        html += '<td>' + esc(r.upload_month) + '</td>';
+        html += '</tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+function renderPagination(total, page, pageSize) {
+    var totalPages = Math.ceil(total / pageSize);
+    var info = document.getElementById('pagination-info');
+    var controls = document.getElementById('pagination-controls');
+
+    if (total === 0) {
+        info.textContent = '';
+        controls.innerHTML = '';
+        return;
+    }
+
+    var start = (page - 1) * pageSize + 1;
+    var end = Math.min(page * pageSize, total);
+    info.textContent = 'Showing ' + start + '-' + end + ' of ' + total;
+
+    var html = '';
+    html += '<li class="page-item ' + (page <= 1 ? 'disabled' : '') + '">';
+    html += '<a class="page-link" href="javascript:void(0)" onclick="loadData(' + (page - 1) + ')">&laquo;</a></li>';
+
+    var startPage = Math.max(1, page - 3);
+    var endPage = Math.min(totalPages, page + 3);
+
+    if (startPage > 1) {
+        html += '<li class="page-item"><a class="page-link" href="javascript:void(0)" onclick="loadData(1)">1</a></li>';
+        if (startPage > 2) html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+    }
+
+    for (var p = startPage; p <= endPage; p++) {
+        html += '<li class="page-item ' + (p === page ? 'active' : '') + '">';
+        html += '<a class="page-link" href="javascript:void(0)" onclick="loadData(' + p + ')">' + p + '</a></li>';
+    }
+
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+        html += '<li class="page-item"><a class="page-link" href="javascript:void(0)" onclick="loadData(' + totalPages + ')">' + totalPages + '</a></li>';
+    }
+
+    html += '<li class="page-item ' + (page >= totalPages ? 'disabled' : '') + '">';
+    html += '<a class="page-link" href="javascript:void(0)" onclick="loadData(' + (page + 1) + ')">&raquo;</a></li>';
+
+    controls.innerHTML = html;
+}
+
+function esc(val) {
+    if (val === null || val === undefined) return '';
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(String(val)));
+    return d.innerHTML;
+}
+
+function fmtNum(val) {
+    if (val === null || val === undefined || val === 0) return '-';
+    var n = parseFloat(val);
+    if (isNaN(n)) return '-';
+    return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Enter key triggers search on text inputs
+document.querySelectorAll('#f-stockist, #f-pcode, #f-product, #f-invoice').forEach(function(el) {
+    el.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') loadData(1);
+    });
+});
+
+// ─── CRUD Functions ───
+
+function showAddModal() {
+    document.getElementById('modalTitle').textContent = 'Add New Primary Sales Record';
+    document.getElementById('record-id').value = '';
+    populateForm(null);
+    $('#editModal').modal('show');
+}
+
+function editRecord(name) {
+    var record = currentRows.find(function(r) { return r.name === name; });
+    if (!record) { showPSAlert('Record not found in current view', 'danger'); return; }
+    document.getElementById('modalTitle').textContent = 'Edit Primary Sales Record';
+    document.getElementById('record-id').value = name;
+    populateForm(record);
+    $('#editModal').modal('show');
+}
+
+function populateForm(data) {
+    var textFields = ['stockist_code','stockist_name','citypool','act_region','invoiceno','pcode','product','pack','batchno'];
+    var numFields = ['quantity','freeqty','expqty','pts','ptsvalue','ptr','ptrvalue','mrp','mrpvalue','nrv','nrvvalue','dsort'];
+    var selectFields = ['zonee','region','team','product_head'];
+
+    // Text and number fields
+    textFields.concat(numFields).forEach(function(f) {
+        var el = document.querySelector('#edit-form [name="' + f + '"]');
+        if (el) el.value = (data && data[f] != null) ? data[f] : '';
+    });
+
+    // Select fields - add value as option if not present
+    selectFields.forEach(function(f) {
+        var el = document.querySelector('#edit-form select[name="' + f + '"]');
+        if (!el) return;
+        if (data && data[f]) {
+            var exists = Array.from(el.options).some(function(opt) { return opt.value === data[f]; });
+            if (!exists) {
+                var opt = document.createElement('option');
+                opt.value = data[f];
+                opt.textContent = data[f];
+                el.appendChild(opt);
+            }
+            el.value = data[f];
+        } else {
+            el.value = '';
+        }
+    });
+
+    // Month field
+    var monthEl = document.querySelector('#edit-form [name="upload_month"]');
+    if (monthEl) monthEl.value = (data && data.upload_month) ? data.upload_month : '';
+
+    // Date field
+    var dateEl = document.querySelector('#edit-form [name="invoicedate"]');
+    if (dateEl) dateEl.value = (data && data.invoicedate) ? data.invoicedate : '';
+
+    // Checkboxes
+    document.getElementById('chk-cancelled').checked = data ? !!data.iscancelled : false;
+    document.getElementById('chk-direct').checked = data ? !!data.direct_party : false;
+}
+
+function saveRecord() {
+    var recordId = document.getElementById('record-id').value;
+    var data = {};
+    var allFields = ['upload_month','stockist_code','stockist_name','citypool','team','region',
+        'act_region','zonee','invoiceno','invoicedate','pcode','product','product_head',
+        'pack','batchno','quantity','freeqty','expqty','pts','ptsvalue','ptr','ptrvalue',
+        'mrp','mrpvalue','nrv','nrvvalue','dsort'];
+
+    allFields.forEach(function(f) {
+        var el = document.querySelector('#edit-form [name="' + f + '"]');
+        if (el) data[f] = el.value;
+    });
+
+    data.iscancelled = document.getElementById('chk-cancelled').checked ? 1 : 0;
+    data.direct_party = document.getElementById('chk-direct').checked ? 1 : 0;
+
+    if (!data.upload_month) { showPSAlert('Upload Month is required', 'danger'); return; }
+    if (!data.stockist_code) { showPSAlert('Stockist Code is required', 'danger'); return; }
+
+    showLoadingOverlay('Saving...');
+
+    $.ajax({
+        url: '/api/method/scanify.api.save_primary_sales_record',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': window.csrf_token },
+        data: JSON.stringify({ name: recordId || '', data: data }),
+        success: function(resp) {
+            hideLoadingOverlay();
+            if (resp.message && resp.message.success) {
+                showPSAlert('Record saved successfully!', 'success');
+                $('#editModal').modal('hide');
+                loadData(currentPage);
+            } else {
+                showPSAlert(resp.message ? resp.message.message : 'Failed to save', 'danger');
+            }
+        },
+        error: function() {
+            hideLoadingOverlay();
+            showPSAlert('Error saving record', 'danger');
+        }
+    });
+}
+
+function deleteRecord(name) {
+    if (!confirm('Are you sure you want to delete this record?')) return;
+    showLoadingOverlay('Deleting...');
+
+    $.ajax({
+        url: '/api/method/scanify.api.delete_primary_sales_record',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': window.csrf_token },
+        data: JSON.stringify({ name: name }),
+        success: function(resp) {
+            hideLoadingOverlay();
+            if (resp.message && resp.message.success) {
+                showPSAlert('Record deleted successfully!', 'success');
+                loadData(currentPage);
+            } else {
+                showPSAlert(resp.message ? resp.message.message : 'Failed to delete', 'danger');
+            }
+        },
+        error: function() {
+            hideLoadingOverlay();
+            showPSAlert('Error deleting record', 'danger');
+        }
+    });
+}
+
+function showLoadingOverlay(message) {
+    $('body').append('<div id="ps-loading-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;"><div style="background:white;padding:20px 40px;border-radius:8px;text-align:center;"><div class="spinner-border text-primary mb-2"></div><div>' + esc(message) + '</div></div></div>');
+}
+
+function hideLoadingOverlay() {
+    $('#ps-loading-overlay').remove();
+}
+
+function showPSAlert(message, type) {
+    var $alert = $('<div class="alert alert-' + type + ' alert-dismissible fade show" style="position:fixed;top:70px;right:20px;z-index:99999;min-width:300px;box-shadow:0 4px 6px rgba(0,0,0,0.1);"><strong>' + esc(message) + '</strong><button type="button" class="close" data-dismiss="alert">&times;</button></div>');
+    $('body').append($alert);
+    setTimeout(function() { $alert.fadeOut(function() { $(this).remove(); }); }, 3000);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,142 @@
+{
+ "actions": [],
+ "autoname": "format:PRI-{YYYY}-{#####}",
+ "creation": "2026-03-14 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "upload_month",
+  "division",
+  "column_break_1",
+  "uploaded_by",
+  "upload_date",
+  "section_break_2",
+  "file",
+  "column_break_3",
+  "total_rows",
+  "success_count",
+  "error_count",
+  "section_break_4",
+  "status",
+  "column_break_5",
+  "error_log"
+ ],
+ "fields": [
+  {
+   "fieldname": "upload_month",
+   "fieldtype": "Data",
+   "label": "Upload Month",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "Format: YYYY-MM (e.g. 2026-02)"
+  },
+  {
+   "fieldname": "division",
+   "fieldtype": "Link",
+   "label": "Division",
+   "options": "Division",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "uploaded_by",
+   "fieldtype": "Link",
+   "label": "Uploaded By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "upload_date",
+   "fieldtype": "Datetime",
+   "label": "Upload Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_2",
+   "fieldtype": "Section Break",
+   "label": "File"
+  },
+  {
+   "fieldname": "file",
+   "fieldtype": "Attach",
+   "label": "Uploaded File"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_rows",
+   "fieldtype": "Int",
+   "label": "Total Rows",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "success_count",
+   "fieldtype": "Int",
+   "label": "Success Count",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "error_count",
+   "fieldtype": "Int",
+   "label": "Error Count",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "section_break_4",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nProcessing\nCompleted\nFailed",
+   "default": "Pending",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "error_log",
+   "fieldtype": "Long Text",
+   "label": "Error Log",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-03-14 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Scanify",
+ "name": "Primary Sales Upload",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

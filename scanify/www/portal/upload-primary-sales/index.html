@@ -1,0 +1,320 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Upload Primary Sales{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page upload-primary-sales-page">
+    <div class="page-header mb-4">
+        <h1 class="page-title"><i class="fa fa-upload"></i> Upload Primary Sales</h1>
+        <p class="page-subtitle text-muted">Upload primary sales data for {{ division }} division</p>
+    </div>
+
+    <!-- Upload Form -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white border-bottom" style="padding: 1rem 1.5rem;">
+            <h5 class="mb-0 font-weight-600"><i class="fa fa-cloud-upload-alt mr-2 text-primary"></i>Upload File</h5>
+        </div>
+        <div class="card-body" style="padding: 1.5rem;">
+            <form id="upload-form">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label class="font-weight-600">Month <span class="text-danger">*</span></label>
+                            <input type="month" class="form-control" id="upload-month" required>
+                            <small class="text-muted">Select the month for which you're uploading data</small>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <div class="form-group">
+                            <label class="font-weight-600">Excel File (.xlsx) <span class="text-danger">*</span></label>
+                            <div class="custom-file">
+                                <input type="file" class="custom-file-input" id="upload-file" accept=".xlsx,.xls" required>
+                                <label class="custom-file-label" for="upload-file" id="file-label">Choose file...</label>
+                            </div>
+                            <small class="text-muted">Max 10MB. Must match the required column format.</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <div class="form-group w-100">
+                            <button type="submit" class="btn btn-primary btn-block" id="btn-upload">
+                                <i class="fa fa-upload mr-1"></i> Upload & Process
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Progress -->
+            <div id="upload-progress" class="mt-3" style="display:none;">
+                <div class="d-flex align-items-center mb-2">
+                    <div class="spinner-border spinner-border-sm text-primary mr-2" role="status"></div>
+                    <span id="progress-text" class="font-weight-500">Uploading and processing...</span>
+                </div>
+                <div class="progress" style="height: 6px; border-radius: 3px;">
+                    <div class="progress-bar bg-primary" role="progressbar" id="progress-bar" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Result -->
+            <div id="upload-result" class="mt-3" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Expected Format Info -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white border-bottom" style="padding: 1rem 1.5rem;">
+            <h5 class="mb-0 font-weight-600"><i class="fa fa-info-circle mr-2 text-info"></i>Expected Column Format</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0" style="font-size: 12px;">
+                    <thead>
+                        <tr>
+                            <th>Excel Column</th>
+                            <th>Description</th>
+                            <th>Links To</th>
+                            <th>Required</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>stockistcode</code></td><td>Stockist Code</td><td>Stockist Master → stockist_code</td><td>Yes</td></tr>
+                        <tr><td><code>product_head</code></td><td>Product Group</td><td>-</td><td>No (empty when cancelled)</td></tr>
+                        <tr><td><code>stockistname</code></td><td>Stockist Name</td><td>-</td><td>Yes</td></tr>
+                        <tr><td><code>citypool</code></td><td>City / Pool</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>team</code></td><td>Team Name</td><td>Team Master → team_name</td><td>No</td></tr>
+                        <tr><td><code>region</code></td><td>Region Name</td><td>Region Master → region_name</td><td>No</td></tr>
+                        <tr><td><code>act_region</code></td><td>Actual Region</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>zonee</code></td><td>Zone Name</td><td>Zone Master → zone_name</td><td>No</td></tr>
+                        <tr><td><code>invoiceno</code></td><td>Invoice Number</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>invoicedate</code></td><td>Invoice Date</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>pcode</code></td><td>Product Code</td><td>Product Master → product_code</td><td>No (empty when cancelled)</td></tr>
+                        <tr><td><code>product</code></td><td>Product Name</td><td>-</td><td>No (empty when cancelled)</td></tr>
+                        <tr><td><code>pack</code></td><td>Pack</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>batchno</code></td><td>Batch Number</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>quantity</code></td><td>Quantity</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>freeqty</code></td><td>Free Quantity</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>expqty</code></td><td>Expiry Quantity</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>pts</code></td><td>Price to Stockist</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>ptsvalue</code></td><td>PTS × Qty</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>ptr</code></td><td>Price to Retailer</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>ptrvalue</code></td><td>PTR × Qty</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>mrp</code></td><td>MRP</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>mrpvalue</code></td><td>MRP × Qty</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>nrv</code></td><td>Net Realizable Value</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>nrvvalue</code></td><td>NRV × Qty</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>dsort</code></td><td>Division Sort Order</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>direct_party</code></td><td>Direct Party Flag</td><td>-</td><td>No</td></tr>
+                        <tr><td><code>iscancelled</code></td><td>Cancelled Invoice Flag</td><td>-</td><td>Yes</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Uploads -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center" style="padding: 1rem 1.5rem;">
+            <h5 class="mb-0 font-weight-600"><i class="fa fa-history mr-2 text-secondary"></i>Recent Uploads</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" style="font-size: 13px;">
+                    <thead>
+                        <tr>
+                            <th>Upload ID</th>
+                            <th>Month</th>
+                            <th>Status</th>
+                            <th>Total Rows</th>
+                            <th>Success</th>
+                            <th>Errors</th>
+                            <th>Uploaded On</th>
+                            <th>Uploaded By</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recent-uploads-body">
+                        {% if recent_uploads %}
+                        {% for u in recent_uploads %}
+                        <tr>
+                            <td><strong>{{ u.name }}</strong></td>
+                            <td>{{ u.upload_month }}</td>
+                            <td>
+                                {% if u.status == 'Completed' %}
+                                <span class="badge badge-success">Completed</span>
+                                {% elif u.status == 'Processing' %}
+                                <span class="badge badge-info">Processing</span>
+                                {% elif u.status == 'Failed' %}
+                                <span class="badge badge-danger">Failed</span>
+                                {% else %}
+                                <span class="badge badge-warning">{{ u.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ u.total_rows or 0 }}</td>
+                            <td class="text-success font-weight-600">{{ u.success_count or 0 }}</td>
+                            <td class="text-danger font-weight-600">{{ u.error_count or 0 }}</td>
+                            <td>{{ frappe.utils.pretty_date(u.upload_date) if u.upload_date else '-' }}</td>
+                            <td>{{ u.uploaded_by or '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center py-4 text-muted">No uploads yet for {{ division }} division.</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.upload-primary-sales-page { animation: fadeIn 0.3s ease; }
+.upload-primary-sales-page .font-weight-600 { font-weight: 600; }
+.upload-primary-sales-page .font-weight-500 { font-weight: 500; }
+.upload-primary-sales-page code { font-size: 11px; color: #e83e8c; }
+.upload-primary-sales-page .table thead th {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--color-bg, #fff);
+    white-space: nowrap; font-size: 12px;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // File label update
+    document.getElementById('upload-file').addEventListener('change', function() {
+        var fileName = this.files[0] ? this.files[0].name : 'Choose file...';
+        document.getElementById('file-label').textContent = fileName;
+    });
+
+    // Upload form
+    document.getElementById('upload-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        var monthInput = document.getElementById('upload-month');
+        var fileInput = document.getElementById('upload-file');
+
+        if (!monthInput.value) {
+            showAlert('Please select a month', 'warning');
+            return;
+        }
+        if (!fileInput.files.length) {
+            showAlert('Please select an Excel file', 'warning');
+            return;
+        }
+
+        var file = fileInput.files[0];
+        if (file.size > 10 * 1024 * 1024) {
+            showAlert('File size exceeds 10MB limit', 'danger');
+            return;
+        }
+
+        var ext = file.name.split('.').pop().toLowerCase();
+        if (ext !== 'xlsx' && ext !== 'xls') {
+            showAlert('Please upload an .xlsx or .xls file', 'danger');
+            return;
+        }
+
+        // Disable button
+        var btn = document.getElementById('btn-upload');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span> Processing...';
+
+        document.getElementById('upload-progress').style.display = 'block';
+        document.getElementById('upload-result').style.display = 'none';
+        document.getElementById('progress-bar').style.width = '10%';
+        document.getElementById('progress-text').textContent = 'Uploading file...';
+
+        // Step 1: Upload file to frappe
+        var formData = new FormData();
+        formData.append('file', file);
+        formData.append('is_private', 1);
+        formData.append('folder', 'Home');
+
+        $.ajax({
+            url: '/api/method/upload_file',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            success: function(uploadResp) {
+                var fileUrl = uploadResp.message.file_url;
+                document.getElementById('progress-bar').style.width = '40%';
+                document.getElementById('progress-text').textContent = 'Processing Excel data...';
+
+                // Step 2: Process the uploaded file
+                $.ajax({
+                    url: '/api/method/scanify.api.process_primary_sales_upload',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+                    data: JSON.stringify({
+                        upload_month: monthInput.value,
+                        file_url: fileUrl
+                    }),
+                    success: function(resp) {
+                        document.getElementById('progress-bar').style.width = '100%';
+                        document.getElementById('progress-text').textContent = 'Complete!';
+
+                        var result = resp.message;
+                        var resultDiv = document.getElementById('upload-result');
+                        resultDiv.style.display = 'block';
+
+                        if (result.success) {
+                            resultDiv.innerHTML = '<div class="alert alert-success">' +
+                                '<i class="fa fa-check-circle mr-2"></i>' +
+                                '<strong>Upload Successful!</strong> ' +
+                                result.total_rows + ' rows processed. ' +
+                                result.success_count + ' saved successfully. ' +
+                                (result.error_count > 0 ? result.error_count + ' errors.' : '') +
+                                (result.errors && result.errors.length > 0 ?
+                                    '<br><small class="mt-1 d-block"><strong>Errors:</strong><br>' +
+                                    result.errors.slice(0, 10).join('<br>') +
+                                    (result.errors.length > 10 ? '<br>... and ' + (result.errors.length - 10) + ' more' : '') +
+                                    '</small>' : '') +
+                                '</div>';
+                            showAlert('Primary sales data uploaded successfully!', 'success');
+                            // Reload after 2s to refresh recent uploads
+                            setTimeout(function() { window.location.reload(); }, 2500);
+                        } else {
+                            resultDiv.innerHTML = '<div class="alert alert-danger">' +
+                                '<i class="fa fa-exclamation-circle mr-2"></i>' +
+                                '<strong>Upload Failed:</strong> ' + (result.error || 'Unknown error') +
+                                '</div>';
+                            showAlert('Upload failed. Check the error details.', 'danger');
+                        }
+
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa fa-upload mr-1"></i> Upload & Process';
+                    },
+                    error: function(xhr) {
+                        document.getElementById('upload-progress').style.display = 'none';
+                        var errMsg = 'Unknown error';
+                        try { errMsg = JSON.parse(xhr.responseText)._server_messages || errMsg; } catch(e) {}
+                        try { errMsg = JSON.parse(errMsg); if (Array.isArray(errMsg)) errMsg = errMsg.map(function(m) { try { return JSON.parse(m).message; } catch(e2) { return m; } }).join(', '); } catch(e3) {}
+
+                        document.getElementById('upload-result').style.display = 'block';
+                        document.getElementById('upload-result').innerHTML = '<div class="alert alert-danger">' +
+                            '<i class="fa fa-exclamation-circle mr-2"></i>' +
+                            '<strong>Error:</strong> ' + errMsg + '</div>';
+
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa fa-upload mr-1"></i> Upload & Process';
+                        showAlert('Upload failed', 'danger');
+                    }
+                });
+            },
+            error: function(xhr) {
+                document.getElementById('upload-progress').style.display = 'none';
+                showAlert('Failed to upload file. Please try again.', 'danger');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa fa-upload mr-1"></i> Upload & Process';
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

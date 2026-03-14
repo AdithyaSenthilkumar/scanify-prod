@@ -1,0 +1,116 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Export Primary Sales{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page export-primary-sales-page">
+    <div class="page-header mb-4">
+        <h1 class="page-title"><i class="fa fa-file-excel"></i> Export Primary Sales Data</h1>
+        <p class="page-subtitle text-muted">Download primary sales data as Excel for {{ division }} division</p>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white border-bottom" style="padding: 1rem 1.5rem;">
+            <h5 class="mb-0 font-weight-600"><i class="fa fa-download mr-2 text-primary"></i>Select Month & Export</h5>
+        </div>
+        <div class="card-body" style="padding: 1.5rem;">
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label class="font-weight-600">Month <span class="text-danger">*</span></label>
+                        <select class="form-control" id="export-month" required>
+                            <option value="">Select month...</option>
+                            {% for m in available_months %}
+                            <option value="{{ m.upload_month }}">{{ m.upload_month }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <div class="form-group w-100">
+                        <button class="btn btn-success btn-block" id="btn-export" onclick="exportData()">
+                            <i class="fa fa-download mr-1"></i> Download Excel
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-5 d-flex align-items-center">
+                    <div id="export-info" class="text-muted" style="font-size:13px;"></div>
+                </div>
+            </div>
+
+            <!-- Count preview -->
+            <div id="month-preview" class="mt-3" style="display:none;">
+                <div class="alert alert-info mb-0 d-flex align-items-center" style="font-size:14px;">
+                    <i class="fa fa-info-circle mr-2"></i>
+                    <span id="preview-text"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if not available_months %}
+    <div class="card shadow-sm border-0">
+        <div class="card-body text-center py-5">
+            <i class="fa fa-inbox fa-3x text-muted mb-3"></i>
+            <h5 class="text-muted">No Data Available</h5>
+            <p class="text-muted">No primary sales data has been uploaded for {{ division }} division yet.</p>
+            <a href="/portal/upload-primary-sales" class="btn btn-primary mt-2">
+                <i class="fa fa-upload mr-1"></i> Upload Primary Sales Data
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.export-primary-sales-page { animation: fadeIn 0.3s ease; }
+.export-primary-sales-page .font-weight-600 { font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var division = "{{ division }}";
+
+document.getElementById('export-month').addEventListener('change', function() {
+    var month = this.value;
+    var preview = document.getElementById('month-preview');
+    if (!month) {
+        preview.style.display = 'none';
+        return;
+    }
+
+    $.ajax({
+        url: '/api/method/scanify.api.get_primary_sales_count',
+        data: { month: month, division: division },
+        success: function(resp) {
+            var count = resp.message || 0;
+            document.getElementById('preview-text').textContent = count + ' records available for ' + month;
+            preview.style.display = 'block';
+        }
+    });
+});
+
+function exportData() {
+    var month = document.getElementById('export-month').value;
+    if (!month) {
+        showAlert('Please select a month', 'warning');
+        return;
+    }
+
+    var btn = document.getElementById('btn-export');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span> Generating...';
+
+    // Download via a hidden form to get the file
+    window.location.href = '/api/method/scanify.api.export_primary_sales_data?month=' +
+        encodeURIComponent(month) + '&division=' + encodeURIComponent(division);
+
+    // Re-enable button after delay
+    setTimeout(function() {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-download mr-1"></i> Download Excel';
+    }, 3000);
+}
+</script>
+{% endblock %}

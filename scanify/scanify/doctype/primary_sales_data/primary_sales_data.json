@@ -1,0 +1,308 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-03-14 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "upload_month",
+  "division",
+  "upload_ref",
+  "column_break_meta",
+  "iscancelled",
+  "direct_party",
+  "section_break_stockist",
+  "stockist_code",
+  "stockist_name",
+  "citypool",
+  "column_break_geo",
+  "team",
+  "region",
+  "act_region",
+  "zonee",
+  "section_break_invoice",
+  "invoiceno",
+  "invoicedate",
+  "column_break_product",
+  "pcode",
+  "product",
+  "product_head",
+  "pack",
+  "batchno",
+  "section_break_qty",
+  "quantity",
+  "freeqty",
+  "expqty",
+  "column_break_pricing",
+  "pts",
+  "ptsvalue",
+  "ptr",
+  "ptrvalue",
+  "section_break_pricing2",
+  "mrp",
+  "mrpvalue",
+  "nrv",
+  "nrvvalue",
+  "column_break_sort",
+  "dsort"
+ ],
+ "fields": [
+  {
+   "fieldname": "upload_month",
+   "fieldtype": "Data",
+   "label": "Upload Month",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "division",
+   "fieldtype": "Link",
+   "label": "Division",
+   "options": "Division",
+   "reqd": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "upload_ref",
+   "fieldtype": "Link",
+   "label": "Upload Reference",
+   "options": "Primary Sales Upload",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "iscancelled",
+   "fieldtype": "Check",
+   "label": "Is Cancelled",
+   "default": "0",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "direct_party",
+   "fieldtype": "Check",
+   "label": "Direct Party",
+   "default": "0"
+  },
+  {
+   "fieldname": "section_break_stockist",
+   "fieldtype": "Section Break",
+   "label": "Stockist & Geography"
+  },
+  {
+   "fieldname": "stockist_code",
+   "fieldtype": "Data",
+   "label": "Stockist Code",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "stockist_name",
+   "fieldtype": "Data",
+   "label": "Stockist Name",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "citypool",
+   "fieldtype": "Data",
+   "label": "City/Pool"
+  },
+  {
+   "fieldname": "column_break_geo",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "team",
+   "fieldtype": "Data",
+   "label": "Team",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "region",
+   "fieldtype": "Data",
+   "label": "Region",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "act_region",
+   "fieldtype": "Data",
+   "label": "Actual Region"
+  },
+  {
+   "fieldname": "zonee",
+   "fieldtype": "Data",
+   "label": "Zone",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "section_break_invoice",
+   "fieldtype": "Section Break",
+   "label": "Invoice & Product"
+  },
+  {
+   "fieldname": "invoiceno",
+   "fieldtype": "Data",
+   "label": "Invoice No"
+  },
+  {
+   "fieldname": "invoicedate",
+   "fieldtype": "Date",
+   "label": "Invoice Date",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "column_break_product",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pcode",
+   "fieldtype": "Data",
+   "label": "Product Code",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Data",
+   "label": "Product",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "product_head",
+   "fieldtype": "Data",
+   "label": "Product Head",
+   "in_standard_filter": 1,
+   "description": "Maps to Product Group in Product Master"
+  },
+  {
+   "fieldname": "pack",
+   "fieldtype": "Data",
+   "label": "Pack"
+  },
+  {
+   "fieldname": "batchno",
+   "fieldtype": "Data",
+   "label": "Batch No"
+  },
+  {
+   "fieldname": "section_break_qty",
+   "fieldtype": "Section Break",
+   "label": "Quantities"
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "label": "Quantity",
+   "in_list_view": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "freeqty",
+   "fieldtype": "Float",
+   "label": "Free Qty",
+   "precision": "2"
+  },
+  {
+   "fieldname": "expqty",
+   "fieldtype": "Float",
+   "label": "Expiry Qty",
+   "precision": "2"
+  },
+  {
+   "fieldname": "column_break_pricing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pts",
+   "fieldtype": "Float",
+   "label": "PTS",
+   "precision": "2"
+  },
+  {
+   "fieldname": "ptsvalue",
+   "fieldtype": "Float",
+   "label": "PTS Value",
+   "precision": "2"
+  },
+  {
+   "fieldname": "ptr",
+   "fieldtype": "Float",
+   "label": "PTR",
+   "precision": "2"
+  },
+  {
+   "fieldname": "ptrvalue",
+   "fieldtype": "Float",
+   "label": "PTR Value",
+   "precision": "2"
+  },
+  {
+   "fieldname": "section_break_pricing2",
+   "fieldtype": "Section Break",
+   "label": "MRP & NRV"
+  },
+  {
+   "fieldname": "mrp",
+   "fieldtype": "Float",
+   "label": "MRP",
+   "precision": "2"
+  },
+  {
+   "fieldname": "mrpvalue",
+   "fieldtype": "Float",
+   "label": "MRP Value",
+   "precision": "2"
+  },
+  {
+   "fieldname": "nrv",
+   "fieldtype": "Float",
+   "label": "NRV",
+   "precision": "2"
+  },
+  {
+   "fieldname": "nrvvalue",
+   "fieldtype": "Float",
+   "label": "NRV Value",
+   "precision": "2"
+  },
+  {
+   "fieldname": "column_break_sort",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "dsort",
+   "fieldtype": "Int",
+   "label": "D-Sort",
+   "default": "0"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-03-14 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Scanify",
+ "name": "Primary Sales Data",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}
