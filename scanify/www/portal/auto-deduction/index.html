@@ -1,0 +1,668 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Auto Deduction (Bulk){% endblock %}
+
+{% block portal_content %}
+<div class="portal-page auto-deduction-page">
+    <div class="page-header d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="page-title"><i class="fa fa-layer-group"></i> Auto Deduction (Bulk)</h1>
+            <p class="page-subtitle">Create multiple scheme deductions at once for <strong id="divisionLabel">{{ division }}</strong></p>
+        </div>
+        <a href="/portal/scheme-deduction-list" class="btn btn-secondary">
+            <i class="fa fa-list"></i> Deduction List
+        </a>
+    </div>
+
+    <!-- Common Deduction Date -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row align-items-end">
+                <div class="col-md-4">
+                    <label><strong>Deduction Date <span class="text-danger">*</span></strong></label>
+                    <input type="date" id="commonDeductionDate" class="form-control" required>
+                    <small class="text-muted">Applied to all rows below</small>
+                </div>
+                <div class="col-md-8 d-flex align-items-end justify-content-end gap-2">
+                    <button class="btn btn-secondary" onclick="addRow()">
+                        <i class="fa fa-plus"></i> Add Row
+                    </button>
+                    <button class="btn btn-primary" id="submitAllBtn" onclick="submitAll()" disabled>
+                        <i class="fa fa-check-double"></i> Submit All Deductions
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deduction Rows Table -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="fa fa-table"></i> Deduction Rows</span>
+            <span class="badge badge-info" id="rowCountBadge">0 rows</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-bordered mb-0" id="bulkTable">
+                    <thead>
+                        <tr>
+                            <th style="width:40px;">#</th>
+                            <th style="width:28%;">Scheme Request</th>
+                            <th style="width:28%;">Stockist Statement</th>
+                            <th style="width:80px;">Items</th>
+                            <th style="width:100px;">Total Qty</th>
+                            <th style="width:120px;" class="text-right">Total Value</th>
+                            <th style="width:90px;">Status</th>
+                            <th style="width:80px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bulkTbody"></tbody>
+                </table>
+            </div>
+            <div id="emptyRows" class="text-center py-5 text-muted">
+                <i class="fa fa-inbox fa-2x mb-2"></i>
+                <p>No rows yet. Click <strong>Add Row</strong> to start.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Collapsible Item Details (shown per-row when toggled) -->
+    <div id="itemDetailOverlay" class="item-detail-overlay" style="display:none;">
+        <div class="item-detail-panel">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0"><i class="fa fa-cubes"></i> Deduction Items — Row <span id="detailRowNum"></span></h5>
+                <button class="btn btn-sm btn-secondary" onclick="closeItemDetail()"><i class="fa fa-times"></i> Close</button>
+            </div>
+            <div id="detailSchemeInfo" class="alert alert-info mb-3" style="display:none;"></div>
+            <div id="detailLoading" class="text-center py-4" style="display:none;">
+                <i class="fa fa-spinner fa-spin fa-2x text-muted"></i>
+                <p class="mt-2 text-muted">Loading items...</p>
+            </div>
+            <div id="detailContent" style="display:none;">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Pack</th>
+                                <th>Scheme Free Qty</th>
+                                <th>Stmt Sales Qty</th>
+                                <th style="width:100px;">Deduct Qty</th>
+                                <th>PTS Rate</th>
+                                <th class="text-right">Deducted Value</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detailItemsBody"></tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="4" class="text-right"><strong>Totals:</strong></td>
+                                <td><strong id="detailTotalQty">0</strong></td>
+                                <td></td>
+                                <td class="text-right"><strong id="detailTotalValue">&#8377; 0.00</strong></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <div id="detailSkipped" class="alert alert-warning mt-3" style="display:none;">
+                    <strong>Skipped products:</strong> <span id="detailSkippedList"></span>
+                </div>
+            </div>
+            <div id="detailNoItems" class="text-center py-4 text-muted" style="display:none;">
+                <i class="fa fa-exclamation-circle fa-2x mb-2"></i>
+                <p>No matching items found.</p>
+            </div>
+            <div class="d-flex justify-content-end mt-3">
+                <button class="btn btn-primary" onclick="saveItemDetail()"><i class="fa fa-check"></i> Confirm Items</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.auto-deduction-page .table thead th {
+    background: #f8fafc;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    vertical-align: middle;
+}
+.auto-deduction-page .table td {
+    vertical-align: middle;
+    font-size: 0.85rem;
+}
+.auto-deduction-page select.form-control {
+    font-size: 0.85rem;
+    padding: 4px 8px;
+    height: auto;
+}
+.gap-2 { gap: 8px; }
+
+/* Row status indicators */
+.row-ready { background: #f0fdf4 !important; }
+.row-error { background: #fef2f2 !important; }
+.row-done  { background: #eff6ff !important; }
+
+/* Item detail overlay */
+.item-detail-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.item-detail-panel {
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px;
+    width: 90%;
+    max-width: 960px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+.item-detail-panel .table thead th {
+    background: #f8fafc;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    color: #64748b;
+}
+.item-detail-panel .deduct-qty-input {
+    width: 80px;
+    text-align: center;
+    font-size: 0.85rem;
+    padding: 2px 6px;
+}
+.btn-icon-sm {
+    padding: 3px 8px;
+    font-size: 0.78rem;
+    border-radius: 5px;
+    border: none;
+    cursor: pointer;
+}
+.btn-view { background: #e0e7ff; color: #4338ca; }
+.btn-view:hover { background: #c7d2fe; }
+.btn-del { background: #fee2e2; color: #dc2626; }
+.btn-del:hover { background: #fecaca; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let bulkRows = [];
+    let allSchemeOptions = [];
+    let currentDetailRowIdx = null;
+
+    function getActiveDivision() {
+        try {
+            const btn = document.querySelector('.division-name');
+            if (btn && btn.textContent.trim()) return btn.textContent.trim();
+        } catch (e) {}
+        const match = document.cookie.match(/(?:^|;\s*)division=([^;]*)/);
+        if (match) return decodeURIComponent(match[1]);
+        return '{{ division }}';
+    }
+
+    function fmtCurrency(v) {
+        return '\u20B9 ' + new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0);
+    }
+
+    $(document).ready(function () {
+        document.getElementById('commonDeductionDate').value = new Date().toISOString().split('T')[0];
+        loadAllSchemes();
+    });
+
+    // ───────── Scheme options loading ─────────
+    function loadAllSchemes() {
+        $.ajax({
+            url: '/api/method/scanify.api.get_scheme_requests_for_deduction',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ division: getActiveDivision(), search: '' }),
+            success: function (r) {
+                allSchemeOptions = (r.message && r.message.success) ? (r.message.data || []) : [];
+            },
+            error: function () { allSchemeOptions = []; }
+        });
+    }
+
+    function buildSchemeOptionsHTML(selectedValue) {
+        let html = '<option value="">-- Select Scheme --</option>';
+        allSchemeOptions.forEach(function (s) {
+            const sel = s.name === selectedValue ? ' selected' : '';
+            html += '<option value="' + s.name + '"' + sel + '>'
+                + s.name + ' | ' + (s.doctor_name || '-') + ' | ' + (s.stockist_name || '-')
+                + '</option>';
+        });
+        return html;
+    }
+
+    // ───────── Row management ─────────
+    function addRow() {
+        const idx = bulkRows.length;
+        bulkRows.push({
+            scheme: '',
+            statement: '',
+            schemeMeta: null,
+            items: [],
+            totalQty: 0,
+            totalValue: 0,
+            status: 'pending', // pending | ready | done | error
+            errorMsg: '',
+        });
+        renderRows();
+        updateSubmitBtn();
+    }
+
+    function removeRow(idx) {
+        bulkRows.splice(idx, 1);
+        renderRows();
+        updateSubmitBtn();
+    }
+
+    function renderRows() {
+        const tb = document.getElementById('bulkTbody');
+        const empty = document.getElementById('emptyRows');
+        document.getElementById('rowCountBadge').textContent = bulkRows.length + ' row' + (bulkRows.length !== 1 ? 's' : '');
+
+        if (!bulkRows.length) {
+            tb.innerHTML = '';
+            empty.style.display = '';
+            return;
+        }
+        empty.style.display = 'none';
+
+        let html = '';
+        bulkRows.forEach(function (row, idx) {
+            const rowClass = row.status === 'ready' ? 'row-ready'
+                : row.status === 'error' ? 'row-error'
+                : row.status === 'done' ? 'row-done' : '';
+
+            const statusBadge = row.status === 'ready'
+                ? '<span class="badge badge-success">Ready</span>'
+                : row.status === 'done'
+                ? '<span class="badge badge-info">Created</span>'
+                : row.status === 'error'
+                ? '<span class="badge badge-danger" title="' + escHtml(row.errorMsg) + '">Error</span>'
+                : '<span class="badge badge-secondary">Pending</span>';
+
+            const disabled = row.status === 'done' ? ' disabled' : '';
+
+            html += '<tr class="' + rowClass + '">'
+                + '<td class="text-center"><strong>' + (idx + 1) + '</strong></td>'
+                + '<td>'
+                +   '<select class="form-control" id="scheme-' + idx + '" onchange="onRowSchemeChange(' + idx + ')"' + disabled + '>'
+                +     buildSchemeOptionsHTML(row.scheme)
+                +   '</select>'
+                + '</td>'
+                + '<td>'
+                +   '<select class="form-control" id="stmt-' + idx + '"' + (row.scheme ? '' : ' disabled') + disabled + '>'
+                +     (row._stmtHTML || '<option value="">-- Select scheme first --</option>')
+                +   '</select>'
+                + '</td>'
+                + '<td class="text-center">'
+                +   (row.items.length
+                      ? '<button class="btn-icon-sm btn-view" onclick="openItemDetail(' + idx + ')" title="View/edit items">'
+                      +   '<i class="fa fa-eye"></i> ' + row.items.length
+                      + '</button>'
+                      : '-')
+                + '</td>'
+                + '<td>' + (row.totalQty || 0) + '</td>'
+                + '<td class="text-right">' + fmtCurrency(row.totalValue) + '</td>'
+                + '<td>' + statusBadge + '</td>'
+                + '<td class="text-center">'
+                +   (row.status !== 'done'
+                      ? '<button class="btn-icon-sm btn-del" onclick="removeRow(' + idx + ')" title="Remove row"><i class="fa fa-trash"></i></button>'
+                      : '<i class="fa fa-check-circle text-success"></i>')
+                + '</td>'
+                + '</tr>';
+        });
+        tb.innerHTML = html;
+
+        // Re-bind statement change handlers
+        bulkRows.forEach(function (row, idx) {
+            $('#stmt-' + idx).off('change').on('change', function () {
+                row.statement = this.value;
+                if (this.value) {
+                    fetchRowItems(idx);
+                } else {
+                    row.items = [];
+                    row.totalQty = 0;
+                    row.totalValue = 0;
+                    row.status = 'pending';
+                    renderRows();
+                    updateSubmitBtn();
+                }
+            });
+        });
+    }
+
+    function escHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s || '';
+        return d.innerHTML;
+    }
+
+    // ───────── Scheme/Statement selection per row ─────────
+    function onRowSchemeChange(idx) {
+        const scheme = $('#scheme-' + idx).val();
+        const row = bulkRows[idx];
+        row.scheme = scheme;
+        row.statement = '';
+        row.items = [];
+        row.totalQty = 0;
+        row.totalValue = 0;
+        row.schemeMeta = null;
+        row.status = 'pending';
+        row._stmtHTML = '<option value="">Loading...</option>';
+        renderRows();
+        updateSubmitBtn();
+
+        if (!scheme) return;
+
+        // Get scheme details
+        $.ajax({
+            url: '/api/method/scanify.api.get_scheme_detail',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ scheme_name: scheme }),
+            success: function (r) {
+                if (r.message && r.message.success) {
+                    row.schemeMeta = r.message;
+                    loadRowStatements(idx, r.message.stockist_code);
+                } else {
+                    row._stmtHTML = '<option value="">Error loading scheme</option>';
+                    renderRows();
+                }
+            },
+            error: function () {
+                row._stmtHTML = '<option value="">Error</option>';
+                renderRows();
+            }
+        });
+    }
+
+    function loadRowStatements(idx, stockistCode) {
+        $.ajax({
+            url: '/api/method/scanify.api.get_stockist_statements_for_deduction',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ stockist_code: stockistCode, division: getActiveDivision() }),
+            success: function (r) {
+                const stmts = (r.message && r.message.success) ? (r.message.data || []) : [];
+                let html = '<option value="">-- Select Statement --</option>';
+                stmts.forEach(function (s) {
+                    html += '<option value="' + s.name + '">' + s.name + ' | ' + (s.month_label || '-') + '</option>';
+                });
+                bulkRows[idx]._stmtHTML = html;
+                renderRows();
+            },
+            error: function () {
+                bulkRows[idx]._stmtHTML = '<option value="">Error loading</option>';
+                renderRows();
+            }
+        });
+    }
+
+    function fetchRowItems(idx) {
+        const row = bulkRows[idx];
+        if (!row.scheme || !row.statement) return;
+
+        $.ajax({
+            url: '/api/method/scanify.api.fetch_deduction_items_portal',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({
+                scheme_request: row.scheme,
+                stockist_statement: row.statement,
+                division: getActiveDivision(),
+            }),
+            success: function (r) {
+                if (r.message && r.message.success) {
+                    const items = r.message.items || [];
+                    row.items = items;
+                    let tq = 0, tv = 0;
+                    items.forEach(function (it) {
+                        tq += parseFloat(it.deduct_qty || 0);
+                        tv += parseFloat(it.deducted_value || 0);
+                    });
+                    row.totalQty = tq;
+                    row.totalValue = tv;
+                    row.status = items.length ? 'ready' : 'pending';
+                } else {
+                    row.items = [];
+                    row.status = 'error';
+                    row.errorMsg = (r.message && r.message.message) || 'Failed to load items';
+                }
+                renderRows();
+                updateSubmitBtn();
+            },
+            error: function () {
+                row.items = [];
+                row.status = 'error';
+                row.errorMsg = 'Network error loading items';
+                renderRows();
+                updateSubmitBtn();
+            }
+        });
+    }
+
+    // ───────── Item detail overlay (collapsible info) ─────────
+    function openItemDetail(idx) {
+        currentDetailRowIdx = idx;
+        const row = bulkRows[idx];
+        document.getElementById('detailRowNum').textContent = (idx + 1);
+        $('#detailSchemeInfo').hide();
+        $('#detailLoading').show();
+        $('#detailContent').hide();
+        $('#detailNoItems').hide();
+        $('#detailSkipped').hide();
+        $('#itemDetailOverlay').show();
+
+        if (row.schemeMeta) {
+            $('#detailSchemeInfo').html(
+                '<strong>Scheme:</strong> ' + row.scheme
+                + ' <span class="mx-2">|</span> <strong>Doctor:</strong> ' + (row.schemeMeta.doctor_name || '-')
+                + ' <span class="mx-2">|</span> <strong>Stockist:</strong> ' + (row.schemeMeta.stockist_name || '-')
+            ).show();
+        }
+
+        // Items already loaded
+        if (row.items.length) {
+            renderDetailItems(row.items);
+            $('#detailLoading').hide();
+            $('#detailContent').show();
+        } else {
+            $('#detailLoading').hide();
+            $('#detailNoItems').show();
+        }
+    }
+
+    function renderDetailItems(items) {
+        let html = '';
+        items.forEach(function (item, i) {
+            const max = parseFloat(item.scheme_free_qty || 0);
+            html += '<tr>'
+                + '<td><strong>' + (item.product_name || '-') + '</strong><br><small class="text-muted">' + (item.product_code || '') + '</small></td>'
+                + '<td>' + (item.pack || '-') + '</td>'
+                + '<td>' + (item.scheme_free_qty || 0) + '</td>'
+                + '<td>' + (item.current_sales_qty || 0) + '</td>'
+                + '<td><input type="number" class="form-control form-control-sm deduct-qty-input" '
+                +   'id="detail-qty-' + i + '" value="' + (item.deduct_qty || 0) + '" min="0" max="' + max + '" '
+                +   'oninput="updateDetailRow(' + i + ')"></td>'
+                + '<td>' + fmtCurrency(item.pts || 0) + '</td>'
+                + '<td class="text-right" id="detail-val-' + i + '">' + fmtCurrency(item.deducted_value || 0) + '</td>'
+                + '</tr>';
+        });
+        $('#detailItemsBody').html(html);
+        updateDetailTotals(items);
+    }
+
+    function updateDetailRow(i) {
+        const row = bulkRows[currentDetailRowIdx];
+        const qty = parseFloat($('#detail-qty-' + i).val()) || 0;
+        const pts = parseFloat(row.items[i].pts || 0);
+        row.items[i].deduct_qty = qty;
+        row.items[i].deducted_value = qty * pts;
+        $('#detail-val-' + i).text(fmtCurrency(qty * pts));
+        updateDetailTotals(row.items);
+    }
+
+    function updateDetailTotals(items) {
+        let tq = 0, tv = 0;
+        items.forEach(function (it, i) {
+            const qty = parseFloat($('#detail-qty-' + i).val()) || 0;
+            const pts = parseFloat(it.pts || 0);
+            tq += qty;
+            tv += qty * pts;
+        });
+        $('#detailTotalQty').text(tq);
+        $('#detailTotalValue').text(fmtCurrency(tv));
+    }
+
+    function saveItemDetail() {
+        const row = bulkRows[currentDetailRowIdx];
+        // Sync qty values from overlay inputs
+        let tq = 0, tv = 0;
+        row.items.forEach(function (it, i) {
+            const qty = parseFloat($('#detail-qty-' + i).val()) || 0;
+            it.deduct_qty = qty;
+            it.deducted_value = qty * parseFloat(it.pts || 0);
+            tq += qty;
+            tv += it.deducted_value;
+        });
+        row.totalQty = tq;
+        row.totalValue = tv;
+        row.status = row.items.some(it => it.deduct_qty > 0) ? 'ready' : 'pending';
+        closeItemDetail();
+        renderRows();
+        updateSubmitBtn();
+    }
+
+    function closeItemDetail() {
+        $('#itemDetailOverlay').hide();
+        currentDetailRowIdx = null;
+    }
+
+    // ───────── Submit all ─────────
+    function updateSubmitBtn() {
+        const readyCount = bulkRows.filter(r => r.status === 'ready').length;
+        const btn = document.getElementById('submitAllBtn');
+        btn.disabled = readyCount === 0;
+        if (readyCount > 0) {
+            btn.innerHTML = '<i class="fa fa-check-double"></i> Submit All (' + readyCount + ')';
+        } else {
+            btn.innerHTML = '<i class="fa fa-check-double"></i> Submit All Deductions';
+        }
+    }
+
+    function submitAll() {
+        const deductionDate = document.getElementById('commonDeductionDate').value;
+        if (!deductionDate) {
+            showAlert('Please select a deduction date.', 'warning');
+            return;
+        }
+
+        const readyRows = [];
+        bulkRows.forEach(function (row, idx) {
+            if (row.status === 'ready') {
+                readyRows.push({ row: row, idx: idx });
+            }
+        });
+
+        if (!readyRows.length) {
+            showAlert('No ready rows to submit.', 'warning');
+            return;
+        }
+
+        const btn = document.getElementById('submitAllBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Submitting...';
+
+        const payload = readyRows.map(function (r) {
+            const items = r.row.items.filter(it => it.deduct_qty > 0).map(function (it) {
+                return {
+                    product_code: it.product_code,
+                    product_name: it.product_name,
+                    pack: it.pack,
+                    scheme_free_qty: it.scheme_free_qty,
+                    current_sales_qty: it.current_sales_qty,
+                    deduct_qty: it.deduct_qty,
+                    pts: it.pts,
+                    deducted_value: it.deducted_value,
+                };
+            });
+            return {
+                scheme_request: r.row.scheme,
+                stockist_statement: r.row.statement,
+                items: items,
+            };
+        });
+
+        $.ajax({
+            url: '/api/method/scanify.api.create_bulk_scheme_deductions_portal',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({
+                deductions: JSON.stringify(payload),
+                deduction_date: deductionDate,
+                division: getActiveDivision(),
+            }),
+            success: function (r) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa fa-check-double"></i> Submit All Deductions';
+
+                if (r.message && r.message.success) {
+                    const results = r.message.results || [];
+                    let createdCount = 0;
+                    results.forEach(function (res, i) {
+                        const rowIdx = readyRows[i].idx;
+                        if (res.success) {
+                            bulkRows[rowIdx].status = 'done';
+                            bulkRows[rowIdx].resultName = res.name;
+                            createdCount++;
+                        } else {
+                            bulkRows[rowIdx].status = 'error';
+                            bulkRows[rowIdx].errorMsg = res.message || 'Failed';
+                        }
+                    });
+                    renderRows();
+                    updateSubmitBtn();
+
+                    if (createdCount === readyRows.length) {
+                        showAlert(createdCount + ' deduction(s) created successfully!', 'success');
+                        setTimeout(function () { window.location.href = '/portal/scheme-deduction-list'; }, 1500);
+                    } else {
+                        showAlert(createdCount + ' of ' + readyRows.length + ' created. Check rows with errors.', 'warning');
+                    }
+                } else {
+                    showAlert((r.message && r.message.message) || 'Bulk submission failed', 'danger');
+                }
+            },
+            error: function (xhr) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa fa-check-double"></i> Submit All Deductions';
+                console.error(xhr.responseText);
+                showAlert('Error submitting deductions', 'danger');
+            }
+        });
+    }
+
+    // ───────── Utility ─────────
+    function showAlert(msg, type) {
+        const a = $('<div class="alert alert-' + type + ' alert-dismissible fade show" role="alert" '
+            + 'style="position:fixed;top:90px;right:24px;z-index:10001;min-width:350px;max-width:500px;">'
+            + '<strong>' + msg + '</strong>'
+            + '<button type="button" class="close" data-dismiss="alert">&times;</button></div>');
+        $('body').append(a);
+        setTimeout(function () { a.fadeOut(function () { a.remove(); }); }, 4500);
+    }
+</script>
+{% endblock %}

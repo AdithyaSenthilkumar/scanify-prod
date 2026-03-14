@@ -85,17 +85,12 @@
             <div class="card-body">
                 <div class="row mb-3">
                     <div class="col-md-6">
-                        <div class="form-group doctor-search-group">
-                            <label><strong>Search Doctor <span class="text-danger">*</span></strong></label>
-                            <div class="input-group">
-                                <div class="input-group-prepend">
-                                    <span class="input-group-text bg-white"><i class="fa fa-search text-muted"></i></span>
-                                </div>
-                                <input type="text" id="doctorSearch" class="form-control"
-                                    placeholder="Select an HQ first..." autocomplete="off" disabled>
-                            </div>
+                        <div class="form-group">
+                            <label><strong>Doctor <span class="text-danger">*</span></strong></label>
+                            <select id="doctorSelect" class="form-control" required disabled>
+                                <option value="">-- Select HQ first --</option>
+                            </select>
                             <small class="text-muted">Doctors are filtered by the selected HQ</small>
-                            <div id="doctorResults" class="doctor-results-dropdown"></div>
                             <input type="hidden" id="doctorCode" required>
                         </div>
                     </div>
@@ -260,35 +255,6 @@
         font-size: 0.75rem;
         color: var(--color-text-muted);
         text-transform: uppercase;
-    }
-
-    .doctor-search-group {
-        position: relative;
-    }
-
-    .doctor-results-dropdown {
-        position: absolute;
-        left: 0;
-        right: 0;
-        top: calc(100% + 4px);
-        z-index: 1200;
-        max-height: 300px;
-        overflow-y: auto;
-        border: 1px solid var(--color-border);
-        border-radius: 10px;
-        background: #fff;
-        box-shadow: var(--shadow-lg);
-        display: none;
-    }
-
-    .scheme-new-page .doctor-result-item {
-        padding: 10px 12px;
-        cursor: pointer;
-        border-bottom: 1px solid #f1f5f9;
-    }
-
-    .scheme-new-page .doctor-result-item:hover {
-        background: #f8fafc;
     }
 
     .gap-2 {

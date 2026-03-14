@@ -2416,6 +2416,94 @@ def get_active_products(division=None):
     return products
 
 @frappe.whitelist()
+def get_doctors_for_hq(hq=None, division=None):
+    """Get all active doctors for a given HQ and division (for dropdown)"""
+    if not division:
+        division = get_user_division()
+
+    conditions = ["status = 'Active'"]
+    params = {}
+    if hq:
+        conditions.append("hq = %(hq)s")
+        params["hq"] = hq
+    if division and division != "Both":
+        conditions.append("(division = %(division)s OR division = 'Both')")
+        params["division"] = division
+
+    where_sql = " AND ".join(conditions)
+    doctors = frappe.db.sql("""
+        SELECT name, doctor_code, doctor_name, place, specialization,
+               hospital_address, hq, team, region
+        FROM `tabDoctor Master`
+        WHERE {where_sql}
+        ORDER BY doctor_name
+        LIMIT 500
+    """.format(where_sql=where_sql), params, as_dict=True)
+
+    return doctors
+
+@frappe.whitelist()
+def get_approved_doctors_for_hq(hq=None, division=None):
+    """Get doctors who have at least one approved scheme in the given HQ/division"""
+    if not division:
+        division = get_user_division()
+
+    conditions = ["dm.status = 'Active'"]
+    params = {}
+    if hq:
+        conditions.append("sr.hq = %(hq)s")
+        params["hq"] = hq
+    if division and division != "Both":
+        conditions.append("(sr.division = %(division)s OR sr.division = 'Both')")
+        params["division"] = division
+
+    where_sql = " AND ".join(conditions)
+    doctors = frappe.db.sql("""
+        SELECT DISTINCT dm.name, dm.doctor_code, dm.doctor_name, dm.place,
+               dm.specialization, dm.hospital_address, dm.hq, dm.team, dm.region
+        FROM `tabDoctor Master` dm
+        INNER JOIN `tabScheme Request` sr ON sr.doctor_code = dm.name
+        WHERE sr.approval_status = 'Approved'
+          AND sr.docstatus != 2
+          AND {where_sql}
+        ORDER BY dm.doctor_name
+        LIMIT 500
+    """.format(where_sql=where_sql), params, as_dict=True)
+
+    return doctors
+
+@frappe.whitelist()
+def get_approved_products_for_doctor(doctor_code=None, division=None):
+    """Get products that appear in approved schemes for a specific doctor"""
+    if not division:
+        division = get_user_division()
+    if not doctor_code:
+        return []
+
+    conditions = [
+        "sr.approval_status = 'Approved'",
+        "sr.docstatus != 2",
+        "sr.doctor_code = %(doctor_code)s",
+    ]
+    params = {"doctor_code": doctor_code}
+    if division and division != "Both":
+        conditions.append("(sr.division = %(division)s OR sr.division = 'Both')")
+        params["division"] = division
+
+    where_sql = " AND ".join(conditions)
+    products = frappe.db.sql("""
+        SELECT DISTINCT pm.name, pm.product_code, pm.product_name, pm.pack, pm.pts, pm.division
+        FROM `tabProduct Master` pm
+        INNER JOIN `tabScheme Request Item` sri ON sri.product_code = pm.name
+        INNER JOIN `tabScheme Request` sr ON sr.name = sri.parent
+        WHERE pm.status = 'Active'
+          AND {where_sql}
+        ORDER BY pm.product_name
+    """.format(where_sql=where_sql), params, as_dict=True)
+
+    return products
+
+@frappe.whitelist()
 def get_stockists_by_hq(hq, division=None):
     """Get stockists for a specific HQ"""
     if not division:
@@ -3795,6 +3883,48 @@ def create_scheme_deduction_portal(scheme_request, stockist_statement, items, de
         return {"success": True, "name": doc.name, "message": "Scheme deduction created successfully"}
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Create Scheme Deduction Portal Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def create_bulk_scheme_deductions_portal(deductions, deduction_date, division=None):
+    """Create multiple Scheme Deductions at once from the auto-deduction portal page"""
+    try:
+        if isinstance(deductions, str):
+            deductions = json.loads(deductions)
+
+        if not division:
+            division = get_user_division()
+
+        results = []
+        for entry in deductions:
+            scheme_request = entry.get("scheme_request")
+            stockist_statement = entry.get("stockist_statement")
+            items = entry.get("items", [])
+
+            if not scheme_request or not stockist_statement:
+                results.append({"success": False, "message": "Missing scheme or statement"})
+                continue
+
+            result = create_scheme_deduction_portal(
+                scheme_request=scheme_request,
+                stockist_statement=stockist_statement,
+                items=json.dumps(items) if not isinstance(items, str) else items,
+                deduction_date=deduction_date,
+                division=division,
+            )
+            results.append(result)
+
+        created_count = sum(1 for r in results if r.get("success"))
+        return {
+            "success": True,
+            "results": results,
+            "created": created_count,
+            "total": len(deductions),
+            "message": f"{created_count} of {len(deductions)} deductions created",
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Create Bulk Scheme Deductions Portal Error")
         return {"success": False, "message": str(e)}
 
 

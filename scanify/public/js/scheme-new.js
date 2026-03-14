@@ -34,25 +34,18 @@ $(document).ready(function () {
     loadHQs();
     loadProducts();
 
-    // Doctor search
-    $('#doctorSearch').on('input', function () {
-        clearTimeout(doctorSearchTimeout);
-        const term = $(this).val().trim();
-        if (term.length >= 2) {
-            doctorSearchTimeout = setTimeout(() => searchDoctors(term), 300);
+    // Doctor dropdown change
+    $('#doctorSelect').on('change', function () {
+        const selected = $(this).val();
+        if (selected) {
+            const $opt = $(this).find('option:selected');
+            selectDoctorFromDropdown($opt);
         } else {
-            hideDoctorResults();
+            clearDoctorSelection();
         }
     });
 
-    // Close dropdown when clicking outside
-    $(document).on('click', function (e) {
-        if (!$(e.target).closest('#doctorSearch, #doctorResults').length) {
-            hideDoctorResults();
-        }
-    });
-
-    // HQ change → fill region/team, enable doctor search, load stockists by region
+    // HQ change → fill region/team, load doctors dropdown, load stockists by region
     $('#hqSelect').on('change', function () {
         const hq = $(this).val();
         if (hq) {
@@ -65,8 +58,8 @@ $(document).ready(function () {
             $('#regionValue').val(region);
             $('#teamDisplay').val(teamName);
 
-            // Enable doctor search
-            $('#doctorSearch').prop('disabled', false).attr('placeholder', 'Type doctor name, place, or code (min 2 chars)...');
+            // Load doctors dropdown for this HQ
+            loadDoctorsForHQ(hq);
 
             // Load stockists from entire region
             loadStockistsByRegion(region);
@@ -74,7 +67,7 @@ $(document).ready(function () {
             $('#regionDisplay').val('');
             $('#regionValue').val('');
             $('#teamDisplay').val('');
-            $('#doctorSearch').prop('disabled', true).attr('placeholder', 'Select an HQ first...');
+            $('#doctorSelect').prop('disabled', true).html('<option value="">-- Select HQ first --</option>');
             $('#stockistSelect').html('<option value="">-- Select HQ first --</option>');
         }
 
@@ -154,7 +147,6 @@ function loadStockistsByRegion(region) {
 
 function clearDoctorSelection() {
     selectedDoctor = null;
-    $('#doctorSearch').val('');
     $('#doctorCode').val('');
     $('#doctorName, #doctorPlace, #doctorSpecialization, #doctorHospital').val('');
     $('#doctorFieldsRow').hide();
@@ -186,62 +178,61 @@ function loadProducts() {
     });
 }
 
-// ===================== DOCTOR SEARCH =====================
+// ===================== DOCTOR DROPDOWN =====================
 
-function searchDoctors(term) {
+function loadDoctorsForHQ(hq) {
     const division = getActiveDivision();
-    const selectedHQ = $('#hqSelect').val() || '';
+    $('#doctorSelect').prop('disabled', true).html('<option value="">Loading doctors...</option>');
+
     $.ajax({
-        url: '/api/method/scanify.api.search_doctors',
+        url: '/api/method/scanify.api.get_doctors_for_hq',
         type: 'POST',
         contentType: 'application/json',
         headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-        data: JSON.stringify({ searchterm: term, division: division, hq: selectedHQ }),
+        data: JSON.stringify({ hq: hq, division: division }),
         success: function (r) {
+            let html = '<option value="">-- Select Doctor --</option>';
             if (r.message && r.message.length > 0) {
-                let html = '';
                 r.message.forEach(function (d) {
-                    html += `<div class="doctor-result-item" 
-                        data-code="${d.name}" 
+                    html += `<option value="${d.name}"
+                        data-code="${d.name}"
                         data-doctor-code="${d.doctor_code || ''}"
-                        data-name="${d.doctor_name}" 
+                        data-name="${d.doctor_name}"
                         data-place="${d.place || ''}"
                         data-specialization="${d.specialization || ''}"
                         data-hospital="${d.hospital_address || ''}"
                         data-hq="${d.hq || ''}"
                         data-team="${d.team || ''}"
-                        data-region="${d.region || ''}"
-                        onclick="selectDoctor(this)">
-                        <strong>${d.doctor_name}</strong> <span class="text-muted">(${d.doctor_code || d.name})</span><br>
-                        <small class="text-muted">${[d.place, d.specialization].filter(Boolean).join(' · ')}</small>
-                    </div>`;
+                        data-region="${d.region || ''}">
+                        ${d.doctor_name} (${d.doctor_code || d.name})${d.place ? ' - ' + d.place : ''}
+                    </option>`;
                 });
-                $('#doctorResults').html(html).show();
             } else {
-                $('#doctorResults').html('<div class="dropdown-item text-muted">No doctors found</div>').show();
+                html = '<option value="">No doctors found for this HQ</option>';
             }
+            $('#doctorSelect').html(html).prop('disabled', false);
         },
-        error: function (xhr) { console.error('Doctor search error:', xhr.responseText); }
+        error: function (xhr) {
+            console.error('Doctor load error:', xhr.responseText);
+            $('#doctorSelect').html('<option value="">Error loading doctors</option>').prop('disabled', false);
+        }
     });
 }
 
-function selectDoctor(el) {
-    const $el = $(el);
+function selectDoctorFromDropdown($opt) {
     selectedDoctor = {
-        code: $el.data('code'),
-        doctor_code: $el.data('doctor-code'),
-        name: $el.data('name'),
-        place: $el.data('place'),
-        specialization: $el.data('specialization'),
-        hospital: $el.data('hospital'),
-        hq: $el.data('hq'),
-        team: $el.data('team'),
-        region: $el.data('region'),
+        code: $opt.data('code'),
+        doctor_code: $opt.data('doctor-code'),
+        name: $opt.data('name'),
+        place: $opt.data('place'),
+        specialization: $opt.data('specialization'),
+        hospital: $opt.data('hospital'),
+        hq: $opt.data('hq'),
+        team: $opt.data('team'),
+        region: $opt.data('region'),
     };
 
-    $('#doctorSearch').val(selectedDoctor.name);
     $('#doctorCode').val(selectedDoctor.code);
-    hideDoctorResults();
 
     // Fill doctor fields
     $('#doctorName').val(selectedDoctor.name);
@@ -258,13 +249,8 @@ function selectDoctor(el) {
     `);
     $('#doctorInfoPanel').show();
 
-
     // Load monthly limit info
     loadDoctorMonthlyLimit(selectedDoctor.code);
-}
-
-function hideDoctorResults() {
-    $('#doctorResults').hide().html('');
 }
 
 function loadDoctorMonthlyLimit(doctorCode) {
@@ -455,7 +441,7 @@ function submitSchemeRequest() {
     const doctorCode = $('#doctorCode').val();
     if (!doctorCode) {
         showAlert('Please select a doctor', 'warning');
-        $('#doctorSearch').focus();
+        $('#doctorSelect').focus();
         return;
     }
 

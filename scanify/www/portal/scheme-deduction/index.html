@@ -20,21 +20,7 @@
         </div>
         <div class="card-body">
             <div class="row">
-                <div class="col-md-4">
-                    <div class="form-group mb-3">
-                        <label><strong>Find Scheme</strong></label>
-                        <div class="input-group">
-                            <input type="text" id="schemeSearch" class="form-control"
-                                placeholder="Scheme ID, doctor or stockist...">
-                            <div class="input-group-append">
-                                <button class="btn btn-secondary" type="button" onclick="loadSchemeOptions()">
-                                    <i class="fa fa-search"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
+                <div class="col-md-6">
                     <div class="form-group mb-3">
                         <label><strong>Scheme Request <span class="text-danger">*</span></strong></label>
                         <select id="schemeSelect" class="form-control">
@@ -43,7 +29,7 @@
                         <small class="text-muted">Only submitted schemes in active division are shown</small>
                     </div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-6">
                     <div class="form-group mb-3">
                         <label><strong>Stockist Statement <span class="text-danger">*</span></strong></label>
                         <select id="statementSelect" class="form-control" disabled>
@@ -161,12 +147,6 @@
         document.getElementById('deductionDate').value = new Date().toISOString().split('T')[0];
         loadSchemeOptions();
 
-        $('#schemeSearch').on('keyup', function (e) {
-            if (e.key === 'Enter') {
-                loadSchemeOptions();
-            }
-        });
-
         $('#schemeSelect').on('change', onSchemeChange);
         $('#statementSelect').on('change', function () {
             if (this.value) {
@@ -178,7 +158,6 @@
     });
 
     function loadSchemeOptions() {
-        const search = $('#schemeSearch').val().trim();
         const division = getActiveDivision();
 
         $('#schemeSelect').html('<option value="">Loading schemes...</option>');
@@ -190,7 +169,7 @@
             type: 'POST',
             contentType: 'application/json',
             headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-            data: JSON.stringify({ division: division, search: search }),
+            data: JSON.stringify({ division: division, search: '' }),
             success: function (r) {
                 const rows = r.message && r.message.success ? (r.message.data || []) : [];
                 if (!rows.length) {
@@ -442,7 +421,6 @@
     }
 
     function resetDeduction() {
-        $('#schemeSearch').val('');
         $('#schemeSelect').val('');
         $('#statementSelect').prop('disabled', true).html('<option value="">-- Select Scheme first --</option>');
         $('#selectedSchemeInfo').hide().html('');

@@ -18,10 +18,6 @@
         <div class="card-body">
             <div class="row align-items-end">
                 <div class="col-md-3">
-                    <label><strong>Search</strong></label>
-                    <input type="text" id="searchInput" class="form-control" placeholder="Deduction ID, scheme, statement...">
-                </div>
-                <div class="col-md-2">
                     <label><strong>Status</strong></label>
                     <select id="statusFilter" class="form-control">
                         <option value="">All Status</option>
@@ -30,11 +26,11 @@
                         <option value="Cancelled">Cancelled</option>
                     </select>
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-3">
                     <label><strong>From Date</strong></label>
                     <input type="date" id="fromDate" class="form-control">
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-3">
                     <label><strong>To Date</strong></label>
                     <input type="date" id="toDate" class="form-control">
                 </div>
@@ -133,7 +129,6 @@
     }
 
     function clearFilters() {
-        $('#searchInput').val('');
         $('#statusFilter').val('');
         $('#fromDate').val('');
         $('#toDate').val('');
@@ -146,7 +141,6 @@
 
         const payload = {
             division: division,
-            search: $('#searchInput').val(),
             status: $('#statusFilter').val(),
             from_date: $('#fromDate').val(),
             to_date: $('#toDate').val(),
