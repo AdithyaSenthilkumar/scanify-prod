@@ -75,6 +75,9 @@
                         <button class="btn btn-outline-secondary btn-sm" onclick="sv_open_qc()">
                             <i class="fa fa-clipboard-check"></i> QC Screen
                         </button>
+                        <button class="btn btn-outline-info btn-sm" onclick="sv_open_primary_sales()">
+                            <i class="fa fa-truck"></i> View Primary Sales
+                        </button>
                         <!-- Only shown for draft (not yet submitted) statements -->
                         <button class="btn btn-success btn-sm" id="sv-submit-btn" onclick="sv_submit_statement(this)"
                             style="display:none;">
@@ -292,6 +295,53 @@
                             <tbody id="sv-qc-tbody"></tbody>
                         </table>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================== PRIMARY SALES MODAL ================== -->
+<div class="modal fade" id="sv-primary-modal" tabindex="-1">
+    <div class="modal-dialog ss-modal-fs">
+        <div class="modal-content ss-modal-content-fs">
+            <div class="ss-modal-header">
+                <h5><i class="fa fa-truck"></i> Primary Sales Data</h5>
+                <button class="ss-modal-close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="ss-modal-body-fs">
+                <div id="sv-primary-loading" class="text-center py-5">
+                    <i class="fa fa-spinner fa-spin fa-2x text-muted"></i>
+                    <p class="text-muted mt-2">Loading primary sales data…</p>
+                </div>
+                <div id="sv-primary-empty" style="display:none" class="text-center py-5">
+                    <i class="fa fa-inbox fa-3x text-muted mb-3"></i>
+                    <p class="text-muted">No primary sales data found for this stockist and month.</p>
+                </div>
+                <div id="sv-primary-table-wrap" style="display:none">
+                    <div class="d-flex justify-content-between align-items-center px-3 py-2 bg-light border-bottom">
+                        <small class="text-muted" id="sv-primary-summary"></small>
+                    </div>
+                    <table class="table table-bordered table-sm ss-full-table" id="sv-primary-table">
+                        <thead class="ss-full-thead">
+                            <tr>
+                                <th>Invoice No</th>
+                                <th>Invoice Date</th>
+                                <th>Product Code</th>
+                                <th>Product</th>
+                                <th>Pack</th>
+                                <th>Batch No</th>
+                                <th class="text-right">Qty</th>
+                                <th class="text-right">Free Qty</th>
+                                <th class="text-right">PTS</th>
+                                <th class="text-right">PTS Value</th>
+                                <th class="text-right">PTR</th>
+                                <th class="text-right">PTR Value</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sv-primary-tbody"></tbody>
+                        <tfoot id="sv-primary-tfoot" class="font-weight-bold"></tfoot>
+                    </table>
                 </div>
             </div>
         </div>
@@ -1232,6 +1282,74 @@
         }
         sv_render_qc_table();
     });
+
+    // ---- Primary Sales View ----
+    window.sv_open_primary_sales = async function () {
+        $('#sv-primary-loading').show();
+        $('#sv-primary-empty, #sv-primary-table-wrap').hide();
+        $('#sv-primary-modal').modal('show');
+
+        try {
+            const res = await sv_call('scanify.api.get_primary_sales_for_stockist', {
+                stockist_code: sv_doc.stockist_code,
+                statement_month: sv_doc.statement_month
+            });
+
+            $('#sv-primary-loading').hide();
+
+            if (!res || !res.success || !res.rows || res.rows.length === 0) {
+                $('#sv-primary-empty').show();
+                return;
+            }
+
+            const rows = res.rows;
+            let totalQty = 0, totalFree = 0, totalPtsVal = 0, totalPtrVal = 0;
+            const $tbody = $('#sv-primary-tbody').empty();
+
+            rows.forEach(function (r) {
+                const qty = parseFloat(r.quantity || 0);
+                const freeq = parseFloat(r.freeqty || 0);
+                const ptsv = parseFloat(r.ptsvalue || 0);
+                const ptrv = parseFloat(r.ptrvalue || 0);
+                totalQty += qty;
+                totalFree += freeq;
+                totalPtsVal += ptsv;
+                totalPtrVal += ptrv;
+
+                $tbody.append(`<tr>
+                    <td>${sv_escape(r.invoiceno || '')}</td>
+                    <td>${sv_escape(r.invoicedate || '')}</td>
+                    <td><strong>${sv_escape(r.pcode || '')}</strong></td>
+                    <td>${sv_escape(r.product || '')}</td>
+                    <td>${sv_escape(r.pack || '')}</td>
+                    <td>${sv_escape(r.batchno || '')}</td>
+                    <td class="text-right">${sv_fmt(qty)}</td>
+                    <td class="text-right">${sv_fmt(freeq)}</td>
+                    <td class="text-right">${sv_fmt(r.pts, true)}</td>
+                    <td class="text-right">${sv_fmt(ptsv, true)}</td>
+                    <td class="text-right">${sv_fmt(r.ptr, true)}</td>
+                    <td class="text-right">${sv_fmt(ptrv, true)}</td>
+                </tr>`);
+            });
+
+            $('#sv-primary-tfoot').html(`<tr>
+                <td colspan="6" class="text-right">Totals</td>
+                <td class="text-right">${sv_fmt(totalQty)}</td>
+                <td class="text-right">${sv_fmt(totalFree)}</td>
+                <td></td>
+                <td class="text-right">${sv_fmt(totalPtsVal, true)}</td>
+                <td></td>
+                <td class="text-right">${sv_fmt(totalPtrVal, true)}</td>
+            </tr>`);
+
+            $('#sv-primary-summary').text(rows.length + ' invoice line(s) for month ' + res.month);
+            $('#sv-primary-table-wrap').show();
+
+        } catch (e) {
+            $('#sv-primary-loading').hide();
+            $('#sv-primary-empty').show().find('p').text('Error loading data: ' + e.message);
+        }
+    };
 
     // Zoom
     window.sv_zoom_in = function () { sv_zoom = Math.min(sv_zoom + 0.2, 3); sv_apply_zoom(); };

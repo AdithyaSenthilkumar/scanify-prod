@@ -1,0 +1,825 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Scheme Reports{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page scheme-reports-page">
+    <!-- Page Header -->
+    <div class="page-header d-flex justify-content-between align-items-center mb-4 flex-wrap d-print-none" style="gap:10px;">
+        <div>
+            <h1 class="page-title"><i class="fa fa-gift"></i> Scheme Reports</h1>
+            <p class="page-subtitle text-muted mb-0">{{ division }} Division</p>
+        </div>
+    </div>
+
+    <!-- Report Type & Filters Card -->
+    <div class="card shadow-sm border-0 mb-3 d-print-none" id="filters-card">
+        <div class="card-body py-3 px-3">
+            <!-- Row 1: Report Type Selector -->
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label class="filter-label">Report Type</label>
+                    <select class="form-control" id="report-type" onchange="onReportTypeChange()">
+                        <option value="">-- Select Report --</option>
+                        <option value="activity_trend">1. Activity Trend Report</option>
+                        <option value="activity_track">2. Activity Track Report</option>
+                        <option value="new_approval_doctors">3. New Approval Doctors</option>
+                        <option value="periodic">4. Periodic Report</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Dynamic Filters -->
+            <div id="dynamic-filters" style="display:none;">
+                <hr class="my-2">
+                <div class="row" style="row-gap:12px;">
+                    <!-- From Date -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
+                        <label class="filter-label">From Date</label>
+                        <input type="date" class="form-control form-control-sm" id="f-from-date">
+                    </div>
+
+                    <!-- To Date -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
+                        <label class="filter-label">To Date</label>
+                        <input type="date" class="form-control form-control-sm" id="f-to-date">
+                    </div>
+
+                    <!-- Activity Status -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track">
+                        <label class="filter-label">Activity Status</label>
+                        <select class="form-control form-control-sm" id="f-doctor-status">
+                            <option value="Active">Active</option>
+                            <option value="Inactive">Inactive</option>
+                            <option value="All">All</option>
+                        </select>
+                    </div>
+
+                    <!-- Product Type -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track">
+                        <label class="filter-label">Product Filter</label>
+                        <select class="form-control form-control-sm" id="f-product-type" onchange="filterProductsByType()">
+                            <option value="All">All Products</option>
+                            <option value="Other Products">Other Products</option>
+                            <option value="Hospital Products">Hospital Products</option>
+                        </select>
+                    </div>
+
+                    <!-- Zone -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
+                        <label class="filter-label">Zone</label>
+                        <select class="form-control form-control-sm" id="f-zone" onchange="cascadeFromZone()">
+                            <option value="">All Zones</option>
+                            {% for z in zones %}
+                            <option value="{{ z }}">{{ z }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Region -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
+                        <label class="filter-label">Region</label>
+                        <select class="form-control form-control-sm" id="f-region" onchange="cascadeFromRegion()">
+                            <option value="">All Regions</option>
+                            {% for r in regions %}
+                            <option value="{{ r.name }}" data-zone="{{ r.zone }}">{{ r.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Criteria -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors">
+                        <label class="filter-label">Criteria</label>
+                        <select class="form-control form-control-sm" id="f-criteria" onchange="onCriteriaChange()">
+                            <option value="Region">Region</option>
+                            <option value="Team">Team</option>
+                            <option value="HQ">HQ</option>
+                            <option value="Doctor">Doctor</option>
+                        </select>
+                    </div>
+
+                    <!-- Team / HQ  (dynamic based on criteria) -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors" id="team-hq-wrapper" style="display:none;">
+                        <label class="filter-label" id="team-hq-label">Team / HQ</label>
+                        <select class="form-control form-control-sm" id="f-team-or-hq">
+                            <option value="">-- Select --</option>
+                        </select>
+                    </div>
+
+                    <!-- Group By (Periodic only) -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="periodic">
+                        <label class="filter-label">Group By</label>
+                        <select class="form-control form-control-sm" id="f-group-by">
+                            <option value="HQ">HQ</option>
+                            <option value="Team">Team</option>
+                            <option value="Region">Region</option>
+                            <option value="Doctor">Doctor</option>
+                            <option value="Stockist">Stockist</option>
+                            <option value="Month">Month</option>
+                            <option value="Value">Value</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Product Multi-Select Checkbox List -->
+                <div class="filter-field mt-3" data-reports="activity_trend,activity_track,new_approval_doctors,periodic" id="product-list-wrapper">
+                    <label class="filter-label">Product List</label>
+                    <div class="product-list-container">
+                        <div class="product-search-bar">
+                            <input type="text" class="form-control form-control-sm" id="product-search"
+                                   placeholder="Search products..." oninput="filterProductSearch()">
+                        </div>
+                        <div class="product-select-all-row">
+                            <label class="product-check-label">
+                                <input type="checkbox" id="product-select-all" onchange="toggleSelectAll()" checked>
+                                <span>Select All</span>
+                            </label>
+                        </div>
+                        <div class="product-checkbox-list" id="product-checkbox-list">
+                            {% for p in products %}
+                            <label class="product-check-label" data-category="{{ p.category }}" data-group="{{ p.group }}">
+                                <input type="checkbox" value="{{ p.code }}" class="product-cb" checked>
+                                <span>{{ p.code }} – {{ p.name }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="d-flex mt-3" style="gap:10px;">
+                    <button class="btn btn-primary btn-sm" id="btn-generate" onclick="generateReport()">
+                        <i class="fa fa-search mr-1"></i> Generate Report
+                    </button>
+                    <button class="btn btn-outline-success btn-sm" id="btn-excel" onclick="downloadExcel()" style="display:none;">
+                        <i class="fa fa-file-excel mr-1"></i> Download Excel
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" id="btn-pdf" onclick="downloadPDF()" style="display:none;">
+                        <i class="fa fa-file-pdf mr-1"></i> Download PDF
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Output Area -->
+    <div id="report-output" style="display:none;">
+        <!-- Print Header -->
+        <div class="d-none d-print-block mb-3 text-center">
+            <h2 id="print-title"></h2>
+            <h5 id="print-subtitle" class="text-muted"></h5>
+            <hr>
+        </div>
+
+        <div class="card shadow-sm border-0 report-card">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center d-print-none">
+                <div>
+                    <strong id="report-title"></strong>
+                    <span class="text-muted ml-2" id="report-subtitle"></span>
+                </div>
+                <span class="badge badge-secondary" id="report-count"></span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm report-table mb-0" id="report-table">
+                        <thead id="report-thead"></thead>
+                        <tbody id="report-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div id="report-loading" style="display:none;" class="text-center py-5">
+        <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;"></div>
+        <p class="text-muted mt-3">Generating report&hellip;</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="report-empty" style="display:none;" class="text-center py-5">
+        <i class="fa fa-inbox fa-3x text-muted mb-3"></i>
+        <p class="text-muted">No data found for the selected criteria.</p>
+    </div>
+</div>
+
+<style>
+    .filter-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--color-text-muted, #64748b);
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+        display: block;
+    }
+    .report-table th,
+    .report-table td {
+        font-size: 12px;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+    .report-table th {
+        text-align: center;
+        background: var(--color-primary, #1e293b);
+        color: #fff;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }
+    .report-table .group-row td {
+        background: #e8edf3;
+        font-weight: 700;
+        font-size: 12px;
+        color: var(--color-primary, #1e293b);
+    }
+    .report-table .total-row td {
+        background: #d1dbe8;
+        font-weight: 700;
+        font-size: 12px;
+        color: var(--color-primary, #1e293b);
+    }
+    .report-table .text-right { text-align: right !important; }
+    .report-table .trend-cell {
+        white-space: pre-line;
+        font-size: 10px;
+        min-width: 80px;
+        max-width: 140px;
+        line-height: 1.4;
+    }
+
+    .badge-secondary {
+        background: var(--color-accent, #4f46e5);
+        color: #fff;
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: var(--radius-full, 9999px);
+    }
+
+    /* Product checkbox list */
+    .product-list-container {
+        border: 1px solid var(--color-border, #e2e8f0);
+        border-radius: 8px;
+        background: #fff;
+        overflow: hidden;
+    }
+    .product-search-bar {
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--color-border, #e2e8f0);
+        background: #f8fafc;
+    }
+    .product-select-all-row {
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--color-border, #e2e8f0);
+        background: #f1f5f9;
+    }
+    .product-checkbox-list {
+        max-height: 180px;
+        overflow-y: auto;
+        padding: 4px 0;
+    }
+    .product-check-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 12px;
+        margin: 0;
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--color-text, #0f172a);
+        transition: background 0.15s;
+    }
+    .product-check-label:hover {
+        background: #f1f5f9;
+    }
+    .product-check-label input[type="checkbox"] {
+        accent-color: var(--color-accent, #4f46e5);
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+    }
+
+    @media print {
+        @page { size: landscape; margin: 1cm; }
+        body { font-size: 9pt; background: #fff; }
+        .d-print-none { display: none !important; }
+        .portal-sidebar, .portal-navbar { display: none !important; }
+        .portal-main { margin-left: 0 !important; width: 100% !important; padding: 0 !important; }
+        .report-card { box-shadow: none !important; border: none !important; }
+        .report-table th { background: #1e293b !important; color: #fff !important; }
+        .report-table .group-row td { background: #e8edf3 !important; }
+        .report-table .total-row td { background: #d1dbe8 !important; }
+        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<!-- jsPDF for client-side PDF -->
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+
+<script>
+const DIVISION = "{{ division }}";
+let currentReportType = "";
+let currentReportData = null;
+let currentReportMeta = {};
+
+// Pre-loaded context data for cascade filtering
+const ALL_REGIONS = {{ regions | tojson }};
+const ALL_TEAMS   = {{ teams | tojson }};
+const ALL_HQS     = {{ hqs | tojson }};
+
+// ─────────────────────────────────────────────────────────────
+// Set default dates to current financial year
+// ─────────────────────────────────────────────────────────────
+(function setDefaultDates() {
+    const today = new Date();
+    let fyStart, fyEnd;
+    if (today.getMonth() >= 3) { // Apr onwards
+        fyStart = new Date(today.getFullYear(), 3, 1);
+        fyEnd   = new Date(today.getFullYear() + 1, 2, 31);
+    } else {
+        fyStart = new Date(today.getFullYear() - 1, 3, 1);
+        fyEnd   = new Date(today.getFullYear(), 2, 31);
+    }
+    const fmt = d => d.toISOString().slice(0, 10);
+    document.addEventListener("DOMContentLoaded", function() {
+        document.getElementById("f-from-date").value = fmt(fyStart);
+        document.getElementById("f-to-date").value = fmt(fyEnd);
+    });
+})();
+
+// ─────────────────────────────────────────────────────────────
+// Filter visibility logic
+// ─────────────────────────────────────────────────────────────
+function onReportTypeChange() {
+    currentReportType = document.getElementById("report-type").value;
+    const filtersDiv = document.getElementById("dynamic-filters");
+    if (!currentReportType) {
+        filtersDiv.style.display = "none";
+        document.getElementById("report-output").style.display = "none";
+        document.getElementById("report-empty").style.display = "none";
+        return;
+    }
+    filtersDiv.style.display = "block";
+
+    document.querySelectorAll(".filter-field").forEach(el => {
+        const reports = el.getAttribute("data-reports").split(",");
+        el.style.display = reports.includes(currentReportType) ? "" : "none";
+    });
+
+    // Show/hide team-hq wrapper based on criteria value
+    onCriteriaChange();
+
+    // Hide previous results
+    document.getElementById("report-output").style.display = "none";
+    document.getElementById("report-empty").style.display = "none";
+    document.getElementById("btn-excel").style.display = "none";
+    document.getElementById("btn-pdf").style.display = "none";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Cascade Filters (client-side from pre-loaded context)
+// ─────────────────────────────────────────────────────────────
+function cascadeFromZone() {
+    const zone = document.getElementById("f-zone").value;
+    const regionSelect = document.getElementById("f-region");
+    const currentRegion = regionSelect.value;
+    regionSelect.innerHTML = '<option value="">All Regions</option>';
+    ALL_REGIONS.forEach(r => {
+        if (!zone || r.zone === zone) {
+            const opt = document.createElement("option");
+            opt.value = r.name;
+            opt.textContent = r.name;
+            opt.setAttribute("data-zone", r.zone || "");
+            regionSelect.appendChild(opt);
+        }
+    });
+    // Restore selection if still valid
+    if (currentRegion) regionSelect.value = currentRegion;
+    cascadeFromRegion();
+}
+
+function cascadeFromRegion() {
+    const region = document.getElementById("f-region").value;
+    populateTeamHQ();
+}
+
+function onCriteriaChange() {
+    const criteria = document.getElementById("f-criteria").value;
+    const wrapper = document.getElementById("team-hq-wrapper");
+    const label = document.getElementById("team-hq-label");
+
+    if (criteria === "Team" || criteria === "HQ") {
+        wrapper.style.display = "";
+        label.textContent = criteria === "Team" ? "Select Team" : "Select HQ";
+        populateTeamHQ();
+    } else {
+        wrapper.style.display = "none";
+    }
+}
+
+function populateTeamHQ() {
+    const criteria = document.getElementById("f-criteria").value;
+    const region = document.getElementById("f-region").value;
+    const sel = document.getElementById("f-team-or-hq");
+    sel.innerHTML = '<option value="">-- All --</option>';
+
+    if (criteria === "Team") {
+        ALL_TEAMS.forEach(t => {
+            if (!region || t.region === region) {
+                const opt = document.createElement("option");
+                opt.value = t.name;
+                opt.textContent = t.name;
+                sel.appendChild(opt);
+            }
+        });
+    } else if (criteria === "HQ") {
+        // Filter HQs: if region selected, filter via team→region
+        const regionTeams = new Set();
+        if (region) {
+            ALL_TEAMS.forEach(t => { if (t.region === region) regionTeams.add(t.name); });
+        }
+        ALL_HQS.forEach(h => {
+            if (!region || regionTeams.has(h.team)) {
+                const opt = document.createElement("option");
+                opt.value = h.name;
+                opt.textContent = h.hq_name ? (h.name + " – " + h.hq_name) : h.name;
+                sel.appendChild(opt);
+            }
+        });
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Product List Controls
+// ─────────────────────────────────────────────────────────────
+function filterProductsByType() {
+    const type = document.getElementById("f-product-type").value;
+    const catMap = {"Hospital Products": "Hospital Product", "Other Products": "Main Product"};
+    document.querySelectorAll("#product-checkbox-list .product-check-label").forEach(el => {
+        if (type === "All") {
+            el.style.display = "";
+        } else {
+            el.style.display = el.getAttribute("data-category") === catMap[type] ? "" : "none";
+        }
+    });
+    updateSelectAllState();
+}
+
+function filterProductSearch() {
+    const term = document.getElementById("product-search").value.toLowerCase();
+    document.querySelectorAll("#product-checkbox-list .product-check-label").forEach(el => {
+        // Only filter among visible (not hidden by type filter)
+        if (el.style.display === "none") return;
+        const text = el.textContent.toLowerCase();
+        el.style.display = text.includes(term) ? "" : "none";
+    });
+}
+
+function toggleSelectAll() {
+    const checked = document.getElementById("product-select-all").checked;
+    document.querySelectorAll("#product-checkbox-list .product-check-label").forEach(el => {
+        if (el.style.display !== "none") {
+            el.querySelector("input").checked = checked;
+        }
+    });
+}
+
+function updateSelectAllState() {
+    const visible = document.querySelectorAll("#product-checkbox-list .product-check-label:not([style*='display: none']) input");
+    const allChecked = Array.from(visible).every(cb => cb.checked);
+    document.getElementById("product-select-all").checked = allChecked;
+}
+
+function getSelectedProducts() {
+    const cbs = document.querySelectorAll("#product-checkbox-list input.product-cb:checked");
+    const allCbs = document.querySelectorAll("#product-checkbox-list input.product-cb");
+    // If all selected, return empty (no filter)
+    if (cbs.length === allCbs.length) return [];
+    return Array.from(cbs).map(cb => cb.value);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Generate Report
+// ─────────────────────────────────────────────────────────────
+function generateReport() {
+    if (!currentReportType) return showAlert("Please select a report type", "warning");
+
+    const params = buildParams();
+    const endpointMap = {
+        activity_trend: "scanify.api.get_scheme_activity_trend_report",
+        activity_track: "scanify.api.get_scheme_activity_track_report",
+        new_approval_doctors: "scanify.api.get_new_approval_doctors_report",
+        periodic: "scanify.api.get_scheme_periodic_report",
+    };
+
+    document.getElementById("report-loading").style.display = "block";
+    document.getElementById("report-output").style.display = "none";
+    document.getElementById("report-empty").style.display = "none";
+
+    $.ajax({
+        url: "/api/method/" + endpointMap[currentReportType],
+        type: "POST",
+        contentType: "application/json",
+        headers: { "X-Frappe-CSRF-Token": frappe.csrf_token },
+        data: JSON.stringify(params),
+        success: function(r) {
+            document.getElementById("report-loading").style.display = "none";
+            if (r && r.message && r.message.success !== false) {
+                currentReportData = r.message;
+                renderReport(r.message);
+            } else {
+                const msg = (r && r.message && r.message.message) || "Failed to fetch report data";
+                showAlert(msg, "danger");
+            }
+        },
+        error: function(xhr) {
+            document.getElementById("report-loading").style.display = "none";
+            let msg = "Network error. Please try again.";
+            try { msg = JSON.parse(xhr.responseText).exc || msg; } catch(e) {}
+            showAlert(msg, "danger");
+        }
+    });
+}
+
+function buildParams() {
+    const p = { division: DIVISION };
+    const fromDate = document.getElementById("f-from-date").value;
+    const toDate = document.getElementById("f-to-date").value;
+    const zone = document.getElementById("f-zone").value;
+    const region = document.getElementById("f-region").value;
+    const selectedProducts = getSelectedProducts();
+
+    if (fromDate) p.from_date = fromDate;
+    if (toDate) p.to_date = toDate;
+    if (zone) p.zone = zone;
+    if (region) p.region = region;
+    if (selectedProducts.length > 0) p.product_codes = JSON.stringify(selectedProducts);
+
+    if (currentReportType === "activity_trend" || currentReportType === "activity_track") {
+        p.doctor_status = document.getElementById("f-doctor-status").value;
+        p.product_type = document.getElementById("f-product-type").value;
+        p.criteria = document.getElementById("f-criteria").value;
+        const teamOrHq = document.getElementById("f-team-or-hq").value;
+        if (teamOrHq) p.team_or_hq = teamOrHq;
+    }
+    if (currentReportType === "new_approval_doctors") {
+        p.criteria = document.getElementById("f-criteria").value;
+        const teamOrHq = document.getElementById("f-team-or-hq").value;
+        if (teamOrHq) p.team_or_hq = teamOrHq;
+    }
+    if (currentReportType === "periodic") {
+        p.group_by = document.getElementById("f-group-by").value;
+    }
+    return p;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Render Report
+// ─────────────────────────────────────────────────────────────
+function renderReport(result) {
+    const thead = document.getElementById("report-thead");
+    const tbody = document.getElementById("report-tbody");
+    thead.innerHTML = "";
+    tbody.innerHTML = "";
+
+    const renderers = {
+        activity_trend: renderActivityTrend,
+        activity_track: renderActivityTrack,
+        new_approval_doctors: renderNewApprovalDoctors,
+        periodic: renderPeriodicReport,
+    };
+
+    const renderer = renderers[currentReportType];
+    if (renderer) renderer(result, thead, tbody);
+
+    const dataLen = (result.data || []).length;
+    if (dataLen === 0) {
+        document.getElementById("report-output").style.display = "none";
+        document.getElementById("report-empty").style.display = "block";
+        document.getElementById("btn-excel").style.display = "none";
+        document.getElementById("btn-pdf").style.display = "none";
+        return;
+    }
+
+    document.getElementById("report-output").style.display = "block";
+    document.getElementById("report-empty").style.display = "none";
+    document.getElementById("btn-excel").style.display = "";
+    document.getElementById("btn-pdf").style.display = "";
+    document.getElementById("report-count").textContent = dataLen + " rows";
+
+    // Header text
+    const titles = {
+        activity_trend: "Activity Trend Report",
+        activity_track: "Activity Track Report",
+        new_approval_doctors: "New Approval Doctors",
+        periodic: "Periodic Report",
+    };
+    const fromDate = document.getElementById("f-from-date").value;
+    const toDate = document.getElementById("f-to-date").value;
+    const regionVal = document.getElementById("f-region").value || "All Regions";
+    let subtitle = "Region: " + regionVal;
+    if (fromDate && toDate) subtitle += " | Period: " + fromDate + " to " + toDate;
+    if (currentReportType === "activity_trend" && result.fy_label) {
+        subtitle = regionVal + " Region | " + result.fy_label;
+    }
+    if (currentReportType === "periodic") {
+        subtitle += " | Group By: " + (result.group_by || "HQ");
+    }
+
+    currentReportMeta = {
+        title: titles[currentReportType] + " – " + DIVISION,
+        subtitle: subtitle,
+    };
+    document.getElementById("report-title").textContent = currentReportMeta.title;
+    document.getElementById("report-subtitle").textContent = subtitle;
+    document.getElementById("print-title").textContent = currentReportMeta.title;
+    document.getElementById("print-subtitle").textContent = subtitle;
+}
+
+function th(text) { return '<th>' + text + '</th>'; }
+function td(text, cls) { return '<td class="' + (cls || '') + '">' + (text != null ? text : '') + '</td>'; }
+function fmt(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : "0.00"; }
+function fmtQty(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumFractionDigits: 0, maximumFractionDigits: 2}) : "0"; }
+
+function esc(s) {
+    if (s == null) return "";
+    var d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 1: Activity Trend (Monthly Pivot)
+// ─────────────────────────────────────────────────────────────
+function renderActivityTrend(result, thead, tbody) {
+    const ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+    thead.innerHTML = '<tr>' + th("Region") + th("HQ") + th("Doctor Name") +
+        ml.map(function(m) { return th(m); }).join("") + '</tr>';
+
+    var currentRegion = null;
+    (result.data || []).forEach(function(r) {
+        if (r.region !== currentRegion) {
+            currentRegion = r.region;
+            tbody.innerHTML += '<tr class="group-row"><td colspan="' + (3 + ml.length) + '">' +
+                esc(currentRegion) + ' Region</td></tr>';
+        }
+        var row = td(esc(r.region)) + td(esc(r.hq_name || r.hq)) + td(esc(r.doctor_name));
+        r.months.forEach(function(cell) {
+            row += '<td class="trend-cell">' + esc(cell) + '</td>';
+        });
+        tbody.innerHTML += '<tr>' + row + '</tr>';
+    });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 2: Activity Track (Transaction Level)
+// ─────────────────────────────────────────────────────────────
+function renderActivityTrack(result, thead, tbody) {
+    thead.innerHTML = '<tr>' + th("S.No") + th("Date") + th("Region") + th("HQ") +
+        th("Doctor Name") + th("Product") + th("Qty") + th("Free Qty") +
+        th("Rate") + th("Value") + th("Stockist") + '</tr>';
+
+    var currentTeam = null;
+    (result.data || []).forEach(function(r) {
+        if (r.team !== currentTeam) {
+            currentTeam = r.team;
+            tbody.innerHTML += '<tr class="group-row"><td colspan="11">' +
+                esc(currentTeam) + ' Team</td></tr>';
+        }
+        tbody.innerHTML += '<tr>' +
+            td(r.sno) + td(r.date) + td(esc(r.region)) + td(esc(r.hq)) +
+            td(esc(r.doctor_name)) + td(esc(r.product_code)) +
+            td(fmtQty(r.qty), "text-right") + td(fmtQty(r.free_qty), "text-right") +
+            td(fmt(r.rate), "text-right") + td(fmt(r.value), "text-right") +
+            td(esc(r.stockist_name)) + '</tr>';
+    });
+
+    // Totals row
+    var totals = result.totals || {};
+    tbody.innerHTML += '<tr class="total-row">' +
+        '<td colspan="6" class="text-right">Total</td>' +
+        td(fmtQty(totals.qty), "text-right") + td(fmtQty(totals.free_qty), "text-right") +
+        '<td></td>' + td(fmt(totals.value), "text-right") + '<td></td></tr>';
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 3: New Approval Doctors
+// ─────────────────────────────────────────────────────────────
+function renderNewApprovalDoctors(result, thead, tbody) {
+    thead.innerHTML = '<tr>' + th("S.No") + th("Approval Date") + th("Region") +
+        th("HQ") + th("Doctor Name") + th("Hospital") + th("City") + th("Approved By") + '</tr>';
+
+    (result.data || []).forEach(function(r) {
+        tbody.innerHTML += '<tr>' +
+            td(r.sno) + td(r.approval_date) + td(esc(r.region)) + td(esc(r.hq)) +
+            td(esc(r.doctor_name)) + td(esc(r.hospital)) + td(esc(r.city)) +
+            td(esc(r.approved_by)) + '</tr>';
+    });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 4: Periodic Report (Dynamic Group By)
+// ─────────────────────────────────────────────────────────────
+function renderPeriodicReport(result, thead, tbody) {
+    var gb = result.group_by || "HQ";
+    thead.innerHTML = '<tr>' + th(gb) + th("Total Qty") + th("Free Qty") + th("Total Value") + '</tr>';
+
+    var grandQty = 0, grandFree = 0, grandVal = 0;
+    (result.data || []).forEach(function(r) {
+        tbody.innerHTML += '<tr>' +
+            td(esc(r.group_label)) +
+            td(fmtQty(r.total_qty), "text-right") +
+            td(fmtQty(r.free_qty), "text-right") +
+            td(fmt(r.total_value), "text-right") + '</tr>';
+        grandQty += r.total_qty || 0;
+        grandFree += r.free_qty || 0;
+        grandVal += r.total_value || 0;
+    });
+
+    // Grand Total row
+    tbody.innerHTML += '<tr class="total-row">' +
+        '<td class="text-right"><strong>Grand Total</strong></td>' +
+        td(fmtQty(grandQty), "text-right") +
+        td(fmtQty(grandFree), "text-right") +
+        td(fmt(grandVal), "text-right") + '</tr>';
+}
+
+// ─────────────────────────────────────────────────────────────
+// Download Excel (server-side)
+// ─────────────────────────────────────────────────────────────
+function downloadExcel() {
+    if (!currentReportType) return;
+    var params = buildParams();
+    params.report_type = currentReportType;
+
+    var qs = Object.entries(params).map(function(e) {
+        return encodeURIComponent(e[0]) + "=" + encodeURIComponent(e[1]);
+    }).join("&");
+    window.open("/api/method/scanify.api.export_scheme_report_excel?" + qs, "_blank");
+}
+
+// ─────────────────────────────────────────────────────────────
+// Download PDF (client-side jsPDF)
+// ─────────────────────────────────────────────────────────────
+function downloadPDF() {
+    if (!currentReportData) return;
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+    // Title
+    doc.setFontSize(14);
+    doc.text(currentReportMeta.title || "Scheme Report", 14, 15);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(currentReportMeta.subtitle || "", 14, 22);
+    doc.setTextColor(0);
+
+    // Extract table data from rendered HTML
+    var table = document.getElementById("report-table");
+    var head = [];
+    var body = [];
+
+    table.querySelectorAll("thead tr").forEach(function(tr) {
+        var row = [];
+        tr.querySelectorAll("th").forEach(function(c) { row.push(c.textContent.trim()); });
+        head.push(row);
+    });
+
+    table.querySelectorAll("tbody tr").forEach(function(tr) {
+        var row = [];
+        var isGroup = tr.classList.contains("group-row");
+        var isTotal = tr.classList.contains("total-row");
+        tr.querySelectorAll("td").forEach(function(c) { row.push(c.textContent.trim()); });
+        body.push({ cells: row, isGroup: isGroup, isTotal: isTotal });
+    });
+
+    doc.autoTable({
+        head: head,
+        body: body.map(function(r) { return r.cells; }),
+        startY: 28,
+        styles: { fontSize: 8, cellPadding: 1.5 },
+        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold" },
+        didParseCell: function(data) {
+            if (data.section === "body") {
+                var r = body[data.row];
+                if (r && r.isGroup) {
+                    data.cell.styles.fillColor = [232, 237, 243];
+                    data.cell.styles.fontStyle = "bold";
+                }
+                if (r && r.isTotal) {
+                    data.cell.styles.fillColor = [209, 219, 232];
+                    data.cell.styles.fontStyle = "bold";
+                }
+            }
+        },
+        margin: { left: 14, right: 14 },
+    });
+
+    var filename = currentReportType + "_" + DIVISION + "_" + new Date().toISOString().slice(0, 10) + ".pdf";
+    doc.save(filename);
+}
+</script>
+{% endblock %}

@@ -1,5 +1,5 @@
 import frappe
-from scanify.api import get_user_division, get_stockist_report_filter_options
+from scanify.api import get_user_division, get_scheme_report_filter_options
 
 
 def get_context(context):
@@ -10,11 +10,10 @@ def get_context(context):
     division = get_user_division() or "Prima"
     context.division = division
 
-    opts = get_stockist_report_filter_options(division)
+    opts = get_scheme_report_filter_options(division)
+    context.zones = opts.get("zones", [])
     context.regions = opts.get("regions", [])
     context.teams = opts.get("teams", [])
     context.hqs = opts.get("hqs", [])
-    context.zones = opts.get("zones", [])
-    context.stockists = opts.get("stockists", [])
-    context.months = opts.get("months", [])
-    context.statement_months = opts.get("statement_months", [])
+    context.products = opts.get("products", [])
+    context.product_groups = opts.get("product_groups", [])

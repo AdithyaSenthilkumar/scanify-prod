@@ -27,6 +27,7 @@
                         <option value="closing_stock">4. Stockist Wise Closing Stock Report</option>
                         <option value="hq_wise">5. HQ Wise Stockist Report</option>
                         <option value="address">6. Stockist Address Report</option>
+                        <option value="sec_moving_trend">7. Secondary Sales Moving Trend</option>
                     </select>
                 </div>
             </div>
@@ -94,6 +95,24 @@
                             <option value="TEAM WISE">Team Wise</option>
                             <option value="CITY WISE">City Wise</option>
                             <option value="STOCKIST NAME">Stockist Name</option>
+                        </select>
+                    </div>
+
+                    <!-- Entity Type (Report 7) -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="sec_moving_trend">
+                        <label class="filter-label">View By</label>
+                        <select class="form-control form-control-sm" id="f-entity-type" onchange="onEntityTypeChange()">
+                            <option value="Team">Team</option>
+                            <option value="HQ">HQ</option>
+                            <option value="Region">Region</option>
+                            <option value="Zone">Zone</option>
+                        </select>
+                    </div>
+                    <!-- Entity Name (Report 7) -->
+                    <div class="col-md-4 col-6 filter-field" data-reports="sec_moving_trend">
+                        <label class="filter-label">Select <span id="entity-type-label">Team</span></label>
+                        <select class="form-control form-control-sm" id="f-entity-name">
+                            <option value="">-- Select --</option>
                         </select>
                     </div>
                 </div>
@@ -220,6 +239,12 @@ let currentReportType = "";
 let currentReportData = null;
 let currentReportMeta = {};
 
+// Pre-loaded context data for Report 7 cascading
+var CTX_ZONES = {{ zones | tojson }};
+var CTX_REGIONS = {{ regions | tojson }};
+var CTX_TEAMS = {{ teams | tojson }};
+var CTX_HQS = {{ hqs | tojson }};
+
 // ─────────────────────────────────────────────────────────────
 // Filter visibility logic
 // ─────────────────────────────────────────────────────────────
@@ -245,6 +270,30 @@ function onReportTypeChange() {
     document.getElementById("report-empty").style.display = "none";
     document.getElementById("btn-excel").style.display = "none";
     document.getElementById("btn-pdf").style.display = "none";
+
+    // Populate entity dropdown on first show
+    if (currentReportType === "sec_moving_trend") onEntityTypeChange();
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 7: Entity cascade
+// ─────────────────────────────────────────────────────────────
+function onEntityTypeChange() {
+    var et = document.getElementById("f-entity-type").value;
+    document.getElementById("entity-type-label").textContent = et;
+    var sel = document.getElementById("f-entity-name");
+    sel.innerHTML = '<option value="">-- Select ' + et + ' --</option>';
+    var list = [];
+    if (et === "Zone") list = CTX_ZONES;
+    else if (et === "Region") list = CTX_REGIONS;
+    else if (et === "Team") list = CTX_TEAMS;
+    else if (et === "HQ") list = CTX_HQS;
+    list.forEach(function(item) {
+        var opt = document.createElement("option");
+        opt.value = item;
+        opt.textContent = item;
+        sel.appendChild(opt);
+    });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -261,6 +310,7 @@ function generateReport() {
         closing_stock: "scanify.api.get_stockist_closing_stock_report",
         hq_wise: "scanify.api.get_hq_wise_stockist_report",
         address: "scanify.api.get_stockist_address_report",
+        sec_moving_trend: "scanify.api.get_secondary_sales_moving_trend",
     };
 
     document.getElementById("report-loading").style.display = "block";
@@ -315,6 +365,9 @@ function buildParams() {
     } else if (currentReportType === "address") {
         if (region) p.region = region;
         p.criteria = document.getElementById("f-criteria").value;
+    } else if (currentReportType === "sec_moving_trend") {
+        p.entity_type = document.getElementById("f-entity-type").value;
+        p.entity_name = document.getElementById("f-entity-name").value;
     }
     return p;
 }
@@ -335,6 +388,7 @@ function renderReport(result) {
         closing_stock: renderClosingStock,
         hq_wise: renderHQWise,
         address: renderAddress,
+        sec_moving_trend: renderSecMovingTrend,
     };
 
     const renderer = renderers[currentReportType];
@@ -363,6 +417,7 @@ function renderReport(result) {
         closing_stock: "Stockist Wise Closing Stock Report",
         hq_wise: "HQ Wise Stockist Report",
         address: "Stockist Address Report",
+        sec_moving_trend: "Secondary Sales Moving Trend",
     };
     const region = document.getElementById("f-region").value || "All Regions";
     const fromDate = document.getElementById("f-from-date").value;
@@ -374,6 +429,12 @@ function renderReport(result) {
         const stk = document.getElementById("f-stockist");
         const stkLabel = stk.options[stk.selectedIndex]?.text || "";
         subtitle = `Stockist: ${stkLabel}`;
+        if (result.fy_label) subtitle += ` | ${result.fy_label}`;
+    }
+
+    if (currentReportType === "sec_moving_trend") {
+        subtitle = `${result.entity_type || ""}: ${result.entity_display || ""}`;
+        subtitle += ` | Sanctioned Strength: ${result.sanctioned_strength || 0}`;
         if (result.fy_label) subtitle += ` | ${result.fy_label}`;
     }
 
@@ -390,6 +451,11 @@ function renderReport(result) {
 function getDataLength(result) {
     if (currentReportType === "hq_wise") {
         return (result.data || []).reduce((s, g) => s + g.stockists.length, 0);
+    }
+    if (currentReportType === "sec_moving_trend") {
+        var total = 0;
+        (result.sections || []).forEach(function(sec) { total += (sec.products || []).length; });
+        return total;
     }
     return (result.data || []).length;
 }
@@ -477,6 +543,50 @@ function renderAddress(result, thead, tbody) {
             tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.address)}${td(r.city)}${td(r.phone)}${td(r.hq)}${td(r.team)}${td(r.region)}</tr>`;
         });
     }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 7: Secondary Sales Moving Trend
+// ─────────────────────────────────────────────────────────────
+function renderSecMovingTrend(result, thead, tbody) {
+    const months = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+    thead.innerHTML = "<tr>" + th("S.No") + th("Product") + th("Pack")
+        + months.map(m => th(m)).join("")
+        + th("Target") + th("Total") + th("Average") + th("Per Capita") + th("%") + "</tr>";
+
+    var sno = 0;
+    (result.sections || []).forEach(function(sec) {
+        // Section header row
+        tbody.innerHTML += '<tr class="section-header-row"><td colspan="18" style="background:#1e293b;color:#fff;font-weight:bold;padding:6px 10px;">' + esc(sec.label) + '</td></tr>';
+
+        (sec.products || []).forEach(function(p) {
+            sno++;
+            var cells = td(sno) + td(p.code) + td(p.pack);
+            for (var mi = 0; mi < 12; mi++) {
+                cells += '<td class="text-right">' + fmtQty(p.months[mi] || 0) + '</td>';
+            }
+            cells += '<td class="text-right">' + fmtQty(p.target || 0) + '</td>';
+            cells += '<td class="text-right">' + fmtQty(p.total || 0) + '</td>';
+            cells += '<td class="text-right">' + fmtQty(p.average || 0) + '</td>';
+            cells += '<td class="text-right">' + fmtQty(p.per_capita || 0) + '</td>';
+            cells += '<td class="text-right">' + fmt(p.pct || 0) + '</td>';
+            tbody.innerHTML += '<tr>' + cells + '</tr>';
+        });
+
+        // Value in Lakhs row
+        var vl = sec.value_in_lakhs || {};
+        var vlMonths = vl.months || [];
+        var vlCells = '<td colspan="3" style="font-weight:bold;">Value in Lakhs</td>';
+        for (var mi = 0; mi < 12; mi++) {
+            vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vlMonths[mi] || 0) + '</td>';
+        }
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.target || 0) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.total || 0) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.average || 0) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.per_capita || 0) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.pct || 0) + '</td>';
+        tbody.innerHTML += '<tr class="value-lakhs-row" style="background:#f1f5f9;">' + vlCells + '</tr>';
+    });
 }
 
 function esc(s) {

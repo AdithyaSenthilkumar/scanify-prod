@@ -1,0 +1,939 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Ranking Reports{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page ranking-reports-page">
+    <!-- Page Header -->
+    <div class="page-header d-flex justify-content-between align-items-center mb-4 flex-wrap d-print-none" style="gap:10px;">
+        <div>
+            <h1 class="page-title"><i class="fa fa-trophy"></i> Ranking Reports</h1>
+            <p class="page-subtitle text-muted mb-0">{{ division }} Division</p>
+        </div>
+    </div>
+
+    <!-- Report Type & Filters Card -->
+    <div class="card shadow-sm border-0 mb-3 d-print-none" id="filters-card">
+        <div class="card-body py-3 px-3">
+            <!-- Row 1: Report Type Selector -->
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label class="filter-label">Report Type</label>
+                    <select class="form-control" id="report-type" onchange="onReportTypeChange()">
+                        <option value="">-- Select Report --</option>
+                        <option value="moving_trend">1. Moving Trend Report</option>
+                        <option value="rupee_wise">2. Rupee Wise Report</option>
+                        <option value="productwise_topn">3. Productwise Ranking (Top N)</option>
+                        <option value="productwise_all">4. Productwise Ranking ALL</option>
+                        <option value="productwise_advanced">5. Productwise Ranking Advanced</option>
+                        <option value="pcpm_tracker">6. PCPM Tracker</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Dynamic Filters -->
+            <div id="dynamic-filters" style="display:none;">
+                <hr class="my-2">
+                <div class="row" style="row-gap:12px;">
+
+                    <!-- Sales Type Radio: Reports 1,2,3,4,5,6 -->
+                    <div class="col-md-4 col-6 filter-field" data-reports="moving_trend,rupee_wise,productwise_topn,productwise_all,pcpm_tracker">
+                        <label class="filter-label">Sales Type</label>
+                        <div class="d-flex" style="gap:16px;">
+                            <label class="radio-inline"><input type="radio" name="sales-type" value="primary"> Primary</label>
+                            <label class="radio-inline"><input type="radio" name="sales-type" value="secondary" checked> Secondary</label>
+                        </div>
+                    </div>
+
+                    <!-- Sales Type Radio for Advanced (Primary/Secondary/Closing) -->
+                    <div class="col-md-4 col-6 filter-field" data-reports="productwise_advanced">
+                        <label class="filter-label">Sales Type</label>
+                        <div class="d-flex" style="gap:16px;">
+                            <label class="radio-inline"><input type="radio" name="sales-type-adv" value="primary"> Primary</label>
+                            <label class="radio-inline"><input type="radio" name="sales-type-adv" value="secondary" checked> Secondary</label>
+                            <label class="radio-inline"><input type="radio" name="sales-type-adv" value="closing"> Closing</label>
+                        </div>
+                    </div>
+
+                    <!-- Criteria (Report 1) -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="moving_trend">
+                        <label class="filter-label">Select Criteria</label>
+                        <select class="form-control form-control-sm" id="f-criteria">
+                            <option value="Region">Region</option>
+                            <option value="HQ">HQ</option>
+                            <option value="Team">Team</option>
+                            <option value="Doctor">Doctor</option>
+                            <option value="Stockist">Stockist</option>
+                            <option value="Product">Product</option>
+                        </select>
+                    </div>
+
+                    <!-- Value Condition (Report 2) -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="rupee_wise">
+                        <label class="filter-label">Value Condition</label>
+                        <div class="d-flex" style="gap:16px;">
+                            <label class="radio-inline"><input type="radio" name="val-cond" value="gt" checked> &gt; Than</label>
+                            <label class="radio-inline"><input type="radio" name="val-cond" value="lt"> &lt; Than</label>
+                        </div>
+                    </div>
+
+                    <!-- Sale Value (Report 2) -->
+                    <div class="col-md-2 col-6 filter-field" data-reports="rupee_wise">
+                        <label class="filter-label">Sale Value</label>
+                        <input type="number" class="form-control form-control-sm" id="f-sale-value" value="0" min="0" step="1">
+                    </div>
+
+                    <!-- Top N (Report 3) -->
+                    <div class="col-md-2 col-6 filter-field" data-reports="productwise_topn">
+                        <label class="filter-label">No. of Products</label>
+                        <input type="number" class="form-control form-control-sm" id="f-top-n" value="5" min="1" max="100">
+                    </div>
+
+                    <!-- Single Product (Report 4) -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="productwise_all">
+                        <label class="filter-label">Product</label>
+                        <select class="form-control form-control-sm" id="f-single-product">
+                            <option value="">-- Select Product --</option>
+                            {% for p in products %}
+                            <option value="{{ p.code }}">{{ p.code }} – {{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Qty Filter (Report 5) -->
+                    <div class="col-md-2 col-6 filter-field" data-reports="productwise_advanced">
+                        <label class="filter-label">Min Quantity</label>
+                        <input type="number" class="form-control form-control-sm" id="f-qty-filter" value="0" min="0">
+                    </div>
+
+                    <!-- HQ Wise Checkbox (Report 5) -->
+                    <div class="col-md-2 col-6 filter-field" data-reports="productwise_advanced">
+                        <label class="filter-label">Group By</label>
+                        <label class="d-flex align-items-center" style="gap:6px;margin:0;font-size:13px;">
+                            <input type="checkbox" id="f-hq-wise" value="1"> HQ Wise
+                        </label>
+                    </div>
+
+                    <!-- Zone (Reports 1) -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="moving_trend">
+                        <label class="filter-label">Zone</label>
+                        <select class="form-control form-control-sm" id="f-zone" onchange="cascadeFromZone()">
+                            <option value="">All Zones</option>
+                            {% for z in zones %}
+                            <option value="{{ z }}">{{ z }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Region (Reports 1,4,5,6) -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="moving_trend,productwise_all,productwise_advanced,pcpm_tracker">
+                        <label class="filter-label">Region</label>
+                        <select class="form-control form-control-sm" id="f-region">
+                            <option value="">All Regions</option>
+                            {% for r in regions %}
+                            <option value="{{ r.name }}" data-zone="{{ r.zone }}">{{ r.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- From Date (Reports 1,2,3,4,5) -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="moving_trend,rupee_wise,productwise_topn,productwise_all,productwise_advanced">
+                        <label class="filter-label">From Date</label>
+                        <input type="date" class="form-control form-control-sm" id="f-from-date">
+                    </div>
+
+                    <!-- To Date (Reports 1,2,3,4,5) -->
+                    <div class="col-md-3 col-6 filter-field" data-reports="moving_trend,rupee_wise,productwise_topn,productwise_all,productwise_advanced">
+                        <label class="filter-label">To Date</label>
+                        <input type="date" class="form-control form-control-sm" id="f-to-date">
+                    </div>
+                </div>
+
+                <!-- Product Multi-Select Checkbox List (Reports 3,5,6) -->
+                <div class="filter-field mt-3" data-reports="productwise_topn,productwise_advanced,pcpm_tracker" id="product-list-wrapper">
+                    <label class="filter-label">
+                        Product List
+                        <span class="text-muted ml-2" id="product-count-badge" style="font-weight:400;"></span>
+                    </label>
+                    <div class="product-list-container">
+                        <div class="product-search-bar">
+                            <input type="text" class="form-control form-control-sm" id="product-search"
+                                   placeholder="Search products..." oninput="filterProductSearch()">
+                        </div>
+                        <div class="product-select-all-row">
+                            <label class="product-check-label">
+                                <input type="checkbox" id="product-select-all" onchange="toggleSelectAll()" checked>
+                                <span>Select All</span>
+                            </label>
+                        </div>
+                        <div class="product-checkbox-list" id="product-checkbox-list">
+                            {% for p in products %}
+                            <label class="product-check-label" data-category="{{ p.category }}" data-group="{{ p.group }}">
+                                <input type="checkbox" value="{{ p.code }}" class="product-cb" checked>
+                                <span>{{ p.code }} – {{ p.name }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="d-flex mt-3" style="gap:10px;">
+                    <button class="btn btn-primary btn-sm" id="btn-generate" onclick="generateReport()">
+                        <i class="fa fa-search mr-1"></i> Generate Report
+                    </button>
+                    <button class="btn btn-outline-success btn-sm" id="btn-excel" onclick="downloadExcel()" style="display:none;">
+                        <i class="fa fa-file-excel mr-1"></i> Download Excel
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" id="btn-pdf" onclick="downloadPDF()" style="display:none;">
+                        <i class="fa fa-file-pdf mr-1"></i> Download PDF
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Output Area -->
+    <div id="report-output" style="display:none;">
+        <!-- Print Header -->
+        <div class="d-none d-print-block mb-3 text-center">
+            <h2 id="print-title"></h2>
+            <h5 id="print-subtitle" class="text-muted"></h5>
+            <hr>
+        </div>
+
+        <div class="card shadow-sm border-0 report-card">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center d-print-none">
+                <div>
+                    <strong id="report-title"></strong>
+                    <span class="text-muted ml-2" id="report-subtitle"></span>
+                </div>
+                <span class="badge badge-secondary" id="report-count"></span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm report-table mb-0" id="report-table">
+                        <thead id="report-thead"></thead>
+                        <tbody id="report-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div id="report-loading" style="display:none;" class="text-center py-5">
+        <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;"></div>
+        <p class="text-muted mt-3">Generating report&hellip;</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="report-empty" style="display:none;" class="text-center py-5">
+        <i class="fa fa-inbox fa-3x text-muted mb-3"></i>
+        <p class="text-muted">No data found for the selected criteria.</p>
+    </div>
+</div>
+
+<style>
+    .filter-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--color-text-muted, #64748b);
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+        display: block;
+    }
+    .radio-inline {
+        font-size: 13px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin: 0;
+        white-space: nowrap;
+    }
+    .radio-inline input[type="radio"] {
+        accent-color: var(--color-accent, #4f46e5);
+    }
+    .report-table th,
+    .report-table td {
+        font-size: 12px;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+    .report-table th {
+        text-align: center;
+        background: var(--color-primary, #1e293b);
+        color: #fff;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }
+    .report-table .group-row td {
+        background: #e8edf3;
+        font-weight: 700;
+        font-size: 12px;
+        color: var(--color-primary, #1e293b);
+    }
+    .report-table .total-row td {
+        background: #d1dbe8;
+        font-weight: 700;
+        font-size: 12px;
+        color: var(--color-primary, #1e293b);
+    }
+    .report-table .text-right { text-align: right !important; }
+    .report-table .rank-1 td:first-child,
+    .report-table .rank-2 td:first-child,
+    .report-table .rank-3 td:first-child {
+        font-weight: 700;
+    }
+    .report-table .rank-1 td:first-child { color: #d4a017; }
+    .report-table .rank-2 td:first-child { color: #8a8a8a; }
+    .report-table .rank-3 td:first-child { color: #cd7f32; }
+
+    .badge-secondary {
+        background: var(--color-accent, #4f46e5);
+        color: #fff;
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: var(--radius-full, 9999px);
+    }
+
+    /* Product checkbox list */
+    .product-list-container {
+        border: 1px solid var(--color-border, #e2e8f0);
+        border-radius: 8px;
+        background: #fff;
+        overflow: hidden;
+    }
+    .product-search-bar {
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--color-border, #e2e8f0);
+        background: #f8fafc;
+    }
+    .product-select-all-row {
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--color-border, #e2e8f0);
+        background: #f1f5f9;
+    }
+    .product-checkbox-list {
+        max-height: 180px;
+        overflow-y: auto;
+        padding: 4px 0;
+    }
+    .product-check-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 12px;
+        margin: 0;
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--color-text, #0f172a);
+        transition: background 0.15s;
+    }
+    .product-check-label:hover {
+        background: #f1f5f9;
+    }
+    .product-check-label input[type="checkbox"] {
+        accent-color: var(--color-accent, #4f46e5);
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+    }
+
+    @media print {
+        @page { size: landscape; margin: 1cm; }
+        body { font-size: 9pt; background: #fff; }
+        .d-print-none { display: none !important; }
+        .portal-sidebar, .portal-navbar { display: none !important; }
+        .portal-main { margin-left: 0 !important; width: 100% !important; padding: 0 !important; }
+        .report-card { box-shadow: none !important; border: none !important; }
+        .report-table th { background: #1e293b !important; color: #fff !important; }
+        .report-table .group-row td { background: #e8edf3 !important; }
+        .report-table .total-row td { background: #d1dbe8 !important; }
+        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<!-- jsPDF for client-side PDF -->
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+
+<script>
+var DIVISION = "{{ division }}";
+var currentReportType = "";
+var currentReportData = null;
+var currentReportMeta = {};
+
+// Pre-loaded context data
+var ALL_REGIONS = {{ regions | tojson }};
+var ALL_TEAMS   = {{ teams | tojson }};
+var ALL_HQS     = {{ hqs | tojson }};
+
+// ─────────────────────────────────────────────────────────────
+// Set default dates to current financial year
+// ─────────────────────────────────────────────────────────────
+(function setDefaultDates() {
+    var today = new Date();
+    var fyStart, fyEnd;
+    if (today.getMonth() >= 3) {
+        fyStart = new Date(today.getFullYear(), 3, 1);
+        fyEnd   = new Date(today.getFullYear() + 1, 2, 31);
+    } else {
+        fyStart = new Date(today.getFullYear() - 1, 3, 1);
+        fyEnd   = new Date(today.getFullYear(), 2, 31);
+    }
+    var fmt = function(d) { return d.toISOString().slice(0, 10); };
+    document.addEventListener("DOMContentLoaded", function() {
+        document.getElementById("f-from-date").value = fmt(fyStart);
+        document.getElementById("f-to-date").value = fmt(fyEnd);
+        updateProductCount();
+    });
+})();
+
+// ─────────────────────────────────────────────────────────────
+// Filter visibility logic
+// ─────────────────────────────────────────────────────────────
+function onReportTypeChange() {
+    currentReportType = document.getElementById("report-type").value;
+    var filtersDiv = document.getElementById("dynamic-filters");
+    if (!currentReportType) {
+        filtersDiv.style.display = "none";
+        document.getElementById("report-output").style.display = "none";
+        document.getElementById("report-empty").style.display = "none";
+        return;
+    }
+    filtersDiv.style.display = "block";
+
+    document.querySelectorAll(".filter-field").forEach(function(el) {
+        var reports = el.getAttribute("data-reports").split(",");
+        el.style.display = reports.indexOf(currentReportType) !== -1 ? "" : "none";
+    });
+
+    // Hide previous results
+    document.getElementById("report-output").style.display = "none";
+    document.getElementById("report-empty").style.display = "none";
+    document.getElementById("btn-excel").style.display = "none";
+    document.getElementById("btn-pdf").style.display = "none";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Cascade Filters
+// ─────────────────────────────────────────────────────────────
+function cascadeFromZone() {
+    var zone = document.getElementById("f-zone").value;
+    var regionSelect = document.getElementById("f-region");
+    var currentRegion = regionSelect.value;
+    regionSelect.innerHTML = '<option value="">All Regions</option>';
+    ALL_REGIONS.forEach(function(r) {
+        if (!zone || r.zone === zone) {
+            var opt = document.createElement("option");
+            opt.value = r.name;
+            opt.textContent = r.name;
+            opt.setAttribute("data-zone", r.zone || "");
+            regionSelect.appendChild(opt);
+        }
+    });
+    if (currentRegion) regionSelect.value = currentRegion;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Product List Controls
+// ─────────────────────────────────────────────────────────────
+function filterProductSearch() {
+    var term = document.getElementById("product-search").value.toLowerCase();
+    document.querySelectorAll("#product-checkbox-list .product-check-label").forEach(function(el) {
+        var text = el.textContent.toLowerCase();
+        el.style.display = text.indexOf(term) !== -1 ? "" : "none";
+    });
+}
+
+function toggleSelectAll() {
+    var checked = document.getElementById("product-select-all").checked;
+    document.querySelectorAll("#product-checkbox-list .product-check-label").forEach(function(el) {
+        if (el.style.display !== "none") {
+            el.querySelector("input").checked = checked;
+        }
+    });
+    updateProductCount();
+}
+
+function updateProductCount() {
+    var total = document.querySelectorAll("#product-checkbox-list input.product-cb").length;
+    var checked = document.querySelectorAll("#product-checkbox-list input.product-cb:checked").length;
+    var badge = document.getElementById("product-count-badge");
+    if (badge) badge.textContent = checked + " / " + total + " selected";
+}
+
+// Attach change listener to each product checkbox
+document.addEventListener("DOMContentLoaded", function() {
+    document.querySelectorAll("#product-checkbox-list input.product-cb").forEach(function(cb) {
+        cb.addEventListener("change", updateProductCount);
+    });
+});
+
+function getSelectedProducts() {
+    var cbs = document.querySelectorAll("#product-checkbox-list input.product-cb:checked");
+    var allCbs = document.querySelectorAll("#product-checkbox-list input.product-cb");
+    if (cbs.length === allCbs.length) return [];
+    return Array.from(cbs).map(function(cb) { return cb.value; });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Helper: get selected radio value
+// ─────────────────────────────────────────────────────────────
+function getRadio(name) {
+    var el = document.querySelector('input[name="' + name + '"]:checked');
+    return el ? el.value : "";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Generate Report
+// ─────────────────────────────────────────────────────────────
+function generateReport() {
+    if (!currentReportType) return showAlert("Please select a report type", "warning");
+
+    var params = buildParams();
+    var endpointMap = {
+        moving_trend: "scanify.api.get_ranking_moving_trend_report",
+        rupee_wise: "scanify.api.get_ranking_rupee_wise_report",
+        productwise_topn: "scanify.api.get_ranking_productwise_topn",
+        productwise_all: "scanify.api.get_ranking_productwise_all",
+        productwise_advanced: "scanify.api.get_ranking_productwise_advanced",
+        pcpm_tracker: "scanify.api.get_ranking_pcpm_tracker"
+    };
+
+    document.getElementById("report-loading").style.display = "block";
+    document.getElementById("report-output").style.display = "none";
+    document.getElementById("report-empty").style.display = "none";
+
+    $.ajax({
+        url: "/api/method/" + endpointMap[currentReportType],
+        type: "POST",
+        contentType: "application/json",
+        headers: { "X-Frappe-CSRF-Token": frappe.csrf_token },
+        data: JSON.stringify(params),
+        success: function(r) {
+            document.getElementById("report-loading").style.display = "none";
+            if (r && r.message && r.message.success !== false) {
+                currentReportData = r.message;
+                renderReport(r.message);
+            } else {
+                var msg = (r && r.message && r.message.message) || "Failed to fetch report data";
+                showAlert(msg, "danger");
+            }
+        },
+        error: function(xhr) {
+            document.getElementById("report-loading").style.display = "none";
+            var msg = "Network error. Please try again.";
+            try { msg = JSON.parse(xhr.responseText).exc || msg; } catch(e) {}
+            showAlert(msg, "danger");
+        }
+    });
+}
+
+function buildParams() {
+    var p = { division: DIVISION };
+    var fromDate = document.getElementById("f-from-date").value;
+    var toDate = document.getElementById("f-to-date").value;
+    var region = document.getElementById("f-region").value;
+    var selectedProducts = getSelectedProducts();
+
+    if (currentReportType === "moving_trend") {
+        p.sales_type = getRadio("sales-type");
+        p.criteria = document.getElementById("f-criteria").value;
+        if (fromDate) p.from_date = fromDate;
+        if (toDate) p.to_date = toDate;
+        if (region) p.region = region;
+        var zone = document.getElementById("f-zone").value;
+        if (zone) p.zone = zone;
+
+    } else if (currentReportType === "rupee_wise") {
+        p.sales_type = getRadio("sales-type");
+        p.value_condition = getRadio("val-cond");
+        p.sale_value = document.getElementById("f-sale-value").value || 0;
+        if (fromDate) p.from_date = fromDate;
+        if (toDate) p.to_date = toDate;
+
+    } else if (currentReportType === "productwise_topn") {
+        p.sales_type = getRadio("sales-type");
+        p.top_n = document.getElementById("f-top-n").value || 5;
+        if (fromDate) p.from_date = fromDate;
+        if (toDate) p.to_date = toDate;
+        if (selectedProducts.length > 0) p.product_codes = JSON.stringify(selectedProducts);
+
+    } else if (currentReportType === "productwise_all") {
+        p.sales_type = getRadio("sales-type");
+        p.product_code = document.getElementById("f-single-product").value;
+        if (region) p.region = region;
+        if (fromDate) p.from_date = fromDate;
+        if (toDate) p.to_date = toDate;
+
+    } else if (currentReportType === "productwise_advanced") {
+        p.sales_type = getRadio("sales-type-adv");
+        p.qty_filter = document.getElementById("f-qty-filter").value || 0;
+        p.hq_wise = document.getElementById("f-hq-wise").checked ? 1 : 0;
+        if (region) p.region = region;
+        if (fromDate) p.from_date = fromDate;
+        if (toDate) p.to_date = toDate;
+        if (selectedProducts.length > 0) p.product_codes = JSON.stringify(selectedProducts);
+
+    } else if (currentReportType === "pcpm_tracker") {
+        p.sales_type = getRadio("sales-type");
+        if (region) p.region = region;
+        if (selectedProducts.length > 0) p.product_codes = JSON.stringify(selectedProducts);
+    }
+
+    return p;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Render Report
+// ─────────────────────────────────────────────────────────────
+function renderReport(result) {
+    var thead = document.getElementById("report-thead");
+    var tbody = document.getElementById("report-tbody");
+    thead.innerHTML = "";
+    tbody.innerHTML = "";
+
+    var renderers = {
+        moving_trend: renderMovingTrend,
+        rupee_wise: renderRupeeWise,
+        productwise_topn: renderProductTopN,
+        productwise_all: renderProductAll,
+        productwise_advanced: renderProductAdvanced,
+        pcpm_tracker: renderPCPMTracker
+    };
+
+    var renderer = renderers[currentReportType];
+    if (renderer) renderer(result, thead, tbody);
+
+    var dataLen = (result.data || []).length;
+    if (dataLen === 0) {
+        document.getElementById("report-output").style.display = "none";
+        document.getElementById("report-empty").style.display = "block";
+        document.getElementById("btn-excel").style.display = "none";
+        document.getElementById("btn-pdf").style.display = "none";
+        return;
+    }
+
+    document.getElementById("report-output").style.display = "block";
+    document.getElementById("report-empty").style.display = "none";
+    document.getElementById("btn-excel").style.display = "";
+    document.getElementById("btn-pdf").style.display = "";
+    document.getElementById("report-count").textContent = dataLen + " rows";
+
+    var titles = {
+        moving_trend: "Moving Trend Report",
+        rupee_wise: "Rupee Wise Report",
+        productwise_topn: "Productwise Ranking (Top N)",
+        productwise_all: "Productwise Ranking ALL",
+        productwise_advanced: "Productwise Ranking Advanced",
+        pcpm_tracker: "PCPM Tracker"
+    };
+
+    var subtitle = buildSubtitle(result);
+    currentReportMeta = {
+        title: titles[currentReportType] + " – " + DIVISION,
+        subtitle: subtitle
+    };
+    document.getElementById("report-title").textContent = currentReportMeta.title;
+    document.getElementById("report-subtitle").textContent = subtitle;
+    document.getElementById("print-title").textContent = currentReportMeta.title;
+    document.getElementById("print-subtitle").textContent = subtitle;
+}
+
+function buildSubtitle(result) {
+    var fromDate = document.getElementById("f-from-date").value;
+    var toDate = document.getElementById("f-to-date").value;
+    var region = document.getElementById("f-region").value || "All Regions";
+    var parts = [];
+
+    if (currentReportType === "moving_trend" || currentReportType === "pcpm_tracker") {
+        parts.push(result.fy_label || "");
+        if (region !== "All Regions") parts.push("Region: " + region);
+        if (result.sanctioned_strength) parts.push("Strength: " + result.sanctioned_strength);
+    } else {
+        parts.push("Region: " + region);
+        if (fromDate && toDate) parts.push("Period: " + fromDate + " to " + toDate);
+    }
+    if (currentReportType === "moving_trend") {
+        parts.push("Criteria: " + (document.getElementById("f-criteria").value || "Region"));
+    }
+    return parts.filter(Boolean).join(" | ");
+}
+
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+function th(text) { return "<th>" + text + "</th>"; }
+function td(text, cls) { return '<td class="' + (cls || "") + '">' + (text != null ? text : "") + "</td>"; }
+function fmt(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : "0.00"; }
+function fmtQty(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumFractionDigits: 0, maximumFractionDigits: 2}) : "0"; }
+function fmtPct(n) { return n != null ? Number(n).toFixed(2) + "%" : "0.00%"; }
+
+function esc(s) {
+    if (s == null) return "";
+    var d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+function showAlert(msg, type) {
+    var alertHtml = '<div class="alert alert-' + type + ' alert-dismissible fade show" role="alert">' +
+        msg + '<button type="button" class="close" data-dismiss="alert">&times;</button></div>';
+    var outputArea = document.getElementById("report-output");
+    outputArea.insertAdjacentHTML("beforebegin", alertHtml);
+    setTimeout(function() {
+        var alerts = document.querySelectorAll(".alert-dismissible");
+        alerts.forEach(function(a) { a.remove(); });
+    }, 5000);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 1: Moving Trend (Monthly Pivot)
+// ─────────────────────────────────────────────────────────────
+function renderMovingTrend(result, thead, tbody) {
+    var ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+    var criteriaLabel = result.criteria || "Region";
+    thead.innerHTML = "<tr>" + th(criteriaLabel) +
+        ml.map(function(m) { return th(m); }).join("") +
+        th("Total") + th("Average") + "</tr>";
+
+    var grandMonths = [0,0,0,0,0,0,0,0,0,0,0,0];
+    var grandTotal = 0;
+
+    (result.data || []).forEach(function(r) {
+        var row = td(esc(r.criteria_name));
+        r.months.forEach(function(v, i) {
+            row += td(fmtQty(v), "text-right");
+            grandMonths[i] += v || 0;
+        });
+        row += td(fmtQty(r.total), "text-right font-weight-bold");
+        row += td(fmtQty(r.average), "text-right");
+        grandTotal += r.total || 0;
+        tbody.innerHTML += "<tr>" + row + "</tr>";
+    });
+
+    // Grand Total row
+    var totalRow = '<td class="text-right font-weight-bold">Grand Total</td>';
+    grandMonths.forEach(function(v) { totalRow += td(fmtQty(v), "text-right"); });
+    totalRow += td(fmtQty(grandTotal), "text-right font-weight-bold");
+    totalRow += td(fmtQty(grandTotal / 12), "text-right");
+    tbody.innerHTML += '<tr class="total-row">' + totalRow + "</tr>";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 2: Rupee Wise
+// ─────────────────────────────────────────────────────────────
+function renderRupeeWise(result, thead, tbody) {
+    thead.innerHTML = "<tr>" + th("S.No") + th("Date") + th("Region") + th("HQ") +
+        th("Stockist Code") + th("Stockist Name") + th("Product Code") + th("Product") +
+        th("Qty") + th("Rate") + th("Value") + "</tr>";
+
+    (result.data || []).forEach(function(r) {
+        tbody.innerHTML += "<tr>" +
+            td(r.sno) + td(r.date) + td(esc(r.region)) + td(esc(r.hq)) +
+            td(esc(r.stockist_code)) + td(esc(r.stockist_name)) +
+            td(esc(r.product_code)) + td(esc(r.product_name)) +
+            td(fmtQty(r.qty), "text-right") + td(fmt(r.rate), "text-right") +
+            td(fmt(r.value), "text-right") + "</tr>";
+    });
+
+    // Grand Total
+    var totalQty = 0, totalVal = 0;
+    (result.data || []).forEach(function(r) { totalQty += r.qty || 0; totalVal += r.value || 0; });
+    tbody.innerHTML += '<tr class="total-row">' +
+        '<td colspan="8" class="text-right"><strong>Grand Total</strong></td>' +
+        td(fmtQty(totalQty), "text-right") + "<td></td>" +
+        td(fmt(totalVal), "text-right") + "</tr>";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 3: Productwise Ranking (Top N)
+// ─────────────────────────────────────────────────────────────
+function renderProductTopN(result, thead, tbody) {
+    thead.innerHTML = "<tr>" + th("Rank") + th("Product Code") + th("Product Name") +
+        th("Total Qty") + th("Total Value") + th("Contribution %") + "</tr>";
+
+    (result.data || []).forEach(function(r) {
+        var cls = r.rank <= 3 ? "rank-" + r.rank : "";
+        tbody.innerHTML += '<tr class="' + cls + '">' +
+            td(r.rank) + td(esc(r.product_code)) + td(esc(r.product_name)) +
+            td(fmtQty(r.total_qty), "text-right") +
+            td(fmt(r.total_value), "text-right") +
+            td(fmtPct(r.contribution_pct), "text-right") + "</tr>";
+    });
+
+    // Grand Total
+    tbody.innerHTML += '<tr class="total-row">' +
+        '<td colspan="3" class="text-right"><strong>Grand Total</strong></td>' +
+        "<td></td>" + td(fmt(result.grand_total), "text-right") +
+        td("100.00%", "text-right") + "</tr>";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 4: Productwise Ranking ALL
+// ─────────────────────────────────────────────────────────────
+function renderProductAll(result, thead, tbody) {
+    thead.innerHTML = "<tr>" + th("Rank") + th("HQ") + th("Product Code") + th("Product Name") +
+        th("Total Qty") + th("Total Value") + th("Contribution %") + "</tr>";
+
+    (result.data || []).forEach(function(r) {
+        var cls = r.rank <= 3 ? "rank-" + r.rank : "";
+        tbody.innerHTML += '<tr class="' + cls + '">' +
+            td(r.rank) + td(esc(r.hq)) + td(esc(r.product_code)) + td(esc(r.product_name)) +
+            td(fmtQty(r.total_qty), "text-right") +
+            td(fmt(r.total_value), "text-right") +
+            td(fmtPct(r.contribution_pct), "text-right") + "</tr>";
+    });
+
+    tbody.innerHTML += '<tr class="total-row">' +
+        '<td colspan="4" class="text-right"><strong>Grand Total</strong></td>' +
+        "<td></td>" + td(fmt(result.grand_total), "text-right") +
+        td("100.00%", "text-right") + "</tr>";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 5: Productwise Ranking Advanced
+// ─────────────────────────────────────────────────────────────
+function renderProductAdvanced(result, thead, tbody) {
+    var gl = result.group_label || "HQ";
+    thead.innerHTML = "<tr>" + th("Rank") + th("Region") + th(gl) +
+        th("Product Code") + th("Product Name") + th("Qty") + th("Value") + "</tr>";
+
+    (result.data || []).forEach(function(r) {
+        var cls = r.rank <= 3 ? "rank-" + r.rank : "";
+        tbody.innerHTML += '<tr class="' + cls + '">' +
+            td(r.rank) + td(esc(r.region)) + td(esc(r.group_key)) +
+            td(esc(r.product_code)) + td(esc(r.product_name)) +
+            td(fmtQty(r.qty), "text-right") +
+            td(fmt(r.value), "text-right") + "</tr>";
+    });
+
+    var totalQty = 0, totalVal = 0;
+    (result.data || []).forEach(function(r) { totalQty += r.qty || 0; totalVal += r.value || 0; });
+    tbody.innerHTML += '<tr class="total-row">' +
+        '<td colspan="5" class="text-right"><strong>Grand Total</strong></td>' +
+        td(fmtQty(totalQty), "text-right") +
+        td(fmt(totalVal), "text-right") + "</tr>";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 6: PCPM Tracker
+// ─────────────────────────────────────────────────────────────
+function renderPCPMTracker(result, thead, tbody) {
+    var ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+    thead.innerHTML = "<tr>" + th("Product Code") + th("Product Name") +
+        ml.map(function(m) { return th(m); }).join("") +
+        th("Total") + th("Average") + th("PCPM") + "</tr>";
+
+    var grandMonths = [0,0,0,0,0,0,0,0,0,0,0,0];
+    var grandTotal = 0;
+
+    (result.data || []).forEach(function(r) {
+        var row = td(esc(r.product_code)) + td(esc(r.product_name));
+        r.months.forEach(function(v, i) {
+            row += td(fmtQty(v), "text-right");
+            grandMonths[i] += v || 0;
+        });
+        row += td(fmtQty(r.total), "text-right font-weight-bold");
+        row += td(fmtQty(r.average), "text-right");
+        row += td(r.pcpm.toFixed(2), "text-right font-weight-bold");
+        grandTotal += r.total || 0;
+        tbody.innerHTML += "<tr>" + row + "</tr>";
+    });
+
+    // Grand Total row
+    var strength = result.sanctioned_strength || 0;
+    var activeMo = result.active_months || 1;
+    var grandPCPM = strength ? (grandTotal / strength / activeMo).toFixed(2) : "0.00";
+
+    var totalRow = '<td colspan="2" class="text-right font-weight-bold">Grand Total</td>';
+    grandMonths.forEach(function(v) { totalRow += td(fmtQty(v), "text-right"); });
+    totalRow += td(fmtQty(grandTotal), "text-right font-weight-bold");
+    totalRow += td(fmtQty(grandTotal / 12), "text-right");
+    totalRow += td(grandPCPM, "text-right font-weight-bold");
+    tbody.innerHTML += '<tr class="total-row">' + totalRow + "</tr>";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Download Excel (server-side)
+// ─────────────────────────────────────────────────────────────
+function downloadExcel() {
+    if (!currentReportType) return;
+    var params = buildParams();
+    params.report_type = currentReportType;
+
+    var qs = Object.entries(params).map(function(e) {
+        return encodeURIComponent(e[0]) + "=" + encodeURIComponent(e[1]);
+    }).join("&");
+    window.open("/api/method/scanify.api.export_ranking_report_excel?" + qs, "_blank");
+}
+
+// ─────────────────────────────────────────────────────────────
+// Download PDF (client-side jsPDF)
+// ─────────────────────────────────────────────────────────────
+function downloadPDF() {
+    if (!currentReportData) return;
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+    // Title
+    doc.setFontSize(14);
+    doc.text(currentReportMeta.title || "Ranking Report", 14, 15);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(currentReportMeta.subtitle || "", 14, 22);
+    doc.setTextColor(0);
+
+    // Extract table data from rendered HTML
+    var table = document.getElementById("report-table");
+    var head = [];
+    var body = [];
+
+    table.querySelectorAll("thead tr").forEach(function(tr) {
+        var row = [];
+        tr.querySelectorAll("th").forEach(function(c) { row.push(c.textContent.trim()); });
+        head.push(row);
+    });
+
+    table.querySelectorAll("tbody tr").forEach(function(tr) {
+        var row = [];
+        var isGroup = tr.classList.contains("group-row");
+        var isTotal = tr.classList.contains("total-row");
+        tr.querySelectorAll("td").forEach(function(c) { row.push(c.textContent.trim()); });
+        body.push({ cells: row, isGroup: isGroup, isTotal: isTotal });
+    });
+
+    doc.autoTable({
+        head: head,
+        body: body.map(function(r) { return r.cells; }),
+        startY: 28,
+        styles: { fontSize: 7, cellPadding: 1.5 },
+        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold" },
+        didParseCell: function(data) {
+            if (data.section === "body") {
+                var r = body[data.row];
+                if (r && r.isGroup) {
+                    data.cell.styles.fillColor = [232, 237, 243];
+                    data.cell.styles.fontStyle = "bold";
+                }
+                if (r && r.isTotal) {
+                    data.cell.styles.fillColor = [209, 219, 232];
+                    data.cell.styles.fontStyle = "bold";
+                }
+            }
+        },
+        margin: { left: 10, right: 10 }
+    });
+
+    var filename = currentReportType + "_" + DIVISION + "_" + new Date().toISOString().slice(0, 10) + ".pdf";
+    doc.save(filename);
+}
+</script>
+{% endblock %}

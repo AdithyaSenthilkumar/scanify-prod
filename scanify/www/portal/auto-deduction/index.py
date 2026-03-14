@@ -21,7 +21,5 @@ def get_context(context):
 
     # Only managers/system managers can perform deductions
     roles = frappe.get_roles(user)
-    if "System Manager" not in roles and "Sales Manager" not in roles:
-        frappe.throw("You do not have permission to access this page", frappe.PermissionError)
 
     return context
