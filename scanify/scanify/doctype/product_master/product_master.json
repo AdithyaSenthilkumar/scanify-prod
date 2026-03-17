@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:product_code",
+ "autoname": "format:PR{####}",
  "creation": "2025-11-28 22:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -26,7 +26,6 @@
       "fieldtype": "Data",
       "label": "Product Code",
       "reqd": 1,
-      "unique": 1,
       "in_list_view": 1
     },
     {
@@ -118,7 +117,9 @@
  "modified_by": "Administrator",
  "module": "Scanify",
  "name": "Product Master",
- "naming_rule": "By fieldname",
+ "naming_rule": "Expression (old style)",
+ "show_title_field_in_link": 1,
+ "title_field": "product_name",
  "owner": "Administrator",
  "permissions": [
   {

@@ -595,6 +595,15 @@ window.open_fullscreen_table = function () {
 
 window.open_qc_screen = function () {
   render_qc_table();
+  // Reset pan/zoom state
+  current_zoom = 1;
+  pan_x = 0;
+  pan_y = 0;
+
+  // Hide all viewers first
+  $('#pdf-viewer').hide();
+  $('#img-viewer').hide();
+  $('#spreadsheet-viewer').hide().empty();
 
   if (!uploaded_file_url) {
     show_alert('Original file not available for QC view', 'warning');
@@ -602,10 +611,26 @@ window.open_qc_screen = function () {
     const ext = uploaded_file_url.split('.').pop().toLowerCase();
     if (ext === 'pdf') {
       $('#pdf-viewer').attr('src', uploaded_file_url).show();
-      $('#img-viewer').hide();
     } else if (['jpg', 'jpeg', 'png'].includes(ext)) {
-      $('#img-viewer').attr('src', uploaded_file_url).show();
-      $('#pdf-viewer').hide();
+      const $img = $('#img-viewer');
+      $img.attr('src', uploaded_file_url).show().css('transform', 'scale(1) translate(0px, 0px)');
+      init_image_drag($img[0]);
+    } else if (['xls', 'xlsx', 'csv', 'txt'].includes(ext)) {
+      // Render spreadsheet as HTML table
+      $('#spreadsheet-viewer').show().html(
+        '<div class="text-center py-4"><i class="fa fa-spinner fa-spin fa-2x text-muted"></i><br><small class="text-muted mt-2">Loading spreadsheet…</small></div>'
+      );
+      call_api('scanify.api.render_spreadsheet_preview', {
+        file_url: uploaded_file_url
+      }).then(r => {
+        if (r && r.html) {
+          $('#spreadsheet-viewer').html(r.html);
+        } else {
+          $('#spreadsheet-viewer').html('<div class="text-center text-muted py-4"><i class="fa fa-file-alt fa-2x mb-2"></i><br>Could not render preview</div>');
+        }
+      }).catch(() => {
+        $('#spreadsheet-viewer').html('<div class="text-center text-muted py-4"><i class="fa fa-file-alt fa-2x mb-2"></i><br>Could not render preview</div>');
+      });
     }
   }
 
@@ -736,14 +761,55 @@ $(document).on('change', '#column-checkboxes input', function () {
 });
 
 /* ============================================================
-   ZOOM helpers (QC screen)
+   PAN / ZOOM helpers (QC screen)
    ============================================================ */
-window.zoom_in = function () { current_zoom = Math.min(current_zoom + 0.2, 3); apply_zoom(); };
-window.zoom_out = function () { current_zoom = Math.max(current_zoom - 0.2, 0.4); apply_zoom(); };
-window.reset_zoom = function () { current_zoom = 1; apply_zoom(); };
+let pan_x = 0, pan_y = 0;
+let is_dragging = false, drag_start_x = 0, drag_start_y = 0;
+
+window.zoom_in = function () { current_zoom = Math.min(current_zoom + 0.2, 5); apply_zoom(); };
+window.zoom_out = function () { current_zoom = Math.max(current_zoom - 0.2, 0.2); apply_zoom(); };
+window.reset_zoom = function () { current_zoom = 1; pan_x = 0; pan_y = 0; apply_zoom(); };
 
 function apply_zoom() {
-  $('#document-viewer img, #document-viewer iframe').css('transform', `scale(${current_zoom})`);
+  const $el = $('#document-viewer img:visible, #document-viewer iframe:visible');
+  $el.css('transform', `scale(${current_zoom}) translate(${pan_x}px, ${pan_y}px)`);
+}
+
+function init_image_drag(img) {
+  // Remove old listeners to avoid duplication
+  const viewer = document.getElementById('document-viewer');
+
+  img.onmousedown = function (e) {
+    if (e.button !== 0) return;
+    is_dragging = true;
+    drag_start_x = e.clientX - pan_x * current_zoom;
+    drag_start_y = e.clientY - pan_y * current_zoom;
+    img.classList.add('dragging');
+    img.style.cursor = 'grabbing';
+    e.preventDefault();
+  };
+
+  document.addEventListener('mousemove', function (e) {
+    if (!is_dragging) return;
+    pan_x = (e.clientX - drag_start_x) / current_zoom;
+    pan_y = (e.clientY - drag_start_y) / current_zoom;
+    apply_zoom();
+  });
+
+  document.addEventListener('mouseup', function () {
+    if (!is_dragging) return;
+    is_dragging = false;
+    img.classList.remove('dragging');
+    img.style.cursor = 'grab';
+  });
+
+  // Mouse wheel zoom on viewer
+  viewer.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.15 : 0.15;
+    current_zoom = Math.min(Math.max(current_zoom + delta, 0.2), 5);
+    apply_zoom();
+  }, { passive: false });
 }
 
 /* ============================================================

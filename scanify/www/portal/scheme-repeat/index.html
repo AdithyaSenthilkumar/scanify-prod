@@ -17,217 +17,201 @@
     <div id="limitBanner" class="alert d-none mb-3"></div>
 
     <form id="repeatSchemeForm" autocomplete="off">
-        <!-- Source Scheme Selection -->
+        <!-- Request Information -->
         <div class="card mb-4">
             <div class="card-header">
-                <span><i class="fa fa-copy"></i> Select Approved Scheme</span>
+                <span><i class="fa fa-info-circle"></i> Request Information</span>
             </div>
             <div class="card-body">
-                <div class="row align-items-end">
-                    <div class="col-md-8">
-                        <div class="form-group mb-0">
-                            <label><strong>Approved Scheme <span class="text-danger">*</span></strong></label>
-                            <select id="schemeSelect" class="form-control">
-                                <option value="">-- Select Approved Scheme --</option>
-                            </select>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label><strong>Application Date <span class="text-danger">*</span></strong></label>
+                            <input type="date" id="applicationDate" class="form-control" required>
                         </div>
                     </div>
                     <div class="col-md-4">
-                        <button type="button" class="btn btn-info btn-block" id="loadSchemeBtn" onclick="loadSchemeDetails()" disabled>
-                            <i class="fa fa-download"></i> Load Scheme
-                        </button>
+                        <div class="form-group">
+                            <label><strong>Division</strong></label>
+                            <input type="text" class="form-control bg-light" value="{{ division }}" readonly>
+                            <input type="hidden" id="division" value="{{ division }}">
+                        </div>
                     </div>
-                </div>
-                <div class="alert alert-light mt-3 mb-0">
-                    <small>
-                        <strong>Note:</strong> Only approved schemes are shown. Select a scheme to pre-fill the form.
-                        You can edit the products before submitting.
-                    </small>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label><strong>Requested By</strong></label>
+                            <input type="text" class="form-control bg-light" value="{{ frappe.session.user }}" readonly>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Request Information (read-only, auto-filled) -->
-        <div id="formSection" style="display:none;">
-            <div class="card mb-4">
-                <div class="card-header">
-                    <span><i class="fa fa-info-circle"></i> Request Information</span>
-                </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><strong>Application Date <span class="text-danger">*</span></strong></label>
-                                <input type="date" id="applicationDate" class="form-control" required>
-                            </div>
+        <!-- HQ & Location -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <span><i class="fa fa-building"></i> HQ &amp; Location</span>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label><strong>HQ <span class="text-danger">*</span></strong></label>
+                            <select id="hqSelect" class="form-control" required>
+                                <option value="">-- Select HQ --</option>
+                            </select>
+                            <small class="text-muted">Select an HQ first to filter doctors &amp; stockists</small>
                         </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><strong>Division</strong></label>
-                                <input type="text" class="form-control bg-light" value="{{ division }}" readonly>
-                                <input type="hidden" id="division" value="{{ division }}">
-                            </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label><strong>Region</strong></label>
+                            <input type="text" id="regionDisplay" class="form-control bg-light" readonly placeholder="Auto-filled from HQ">
+                            <input type="hidden" id="regionValue">
                         </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><strong>Source Scheme</strong></label>
-                                <input type="text" id="sourceSchemeDisplay" class="form-control bg-light" readonly>
-                            </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label><strong>Team</strong></label>
+                            <input type="text" id="teamDisplay" class="form-control bg-light" readonly placeholder="Auto-filled from HQ">
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- HQ & Location (read-only) -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <span><i class="fa fa-building"></i> HQ &amp; Location</span>
+        <!-- Doctor Details (only scheme-approved doctors) -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <span><i class="fa fa-user-md"></i> Doctor Details</span>
+                <small class="text-muted ml-2">(only doctors with approved schemes)</small>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label><strong>Doctor <span class="text-danger">*</span></strong></label>
+                            <select id="doctorSelect" class="form-control" required disabled>
+                                <option value="">-- Select HQ first --</option>
+                            </select>
+                            <small class="text-muted">Only doctors with approved schemes are shown</small>
+                            <input type="hidden" id="doctorCode" required>
+                        </div>
+                    </div>
+                    <div class="col-md-6" id="doctorInfoPanel" style="display:none;">
+                        <div class="alert alert-info py-2 px-3 mb-0">
+                            <div id="doctorInfoContent"></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><strong>HQ</strong></label>
-                                <input type="text" id="hqDisplay" class="form-control bg-light" readonly>
-                                <input type="hidden" id="hqValue">
-                            </div>
+
+                <div class="row" id="doctorFieldsRow" style="display:none;">
+                    <div class="col-md-3">
+                        <div class="form-group">
+                            <label class="text-muted">Doctor Name</label>
+                            <input type="text" id="doctorName" class="form-control bg-light" readonly>
                         </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><strong>Region</strong></label>
-                                <input type="text" id="regionDisplay" class="form-control bg-light" readonly>
-                                <input type="hidden" id="regionValue">
-                            </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-group">
+                            <label class="text-muted">Place</label>
+                            <input type="text" id="doctorPlace" class="form-control bg-light" readonly>
                         </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><strong>Team</strong></label>
-                                <input type="text" id="teamDisplay" class="form-control bg-light" readonly>
-                                <input type="hidden" id="teamValue">
-                            </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-group">
+                            <label class="text-muted">Specialization</label>
+                            <input type="text" id="doctorSpecialization" class="form-control bg-light" readonly>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label class="text-muted">Hospital/Clinic</label>
+                            <input type="text" id="doctorHospital" class="form-control bg-light" readonly>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="doctorLimitInfo" class="mt-2" style="display:none;">
+                    <span class="badge badge-info" id="limitBadgeText"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stockist -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <span><i class="fa fa-store"></i> Stockist</span>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label><strong>Stockist <span class="text-danger">*</span></strong></label>
+                            <select id="stockistSelect" class="form-control" required>
+                                <option value="">-- Select HQ first --</option>
+                            </select>
+                            <small class="text-muted">Stockists from the entire region of the selected HQ</small>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label><strong>Scheme Notes</strong></label>
+                            <textarea id="schemeNotes" class="form-control" rows="2"
+                                placeholder="Optional reason/notes..."></textarea>
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- Doctor Details (read-only from approved scheme) -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <span><i class="fa fa-user-md"></i> Doctor Details</span>
-                    <small class="text-muted ml-2">(from approved scheme - cannot be changed)</small>
-                </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-3">
-                            <div class="form-group">
-                                <label class="text-muted">Doctor Code</label>
-                                <input type="text" id="doctorCode" class="form-control bg-light" readonly>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="form-group">
-                                <label class="text-muted">Doctor Name</label>
-                                <input type="text" id="doctorName" class="form-control bg-light" readonly>
-                            </div>
-                        </div>
-                        <div class="col-md-2">
-                            <div class="form-group">
-                                <label class="text-muted">Place</label>
-                                <input type="text" id="doctorPlace" class="form-control bg-light" readonly>
-                            </div>
-                        </div>
-                        <div class="col-md-2">
-                            <div class="form-group">
-                                <label class="text-muted">Specialization</label>
-                                <input type="text" id="doctorSpecialization" class="form-control bg-light" readonly>
-                            </div>
-                        </div>
-                        <div class="col-md-2">
-                            <div class="form-group">
-                                <label class="text-muted">Hospital/Clinic</label>
-                                <input type="text" id="doctorHospital" class="form-control bg-light" readonly>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="doctorLimitInfo" class="mt-2" style="display:none;">
-                        <span class="badge badge-info" id="limitBadgeText"></span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Stockist (read-only) -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <span><i class="fa fa-store"></i> Stockist</span>
-                    <small class="text-muted ml-2">(from approved scheme - cannot be changed)</small>
-                </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label><strong>Stockist</strong></label>
-                                <input type="text" id="stockistDisplay" class="form-control bg-light" readonly>
-                                <input type="hidden" id="stockistCode">
-                                <input type="hidden" id="stockistName">
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label><strong>Scheme Notes</strong></label>
-                                <textarea id="schemeNotes" class="form-control" rows="2"
-                                    placeholder="Optional reason/notes..."></textarea>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Products Table (EDITABLE) -->
-            <div class="card mb-4">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="fa fa-cubes"></i> Products and Quantities <span class="badge badge-warning ml-2">Editable</span></span>
-                    <button type="button" class="btn btn-sm btn-primary" onclick="addItemRow()">
-                        <i class="fa fa-plus"></i> Add Product
-                    </button>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0" id="itemsTable">
-                            <thead>
-                                <tr>
-                                    <th style="min-width:220px;">Product <span class="text-danger">*</span></th>
-                                    <th style="min-width:80px;">Pack</th>
-                                    <th style="min-width:90px;">Order Qty <span class="text-danger">*</span></th>
-                                    <th style="min-width:80px;">Free Qty</th>
-                                    <th style="min-width:100px;">Rate (PTS)</th>
-                                    <th style="min-width:100px;">Special Rate</th>
-                                    <th style="min-width:90px;">Scheme %</th>
-                                    <th style="min-width:120px;">Value (&#8377;)</th>
-                                    <th style="min-width:50px;"></th>
-                                </tr>
-                            </thead>
-                            <tbody id="itemsTbody"></tbody>
-                            <tfoot>
-                                <tr>
-                                    <td colspan="7" class="text-right"><strong>Total Scheme Value:</strong></td>
-                                    <td><strong id="totalValue">&#8377; 0.00</strong></td>
-                                    <td></td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Submit -->
-            <div class="d-flex justify-content-end gap-2 mb-4">
-                <a href="/portal/scheme-list" class="btn btn-secondary">
-                    <i class="fa fa-times"></i> Cancel
-                </a>
-                <button type="submit" class="btn btn-primary" id="submitBtn">
-                    <i class="fa fa-redo"></i> Submit Repeat Request
+        <!-- Products Table (only approved products for doctor) -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fa fa-cubes"></i> Products and Quantities
+                    <span class="badge badge-info ml-2">Only approved products</span>
+                </span>
+                <button type="button" class="btn btn-sm btn-primary" onclick="addItemRow()" id="addProductBtn" disabled>
+                    <i class="fa fa-plus"></i> Add Product
                 </button>
             </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="itemsTable">
+                        <thead>
+                            <tr>
+                                <th style="min-width:220px;">Product <span class="text-danger">*</span></th>
+                                <th style="min-width:80px;">Pack</th>
+                                <th style="min-width:90px;">Order Qty <span class="text-danger">*</span></th>
+                                <th style="min-width:80px;">Free Qty</th>
+                                <th style="min-width:100px;">Rate (PTS)</th>
+                                <th style="min-width:100px;">Special Rate</th>
+                                <th style="min-width:90px;">Scheme %</th>
+                                <th style="min-width:120px;">Value (&#8377;)</th>
+                                <th style="min-width:50px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="itemsTbody"></tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="7" class="text-right"><strong>Total Scheme Value:</strong></td>
+                                <td><strong id="totalValue">&#8377; 0.00</strong></td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Submit -->
+        <div class="d-flex justify-content-end gap-2 mb-4">
+            <a href="/portal/scheme-list" class="btn btn-secondary">
+                <i class="fa fa-times"></i> Cancel
+            </a>
+            <button type="submit" class="btn btn-primary" id="submitBtn">
+                <i class="fa fa-redo"></i> Submit Repeat Request
+            </button>
         </div>
     </form>
 </div>

@@ -93,11 +93,11 @@ const masterConfigs = {
         searchFields: ['product_code', 'product_name', 'product_group', 'category', 'pack'],
         excelColumns: [
             'Product Code', 'Product Name', 'Product Group', 'Category',
-            'Pack', 'Pack Conversion', 'PTS', 'PTR', 'MRP', 'GST Rate (%)', 'Status'
+            'Pack', 'Pack Conversion', 'PTS', 'PTR', 'MRP', 'GST Rate (%)', 'Division', 'Status'
         ],
         excelSample: [
             'PROD001', 'Paracetamol 500mg', 'Others', 'Main Product',
-            '10x10', "10's", '10.00', '55.00', '60.00', '5', 'Active'
+            '10x10', "10's", '10.00', '55.00', '60.00', '5', 'Prima', 'Active'
         ]
     },
     doctor: {
@@ -1562,47 +1562,81 @@ function processImport() {
         success: function (response) {
             $('.progress-bar').css('width', '100%');
             if (response.message && response.message.success) {
-                $('#import-alert')
-                    .removeClass('alert-danger')
-                    .addClass('alert-success')
-                    .html(`<strong>Import Successful!</strong><br>
-                            <i class="fa fa-check-circle"></i> ${response.message.imported} records imported<br>
-                            ${response.message.failed > 0 ? `<i class="fa fa-exclamation-triangle"></i> ${response.message.failed} records failed` : ''}`);
+                const m = response.message;
+                let resultHtml = `<strong>Import Complete!</strong><br>`;
+                if (m.imported > 0) {
+                    resultHtml += `<i class="fa fa-plus-circle text-success"></i> ${m.imported} new records created<br>`;
+                }
+                if (m.updated > 0) {
+                    resultHtml += `<i class="fa fa-refresh text-info"></i> ${m.updated} existing records updated<br>`;
+                }
+                if (m.failed > 0) {
+                    resultHtml += `<i class="fa fa-exclamation-triangle text-danger"></i> ${m.failed} records failed<br>`;
+                }
 
-                setTimeout(function () {
-                    $('#bulkImportModal').modal('hide');
+                // Show per-row errors if any
+                if (m.errors && m.errors.length > 0) {
+                    resultHtml += `<hr style="margin:8px 0"><strong>Errors:</strong><div style="max-height:200px;overflow-y:auto;font-size:13px;margin-top:4px;">`;
+                    m.errors.forEach(function(err) {
+                        resultHtml += `<div class="text-danger" style="padding:2px 0;border-bottom:1px solid #f5c6cb;">
+                            <i class="fa fa-times-circle"></i> ${$('<span>').text(err).html()}</div>`;
+                    });
+                    resultHtml += `</div>`;
+                }
+
+                const alertClass = m.failed > 0 ? 'alert-warning' : 'alert-success';
+                $('#import-alert')
+                    .removeClass('alert-danger alert-success alert-warning')
+                    .addClass(alertClass)
+                    .html(resultHtml);
+
+                if (m.failed === 0) {
+                    setTimeout(function () {
+                        $('#bulkImportModal').modal('hide');
+                        loadMasterData();
+                        _refreshCacheAfterImport();
+                    }, 2000);
+                } else {
+                    // Still refresh data even if some rows failed
                     loadMasterData();
-                    // Refresh cache state so next time dropdowns are opened they fetch fresh data
-                    if (currentMasterType === 'hq') {
-                        hqCache = [];
-                        if (typeof loadHQCache === 'function') loadHQCache();
-                    } else if (currentMasterType === 'zone') {
-                        zoneCache = [];
-                    } else if (currentMasterType === 'state') {
-                        stateCache = [];
-                    } else if (currentMasterType === 'region') {
-                        regionCache = [];
-                    } else if (currentMasterType === 'team') {
-                        teamCache = [];
-                    }
-                }, 2000);
+                    _refreshCacheAfterImport();
+                }
             } else {
                 $('#import-alert')
-                    .removeClass('alert-success')
+                    .removeClass('alert-success alert-warning')
                     .addClass('alert-danger')
-                    .html(`<strong>Import Failed!</strong><br>${response.message ? response.message.message : 'Unknown error'}`);
+                    .html(`<strong>Import Failed!</strong><br>${response.message ? $('<span>').text(response.message.message).html() : 'Unknown error'}`);
             }
             $('#import-results').show();
         },
         error: function () {
             $('.progress-bar').css('width', '100%').addClass('bg-danger');
             $('#import-alert')
-                .removeClass('alert-success')
+                .removeClass('alert-success alert-warning')
                 .addClass('alert-danger')
                 .html('<strong>Error!</strong> Failed to upload file');
             $('#import-results').show();
         }
     });
+}
+
+function _refreshCacheAfterImport() {
+    if (currentMasterType === 'hq') {
+        hqCache = [];
+        if (typeof loadHQCache === 'function') loadHQCache();
+    } else if (currentMasterType === 'zone') {
+        zoneCache = [];
+        if (typeof loadZoneCache === 'function') loadZoneCache();
+    } else if (currentMasterType === 'state') {
+        stateCache = [];
+        if (typeof loadStateCache === 'function') loadStateCache();
+    } else if (currentMasterType === 'region') {
+        regionCache = [];
+        if (typeof loadRegionCache === 'function') loadRegionCache();
+    } else if (currentMasterType === 'team') {
+        teamCache = [];
+        if (typeof loadTeamCache === 'function') loadTeamCache();
+    }
 }
 
 // Utility functions

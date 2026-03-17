@@ -313,7 +313,8 @@
           </div>
           <div class="ss-doc-viewer" id="document-viewer">
             <iframe id="pdf-viewer" style="display:none;width:100%;height:100%;border:none;"></iframe>
-            <img id="img-viewer" style="display:none;max-width:100%;height:auto;">
+            <img id="img-viewer" style="display:none;cursor:grab;transform-origin:0 0;">
+            <div id="spreadsheet-viewer" style="display:none;padding:12px;overflow:auto;height:100%;"></div>
           </div>
         </div>
         <!-- Right: Data Table -->
@@ -1013,6 +1014,48 @@
     flex: 1;
     overflow: auto;
     background: #f1f5f9;
+    position: relative;
+  }
+
+  .ss-doc-viewer img {
+    transform-origin: 0 0;
+    transition: none;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  .ss-doc-viewer img.dragging {
+    cursor: grabbing;
+  }
+
+  #spreadsheet-viewer table {
+    border-collapse: collapse;
+    font-size: 12px;
+    width: auto;
+    background: white;
+  }
+
+  #spreadsheet-viewer th,
+  #spreadsheet-viewer td {
+    border: 1px solid #d1d5db;
+    padding: 4px 8px;
+    white-space: nowrap;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #spreadsheet-viewer th {
+    background: #1e293b;
+    color: white;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    font-weight: 600;
+  }
+
+  #spreadsheet-viewer tr:nth-child(even) {
+    background: #f8fafc;
   }
 
   .ss-col-selector {

@@ -1,14 +1,17 @@
 /**
  * scheme-repeat.js - Logic for Repeat Scheme Request portal page
- * Products are editable; doctor, HQ, stockist are locked from approved scheme.
- * Only approved products for the selected doctor appear in the product dropdowns.
+ * Same form as new scheme request, but:
+ *   - Doctor dropdown shows ONLY doctors with approved schemes
+ *   - Product dropdown shows ONLY approved products for the selected doctor
+ *   - Submitted with repeated_request = 1
+ *   - Limit of 3 per product per month is enforced
  */
 
 let itemCounter = 0;
-let approvedProducts = [];   // products from approved schemes for the doctor
-let selectedSchemeData = null;
+let approvedProducts = [];   // products from approved schemes for the selected doctor
+let selectedDoctor = null;
 let doctorProductLimits = {};
-let approvedSchemes = [];
+let hqDivisionMap = {};
 
 function getActiveDivision() {
     try {
@@ -26,139 +29,215 @@ $(document).ready(function () {
     const today = new Date().toISOString().split('T')[0];
     $('#applicationDate').val(today);
 
-    loadApprovedSchemes();
+    // Load HQs on page load
+    loadHQs();
 
-    $('#schemeSelect').on('change', function () {
-        const val = $(this).val();
-        $('#loadSchemeBtn').prop('disabled', !val);
+    // HQ change → fill region/team, load approved doctors, load stockists by region
+    $('#hqSelect').on('change', function () {
+        const hq = $(this).val();
+        if (hq) {
+            const $opt = $(this).find('option:selected');
+            const region = $opt.attr('data-region') || '';
+            const regionName = $opt.attr('data-region-name') || region;
+            const team = $opt.attr('data-team') || '';
+            const teamName = $opt.attr('data-team-name') || team;
+            $('#regionDisplay').val(regionName);
+            $('#regionValue').val(region);
+            $('#teamDisplay').val(teamName);
+
+            // Load ONLY approved doctors for this HQ
+            loadApprovedDoctorsForHQ(hq);
+
+            // Load stockists from entire region
+            loadStockistsByRegion(region);
+        } else {
+            $('#regionDisplay').val('');
+            $('#regionValue').val('');
+            $('#teamDisplay').val('');
+            $('#doctorSelect').prop('disabled', true).html('<option value="">-- Select HQ first --</option>');
+            $('#stockistSelect').html('<option value="">-- Select HQ first --</option>');
+        }
+
+        // Clear doctor selection when HQ changes
+        clearDoctorSelection();
     });
 
+    // Doctor dropdown change
+    $('#doctorSelect').on('change', function () {
+        const selected = $(this).val();
+        if (selected) {
+            const $opt = $(this).find('option:selected');
+            selectDoctorFromDropdown($opt);
+        } else {
+            clearDoctorSelection();
+        }
+    });
+
+    // Form submit
     $('#repeatSchemeForm').on('submit', function (e) {
         e.preventDefault();
         submitRepeatRequest();
     });
 });
 
-// ===================== LOAD APPROVED SCHEMES =====================
+// ===================== MASTER DATA =====================
 
-function loadApprovedSchemes() {
-    const filters = { status: 'Approved' };
-
-    $('#schemeSelect').html('<option value="">Loading...</option>');
-    $('#loadSchemeBtn').prop('disabled', true);
-
+function loadHQs() {
+    const division = getActiveDivision();
     $.ajax({
-        url: '/api/method/scanify.api.get_scheme_list_portal',
+        url: '/api/method/scanify.api.get_user_hqs',
         type: 'POST',
         contentType: 'application/json',
         headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-        data: JSON.stringify({ division: getActiveDivision(), filters: JSON.stringify(filters) }),
+        data: JSON.stringify({ division: division }),
         success: function (r) {
-            if (!(r.message && r.message.success)) {
-                $('#schemeSelect').html('<option value="">Error loading schemes</option>');
-                return;
-            }
-
-            approvedSchemes = r.message.data || [];
-            if (!approvedSchemes.length) {
-                $('#schemeSelect').html('<option value="">No approved schemes found</option>');
-                return;
-            }
-
-            let html = '<option value="">-- Select Approved Scheme --</option>';
-            approvedSchemes.forEach(function (s) {
-                html += '<option value="' + s.name + '">' + s.name + ' | ' + (s.doctor_name || '-') + ' | ' + (s.stockist_name || '-') + ' | \u20B9' + formatCurrency(s.total_scheme_value || 0) + '</option>';
-            });
-            $('#schemeSelect').html(html);
-        },
-        error: function (xhr) {
-            console.error(xhr.responseText);
-            $('#schemeSelect').html('<option value="">Error loading schemes</option>');
-        }
-    });
-}
-
-// ===================== LOAD SCHEME DETAILS =====================
-
-function loadSchemeDetails() {
-    const schemeName = $('#schemeSelect').val();
-    if (!schemeName) return;
-
-    $('#loadSchemeBtn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Loading...');
-
-    $.ajax({
-        url: '/api/method/scanify.api.get_scheme_detail',
-        type: 'POST',
-        contentType: 'application/json',
-        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-        data: JSON.stringify({ scheme_name: schemeName }),
-        success: function (r) {
-            $('#loadSchemeBtn').prop('disabled', false).html('<i class="fa fa-download"></i> Load Scheme');
-            if (r.message && r.message.success) {
-                selectedSchemeData = r.message;
-                populateFormFromScheme(r.message);
+            if (r.message && r.message.length > 0) {
+                let html = '<option value="">-- Select HQ --</option>';
+                r.message.forEach(function (hq) {
+                    html += '<option value="' + hq.name + '" data-team="' + (hq.team || '') + '" data-team-name="' + (hq.team_name || hq.team || '') + '" data-region="' + (hq.region || '') + '" data-region-name="' + (hq.region_name || hq.region || '') + '">' + (hq.hq_name || hq.name) + '</option>';
+                    hqDivisionMap[hq.name] = { team: hq.team, region: hq.region, team_name: hq.team_name, region_name: hq.region_name };
+                });
+                $('#hqSelect').html(html);
             } else {
-                showAlert((r.message && r.message.message) || 'Failed to load scheme details', 'danger');
+                $('#hqSelect').html('<option value="">No HQs found for this division</option>');
             }
         },
+        error: function (xhr) { console.error('HQ load error:', xhr.responseText); }
+    });
+}
+
+function loadApprovedDoctorsForHQ(hq) {
+    const division = getActiveDivision();
+    $('#doctorSelect').prop('disabled', true).html('<option value="">Loading approved doctors...</option>');
+
+    $.ajax({
+        url: '/api/method/scanify.api.get_approved_doctors_for_hq',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify({ hq: hq, division: division }),
+        success: function (r) {
+            let html = '<option value="">-- Select Doctor --</option>';
+            if (r.message && r.message.length > 0) {
+                r.message.forEach(function (d) {
+                    html += '<option value="' + d.name + '"'
+                        + ' data-code="' + d.name + '"'
+                        + ' data-doctor-code="' + (d.doctor_code || '') + '"'
+                        + ' data-name="' + (d.doctor_name || '') + '"'
+                        + ' data-place="' + (d.place || '') + '"'
+                        + ' data-specialization="' + (d.specialization || '') + '"'
+                        + ' data-hospital="' + (d.hospital_address || '') + '"'
+                        + ' data-hq="' + (d.hq || '') + '"'
+                        + ' data-team="' + (d.team || '') + '"'
+                        + ' data-region="' + (d.region || '') + '">'
+                        + (d.doctor_name || '') + ' (' + (d.doctor_code || d.name) + ')' + (d.place ? ' - ' + d.place : '')
+                        + '</option>';
+                });
+            } else {
+                html = '<option value="">No doctors with approved schemes in this HQ</option>';
+            }
+            $('#doctorSelect').html(html).prop('disabled', false);
+        },
         error: function (xhr) {
-            $('#loadSchemeBtn').prop('disabled', false).html('<i class="fa fa-download"></i> Load Scheme');
-            console.error(xhr.responseText);
-            showAlert('Error loading scheme details', 'danger');
+            console.error('Doctor load error:', xhr.responseText);
+            $('#doctorSelect').html('<option value="">Error loading doctors</option>').prop('disabled', false);
         }
     });
 }
 
-function populateFormFromScheme(d) {
-    // Source scheme
-    $('#sourceSchemeDisplay').val(d.name);
+function loadStockistsByRegion(region) {
+    if (!region) {
+        $('#stockistSelect').html('<option value="">-- Select HQ first --</option>');
+        return;
+    }
+    $('#stockistSelect').html('<option value="">Loading...</option>');
+    const division = getActiveDivision();
+    $.ajax({
+        url: '/api/method/scanify.api.get_stockists_by_region',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify({ region: region, division: division }),
+        success: function (r) {
+            let html = '<option value="">-- Select Stockist --</option>';
+            if (r.message && r.message.length > 0) {
+                r.message.forEach(function (s) {
+                    var hqLabel = s.hq_name ? ' (HQ: ' + s.hq_name + ')' : '';
+                    html += '<option value="' + s.name + '" data-name="' + (s.stockist_name || '') + '">' + (s.stockist_name || '') + hqLabel + ' — ' + (s.stockist_code || s.name) + '</option>';
+                });
+            } else {
+                html = '<option value="">No stockists found in this region</option>';
+            }
+            $('#stockistSelect').html(html);
+        },
+        error: function (xhr) {
+            console.error(xhr.responseText);
+            $('#stockistSelect').html('<option value="">Error loading stockists</option>');
+        }
+    });
+}
 
-    // HQ & location (read-only)
-    $('#hqDisplay').val(d.hq || '-');
-    $('#hqValue').val(d.hq || '');
-    $('#regionDisplay').val(d.region || '-');
-    $('#regionValue').val(d.region || '');
-    $('#teamDisplay').val(d.team || '-');
-    $('#teamValue').val(d.team || '');
+// ===================== DOCTOR SELECTION =====================
 
-    // Doctor (read-only)
-    $('#doctorCode').val(d.doctor_code || '');
-    $('#doctorName').val(d.doctor_name || '');
-    $('#doctorPlace').val(d.doctor_place || '');
-    $('#doctorSpecialization').val(d.specialization || '');
-    $('#doctorHospital').val(d.hospital_address || '');
+function selectDoctorFromDropdown($opt) {
+    selectedDoctor = {
+        code: $opt.data('code'),
+        doctor_code: $opt.data('doctor-code'),
+        name: $opt.data('name'),
+        place: $opt.data('place'),
+        specialization: $opt.data('specialization'),
+        hospital: $opt.data('hospital'),
+        hq: $opt.data('hq'),
+        team: $opt.data('team'),
+        region: $opt.data('region'),
+    };
 
-    // Stockist (read-only)
-    $('#stockistDisplay').val((d.stockist_name || '-') + ' (' + (d.stockist_code || '') + ')');
-    $('#stockistCode').val(d.stockist_code || '');
-    $('#stockistName').val(d.stockist_name || '');
+    $('#doctorCode').val(selectedDoctor.code);
 
-    // Scheme notes
-    $('#schemeNotes').val('Repeated from ' + d.name);
+    // Fill doctor fields
+    $('#doctorName').val(selectedDoctor.name);
+    $('#doctorPlace').val(selectedDoctor.place);
+    $('#doctorSpecialization').val(selectedDoctor.specialization);
+    $('#doctorHospital').val(selectedDoctor.hospital);
+    $('#doctorFieldsRow').show();
 
-    // Show the form
-    $('#formSection').show();
+    // Show info panel
+    $('#doctorInfoContent').html(
+        '<strong>' + selectedDoctor.name + '</strong> (' + selectedDoctor.doctor_code + ')<br>' +
+        '<small>' + selectedDoctor.place + ' | ' + (selectedDoctor.specialization || 'General') + '</small>' +
+        (selectedDoctor.hospital ? '<br><small>' + selectedDoctor.hospital + '</small>' : '')
+    );
+    $('#doctorInfoPanel').show();
 
-    // Load approved products for this doctor, then populate items
-    loadApprovedProductsForDoctor(d.doctor_code, function () {
-        // Clear existing rows
+    // Load monthly limit info
+    loadDoctorMonthlyLimit(selectedDoctor.code);
+
+    // Load approved products for this doctor, then add first row
+    loadApprovedProductsForDoctor(selectedDoctor.code, function () {
+        // Clear existing product rows and add a fresh one
         $('#itemsTbody').html('');
         itemCounter = 0;
-
-        // Pre-fill items from source scheme
-        if (d.items && d.items.length > 0) {
-            d.items.forEach(function (item) {
-                addItemRowWithData(item);
-            });
-        } else {
-            addItemRow();
-        }
-
+        $('#addProductBtn').prop('disabled', false);
+        addItemRow();
         calculateTotal();
     });
+}
 
-    // Load doctor monthly limits
-    loadDoctorMonthlyLimit(d.doctor_code);
+function clearDoctorSelection() {
+    selectedDoctor = null;
+    $('#doctorCode').val('');
+    $('#doctorName, #doctorPlace, #doctorSpecialization, #doctorHospital').val('');
+    $('#doctorFieldsRow').hide();
+    $('#doctorInfoPanel').hide();
+    $('#doctorLimitInfo').hide();
+    doctorProductLimits = {};
+    approvedProducts = [];
+    // Clear products table
+    $('#itemsTbody').html('');
+    itemCounter = 0;
+    $('#addProductBtn').prop('disabled', true);
+    calculateTotal();
+    updateProductLimitWarnings();
 }
 
 // ===================== APPROVED PRODUCTS =====================
@@ -198,13 +277,13 @@ function loadDoctorMonthlyLimit(doctorCode) {
         data: JSON.stringify({ doctor_code: doctorCode, application_date: appDate }),
         success: function (r) {
             if (r.message && r.message.success) {
-                const data = r.message;
+                var data = r.message;
                 doctorProductLimits = data.product_counts || {};
-                const total = data.total_requests || 0;
-                const month = data.month;
+                var total = data.total_requests || 0;
+                var month = data.month;
 
-                let badgeClass = total >= 3 ? 'badge-danger' : total >= 2 ? 'badge-warning' : 'badge-success';
-                let msg = total + ' scheme(s) already this ' + month + '. Max 3 per product per month.';
+                var badgeClass = total >= 3 ? 'badge-danger' : total >= 2 ? 'badge-warning' : 'badge-success';
+                var msg = total + ' scheme(s) already this ' + month + '. Max 3 per product per month.';
                 if (total === 0) msg = 'No schemes yet in ' + month + '. Max 3 per product per month.';
 
                 $('#limitBadgeText').text(msg).removeClass('badge-success badge-warning badge-danger').addClass(badgeClass);
@@ -223,8 +302,8 @@ function loadDoctorMonthlyLimit(doctorCode) {
 
 function addItemRow() {
     itemCounter++;
-    const rowId = itemCounter;
-    const row = '<tr id="item-row-' + rowId + '" data-row-id="' + rowId + '">' +
+    var rowId = itemCounter;
+    var row = '<tr id="item-row-' + rowId + '" data-row-id="' + rowId + '">' +
         '<td>' +
             '<select class="form-control product-select" id="product-' + rowId + '" onchange="onProductChange(' + rowId + ')">' +
                 '<option value="">-- Select Product --</option>' +
@@ -249,47 +328,13 @@ function addItemRow() {
     refreshProductDropdown(rowId);
 }
 
-function addItemRowWithData(item) {
-    itemCounter++;
-    const rowId = itemCounter;
-    const row = '<tr id="item-row-' + rowId + '" data-row-id="' + rowId + '">' +
-        '<td>' +
-            '<select class="form-control product-select" id="product-' + rowId + '" onchange="onProductChange(' + rowId + ')">' +
-                '<option value="">-- Select Product --</option>' +
-            '</select>' +
-            '<div id="limit-warning-' + rowId + '" class="text-danger small mt-1" style="display:none;"></div>' +
-        '</td>' +
-        '<td><input type="text" class="form-control" id="pack-' + rowId + '" readonly></td>' +
-        '<td><input type="number" class="form-control" id="qty-' + rowId + '" min="1" value="' + (item.quantity || 1) + '" oninput="calculateRow(' + rowId + ')"></td>' +
-        '<td><input type="number" class="form-control" id="freeqty-' + rowId + '" min="0" value="' + (item.free_quantity || 0) + '" oninput="calculateRow(' + rowId + ')"></td>' +
-        '<td><input type="number" class="form-control" id="rate-' + rowId + '" step="0.01" readonly></td>' +
-        '<td><input type="number" class="form-control" id="specialrate-' + rowId + '" step="0.01" placeholder="Optional" value="' + (item.special_rate || '') + '" oninput="calculateRow(' + rowId + ')"></td>' +
-        '<td><input type="text" class="form-control bg-light" id="schemepct-' + rowId + '" readonly></td>' +
-        '<td><input type="text" class="form-control bg-light text-right" id="value-' + rowId + '" readonly></td>' +
-        '<td class="text-center">' +
-            '<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(' + rowId + ')">' +
-                '<i class="fa fa-trash"></i>' +
-            '</button>' +
-        '</td>' +
-    '</tr>';
-
-    $('#itemsTbody').append(row);
-    refreshProductDropdown(rowId);
-
-    // Set the product value and trigger change
-    if (item.product_code) {
-        $('#product-' + rowId).val(item.product_code);
-        onProductChange(rowId);
-    }
-}
-
 function refreshProductDropdown(rowId) {
-    const $sel = $('#product-' + rowId);
-    const currentVal = $sel.val();
-    let html = '<option value="">-- Select Product --</option>';
+    var $sel = $('#product-' + rowId);
+    var currentVal = $sel.val();
+    var html = '<option value="">-- Select Product --</option>';
     approvedProducts.forEach(function (p) {
-        const used = doctorProductLimits[p.name] || 0;
-        const limitReached = used >= 3;
+        var used = doctorProductLimits[p.name] || 0;
+        var limitReached = used >= 3;
         html += '<option value="' + p.name + '" data-name="' + (p.product_name || '') + '" data-pack="' + (p.pack || '') + '" data-pts="' + (p.pts || 0) + '"' + (limitReached ? ' class="text-danger"' : '') + '>' + (p.product_name || '') + ' (' + (p.product_code || p.name) + ')</option>';
     });
     $sel.html(html);
@@ -298,9 +343,9 @@ function refreshProductDropdown(rowId) {
 
 function updateProductLimitWarnings() {
     $('#itemsTbody tr').each(function () {
-        const rowId = $(this).data('row-id');
+        var rowId = $(this).data('row-id');
         if (!rowId) return;
-        const productCode = $('#product-' + rowId).val();
+        var productCode = $('#product-' + rowId).val();
         if (productCode) checkProductLimit(rowId, productCode);
     });
     refreshProductDropdowns();
@@ -308,14 +353,14 @@ function updateProductLimitWarnings() {
 
 function refreshProductDropdowns() {
     $('#itemsTbody tr').each(function () {
-        const rowId = $(this).data('row-id');
+        var rowId = $(this).data('row-id');
         if (rowId) refreshProductDropdown(rowId);
     });
 }
 
 function onProductChange(rowId) {
-    const $sel = $('#product-' + rowId);
-    const productCode = $sel.val();
+    var $sel = $('#product-' + rowId);
+    var productCode = $sel.val();
     if (!productCode) {
         $('#pack-' + rowId).val('');
         $('#rate-' + rowId).val('');
@@ -325,7 +370,7 @@ function onProductChange(rowId) {
         return;
     }
 
-    const opt = $sel.find('option:selected');
+    var opt = $sel.find('option:selected');
     $('#pack-' + rowId).val(opt.data('pack') || '');
     $('#rate-' + rowId).val(parseFloat(opt.data('pts') || 0).toFixed(2));
     calculateRow(rowId);
@@ -333,8 +378,8 @@ function onProductChange(rowId) {
 }
 
 function checkProductLimit(rowId, productCode) {
-    const used = doctorProductLimits[productCode] || 0;
-    const $warn = $('#limit-warning-' + rowId);
+    var used = doctorProductLimits[productCode] || 0;
+    var $warn = $('#limit-warning-' + rowId);
     if (used >= 3) {
         $warn.text('Limit reached: ' + used + '/3 requests this month for this product').removeClass('text-warning').addClass('text-danger').show();
     } else if (used >= 2) {
@@ -354,21 +399,21 @@ function getConversionFactor(packStr) {
 }
 
 function calculateRow(rowId) {
-    const qty = parseFloat($('#qty-' + rowId).val()) || 0;
-    const freeQty = parseFloat($('#freeqty-' + rowId).val()) || 0;
-    const rate = parseFloat($('#rate-' + rowId).val()) || 0;
-    const specialRate = parseFloat($('#specialrate-' + rowId).val()) || 0;
-    const pack = $('#pack-' + rowId).val() || '';
-    const conversionFactor = getConversionFactor(pack);
+    var qty = parseFloat($('#qty-' + rowId).val()) || 0;
+    var freeQty = parseFloat($('#freeqty-' + rowId).val()) || 0;
+    var rate = parseFloat($('#rate-' + rowId).val()) || 0;
+    var specialRate = parseFloat($('#specialrate-' + rowId).val()) || 0;
+    var pack = $('#pack-' + rowId).val() || '';
+    var conversionFactor = getConversionFactor(pack);
 
-    let schemePct = 0;
+    var schemePct = 0;
     if (specialRate > 0 && rate > 0) {
         schemePct = ((rate - specialRate) / rate) * 100;
     } else if (freeQty > 0 && qty > 0) {
         schemePct = (freeQty / qty) * 100;
     }
 
-    let value = 0;
+    var value = 0;
     if (specialRate > 0) {
         value = qty * specialRate;
     } else if (freeQty > 0) {
@@ -384,11 +429,11 @@ function calculateRow(rowId) {
 }
 
 function calculateTotal() {
-    let total = 0;
+    var total = 0;
     $('#itemsTbody tr').each(function () {
-        const rowId = $(this).data('row-id');
+        var rowId = $(this).data('row-id');
         if (!rowId) return;
-        const valStr = $('#value-' + rowId).val().replace(/[^0-9.-]/g, '').trim();
+        var valStr = $('#value-' + rowId).val().replace(/[^0-9.-]/g, '').trim();
         total += parseFloat(valStr) || 0;
     });
     $('#totalValue').text('\u20B9 ' + formatCurrency(total));
@@ -402,35 +447,37 @@ function removeRow(rowId) {
 // ===================== SUBMISSION =====================
 
 function submitRepeatRequest() {
-    if (!selectedSchemeData) {
-        showAlert('Please select and load an approved scheme first', 'warning');
+    var hq = $('#hqSelect').val();
+    if (!hq) {
+        showAlert('Please select an HQ', 'warning');
         return;
     }
 
-    const doctorCode = $('#doctorCode').val();
+    var doctorCode = $('#doctorCode').val();
     if (!doctorCode) {
-        showAlert('Doctor information is missing', 'warning');
+        showAlert('Please select a doctor', 'warning');
+        $('#doctorSelect').focus();
         return;
     }
 
-    const stockistCode = $('#stockistCode').val();
+    var stockistCode = $('#stockistSelect').val();
     if (!stockistCode) {
-        showAlert('Stockist information is missing', 'warning');
+        showAlert('Please select a stockist', 'warning');
         return;
     }
 
     // Collect items
-    const items = [];
-    let hasProduct = false;
-    let hasError = false;
+    var items = [];
+    var hasProduct = false;
+    var hasError = false;
 
     $('#itemsTbody tr').each(function () {
-        const rowId = $(this).data('row-id');
+        var rowId = $(this).data('row-id');
         if (!rowId) return;
-        const productCode = $('#product-' + rowId).val();
+        var productCode = $('#product-' + rowId).val();
         if (!productCode) return;
 
-        const qty = parseFloat($('#qty-' + rowId).val()) || 0;
+        var qty = parseFloat($('#qty-' + rowId).val()) || 0;
         if (qty <= 0) {
             showAlert('Order quantity must be greater than 0 for all products', 'warning');
             hasError = true;
@@ -438,16 +485,16 @@ function submitRepeatRequest() {
         }
 
         // Check limit
-        const used = doctorProductLimits[productCode] || 0;
+        var used = doctorProductLimits[productCode] || 0;
         if (used >= 3) {
-            const pName = $('#product-' + rowId + ' option:selected').data('name') || productCode;
+            var pName = $('#product-' + rowId + ' option:selected').data('name') || productCode;
             showAlert('Limit reached for ' + pName + ': already ' + used + '/3 requests this month', 'danger');
             hasError = true;
             return false;
         }
 
         hasProduct = true;
-        const $sel = $('#product-' + rowId + ' option:selected');
+        var $sel = $('#product-' + rowId + ' option:selected');
         items.push({
             product_code: productCode,
             product_name: $sel.data('name') || '',
@@ -465,21 +512,24 @@ function submitRepeatRequest() {
         return;
     }
 
-    const $btn = $('#submitBtn');
+    var $btn = $('#submitBtn');
     $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Submitting...');
 
-    const data = {
+    var stockistName = $('#stockistSelect option:selected').data('name') || '';
+    var hqData = hqDivisionMap[hq] || {};
+
+    var data = {
         application_date: $('#applicationDate').val(),
-        doctor_code: doctorCode,
-        doctor_name: $('#doctorName').val(),
-        doctor_place: $('#doctorPlace').val(),
-        specialization: $('#doctorSpecialization').val(),
-        hospital_address: $('#doctorHospital').val(),
-        hq: $('#hqValue').val(),
-        team: $('#teamValue').val(),
-        region: $('#regionValue').val(),
+        doctor_code: selectedDoctor ? selectedDoctor.code : doctorCode,
+        doctor_name: selectedDoctor ? selectedDoctor.name : $('#doctorName').val(),
+        doctor_place: selectedDoctor ? selectedDoctor.place : '',
+        specialization: selectedDoctor ? selectedDoctor.specialization : '',
+        hospital_address: selectedDoctor ? selectedDoctor.hospital : '',
+        hq: hq,
+        team: hqData.team || (selectedDoctor ? selectedDoctor.team : ''),
+        region: hqData.region || (selectedDoctor ? selectedDoctor.region : ''),
         stockist_code: stockistCode,
-        stockist_name: $('#stockistName').val(),
+        stockist_name: stockistName,
         scheme_notes: $('#schemeNotes').val(),
         repeated_request: 1,
         items: items,
@@ -497,7 +547,7 @@ function submitRepeatRequest() {
                 showAlert('Repeat scheme request created: ' + r.message.name, 'success');
                 setTimeout(function () { window.location.href = '/portal/scheme-list'; }, 1500);
             } else {
-                const msg = (r.message && r.message.message) || 'Failed to create repeat request';
+                var msg = (r.message && r.message.message) || 'Failed to create repeat request';
                 showAlert(msg, 'danger');
             }
         },

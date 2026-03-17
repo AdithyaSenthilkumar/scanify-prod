@@ -609,7 +609,29 @@ IMPORTANT:
         frappe.logger().info("=== Cleaned Response Text ===")
         frappe.logger().info(response_text)
         
-        extracted_items = json.loads(response_text) or []
+        # Robust JSON parsing with repair for common Gemini output issues
+        extracted_items = None
+        try:
+            extracted_items = json.loads(response_text)
+        except json.JSONDecodeError:
+            # Attempt repairs: trailing commas, truncated JSON
+            repaired = response_text
+            # Remove trailing commas before ] or }
+            repaired = re.sub(r',\s*([\]\}])', r'\1', repaired)
+            # If JSON array is truncated (no closing ]), try to close it
+            if repaired.lstrip().startswith('[') and not repaired.rstrip().endswith(']'):
+                # Find last complete object (ending with })
+                last_brace = repaired.rfind('}')
+                if last_brace > 0:
+                    repaired = repaired[:last_brace + 1] + ']'
+            try:
+                extracted_items = json.loads(repaired)
+                frappe.logger().info("JSON parsed after repair")
+            except json.JSONDecodeError as je:
+                frappe.logger().error(f"JSON repair also failed: {je}")
+                frappe.throw(f"Failed to parse AI response as JSON: {je}")
+        
+        extracted_items = extracted_items or []
         frappe.logger().info(f"Parsed Items Count: {len(extracted_items)}")
         
         # Validate product codes exist
@@ -1163,6 +1185,9 @@ def process_bulk_extraction(docname, month, zip_file_url):
                 
                 # Update progress + partial log so UI shows in-flight results
                 doc.progress = (idx / len(all_files)) * 100
+                doc.success_count = success_count
+                doc.failed_count = failed_count
+                doc.skipped_count = skipped_count
                 doc.extraction_log = json.dumps(results)
                 doc.save(ignore_permissions=True)
                 frappe.db.commit()
@@ -3460,95 +3485,189 @@ def create_hq_yearly_target_from_portal(financial_year, start_date, end_date, st
 
 @frappe.whitelist()
 def import_master_data(doctype, division):
-    """Bulk import master data from Excel or CSV file"""
+    """Bulk import master data from Excel or CSV file.
+
+    - Resolves link field values (names → codes) within the correct division.
+    - Performs upsert: if a record with the same identifying fields + division
+      already exists, it updates instead of creating a duplicate.
+    - Code fields (hq_code, zone_code, etc.) are auto-generated — never required
+      from the user.  Product Code is the only user-entered code.
+    - Returns per-row error details so the portal can display them.
+    """
     try:
         import pandas as pd
-        
-        # Get uploaded file
+
         file = frappe.request.files.get('file')
         if not file:
             return {"success": False, "message": "No file uploaded"}
-        
+
         filename = file.filename or ""
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-        
-        # Read file based on extension
+
         if ext == "csv":
             df = pd.read_csv(file, dtype=str)
         elif ext in ("xlsx", "xls"):
             df = pd.read_excel(file, dtype=str)
         else:
-            # Try CSV first, then Excel (fallback for unnamed streams)
             try:
                 import io
                 content = file.read()
-                file.seek(0) if hasattr(file, 'seek') else None
+                if hasattr(file, 'seek'):
+                    file.seek(0)
                 df = pd.read_csv(io.BytesIO(content), dtype=str)
             except Exception:
-                file.seek(0) if hasattr(file, 'seek') else None
+                if hasattr(file, 'seek'):
+                    file.seek(0)
                 df = pd.read_excel(file, dtype=str)
-        
-        # Strip whitespace from column names
+
         df.columns = df.columns.str.strip()
-        
-        # Map columns based on doctype
+
         column_mapping = get_column_mapping(doctype)
-        
+
         imported = 0
+        updated = 0
         failed = 0
         errors = []
-        
+
         for idx, row in df.iterrows():
+            row_num = idx + 2  # Excel row (1-indexed header + 1)
             try:
                 data = {}
                 for excel_col, field_name in column_mapping.items():
                     if excel_col in row and pd.notna(row[excel_col]):
-                        data[field_name] = row[excel_col]
-                
-                # Add division if applicable
-                if doctype in ["HQ Master", "Product Master", "Team Master", "Region Master", "Zone Master", "State Master"]:
-                    if "division" not in data:
-                        data["division"] = division
-                
-                # Check if record exists
-                code_field = get_code_field(doctype)
-                if code_field and code_field in data:
-                    if frappe.db.exists(doctype, data[code_field]):
-                        doc = frappe.get_doc(doctype, data[code_field])
-                        doc.update(data)
-                    else:
-                        doc = frappe.get_doc({
-                            "doctype": doctype,
-                            **data
-                        })
+                        val = str(row[excel_col]).strip()
+                        if val:
+                            data[field_name] = val
+
+                # ---- Inject division ----
+                row_division = data.get("division") or division
+                if doctype != "Division":
+                    data["division"] = row_division
+
+                # ---- Resolve link-field labels → doc names ----
+                _resolve_import_links(doctype, data, row_division)
+
+                # ---- Strip auto-generated code fields (backend creates them) ----
+                for _dt, _cf in [
+                    ("HQ Master", "hq_code"),
+                    ("Doctor Master", "doctor_code"),
+                    ("Region Master", "region_code"),
+                    ("Team Master", "team_code"),
+                    ("Zone Master", "zone_code"),
+                    ("State Master", "state_code"),
+                    ("Stockist Master", "stockist_code"),
+                ]:
+                    if doctype == _dt:
+                        data.pop(_cf, None)
+
+                # sanctioned_strength is auto-computed
+                if doctype == "Team Master":
+                    data.pop("sanctioned_strength", None)
+
+                # ---- Upsert: find existing record by name-field + division ----
+                existing = _find_existing_master(doctype, data, row_division)
+
+                if existing:
+                    doc = frappe.get_doc(doctype, existing)
+                    doc.update(data)
+                    doc.save(ignore_permissions=True)
+                    updated += 1
                 else:
-                    doc = frappe.get_doc({
-                        "doctype": doctype,
-                        **data
-                    })
-                
-                doc.save(ignore_permissions=True)
-                imported += 1
-                
-                if imported % 50 == 0:
+                    doc = frappe.get_doc({"doctype": doctype, **data})
+                    doc.insert(ignore_permissions=True)
+                    imported += 1
+
+                if (imported + updated) % 50 == 0:
                     frappe.db.commit()
-                    
+
             except Exception as e:
                 failed += 1
-                errors.append(f"Row {idx + 2}: {str(e)}")
-        
+                err_msg = str(e)
+                # Make validation errors more readable
+                if "already exists in division" in err_msg:
+                    errors.append(f"Row {row_num}: {err_msg}")
+                else:
+                    # Strip HTML tags from frappe error messages
+                    import re as _re
+                    clean = _re.sub(r"<[^>]+>", "", err_msg).strip()
+                    errors.append(f"Row {row_num}: {clean}")
+
         frappe.db.commit()
-        
+
         return {
             "success": True,
             "imported": imported,
+            "updated": updated,
             "failed": failed,
-            "errors": errors[:10]  # Return first 10 errors
+            "errors": errors[:50]  # Return first 50 errors for visibility
         }
-    
+
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Import Master Data Error")
         return {"success": False, "message": str(e)}
+
+
+def _resolve_import_links(doctype, data, division):
+    """Resolve display-name values in import data to actual doc names.
+
+    E.g. Team='Team Alpha' → Team='T0001' (the actual name of that Team Master
+    record in the given division).
+    """
+    # Mapping: data field → (linked doctype, label field)
+    link_fields = {
+        "team":   ("Team Master",   "team_name"),
+        "region": ("Region Master", "region_name"),
+        "zone":   ("Zone Master",   "zone_name"),
+        "state":  ("State Master",  "state_name"),
+        "hq":     ("HQ Master",     "hq_name"),
+    }
+
+    for field, (linked_dt, label_field) in link_fields.items():
+        val = data.get(field)
+        if not val:
+            continue
+
+        # Already a valid doc name?
+        if frappe.db.exists(linked_dt, val):
+            continue
+
+        # Try to resolve by label within the same division
+        filters = {label_field: val}
+        linked_meta = frappe.get_meta(linked_dt)
+        if linked_meta.has_field("division") and division:
+            filters["division"] = division
+
+        match = frappe.db.get_value(linked_dt, filters, "name")
+        if match:
+            data[field] = match
+
+
+def _find_existing_master(doctype, data, division):
+    """Find an existing master record for upsert based on the identifying
+    name field + division combination."""
+    upsert_keys = {
+        "Zone Master":     "zone_name",
+        "State Master":    "state_name",
+        "Region Master":   "region_name",
+        "Team Master":     "team_name",
+        "HQ Master":       "hq_name",
+        "Product Master":  "product_code",
+        "Stockist Master": "stockist_name",
+        "Doctor Master":   "doctor_name",
+    }
+
+    name_field = upsert_keys.get(doctype)
+    if not name_field or not data.get(name_field):
+        return None
+
+    filters = {name_field: data[name_field]}
+
+    # Division-scoped lookup
+    meta = frappe.get_meta(doctype)
+    if meta.has_field("division") and division:
+        filters["division"] = division
+
+    return frappe.db.get_value(doctype, filters, "name")
 
 
 def get_column_mapping(doctype):
@@ -3683,10 +3802,7 @@ def get_state_list(division=None, search=""):
 
 
 def get_code_field(doctype):
-    """Get the code/unique identifier field for each doctype"""
-    # Doctor and Stockist are now auto-named by the system (format:D{####} / format:S{####})
-    # Region is auto-named as region_name-division
-    # For import, we rely on frappe's autoname - no explicit code field needed for new records
+    """Legacy helper — kept for backward compatibility but no longer used by import."""
     code_fields = {
         "HQ Master": "hq_name",
         "Team Master": "team_name",
@@ -8593,3 +8709,67 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
         "sections": sections,
         "month_labels": _MONTH_LABELS,
     }
+
+
+@frappe.whitelist()
+def render_spreadsheet_preview(file_url):
+    """Render an XLS/XLSX/CSV/TXT file as an HTML table for QC viewer preview."""
+    import pandas as pd
+    import html as html_mod
+
+    if not file_url or not isinstance(file_url, str):
+        return {"html": ""}
+
+    # Resolve to absolute file path on disk
+    if file_url.startswith("/files/"):
+        file_path = frappe.get_site_path("public", file_url.lstrip("/"))
+    elif file_url.startswith("/private/files/"):
+        file_path = frappe.get_site_path(file_url.lstrip("/"))
+    else:
+        file_path = frappe.get_site_path("public", file_url.lstrip("/"))
+
+    if not os.path.isfile(file_path):
+        return {"html": "<p class='text-muted text-center'>File not found</p>"}
+
+    ext = os.path.splitext(file_path)[1].lower()
+
+    try:
+        if ext == ".csv":
+            df = pd.read_csv(file_path, dtype=str, na_filter=False)
+        elif ext in (".xls", ".xlsx"):
+            df = pd.read_excel(file_path, dtype=str, na_filter=False)
+        elif ext == ".txt":
+            df = pd.read_csv(file_path, dtype=str, sep="\t", na_filter=False)
+        else:
+            return {"html": "<p class='text-muted text-center'>Unsupported file type</p>"}
+
+        # Limit to first 500 rows for performance
+        truncated = len(df) > 500
+        df = df.head(500)
+
+        # Build HTML table with escaped content
+        rows_html = []
+        # Header
+        header_cells = "".join(
+            f"<th>{html_mod.escape(str(c))}</th>" for c in df.columns
+        )
+        rows_html.append(f"<thead><tr>{header_cells}</tr></thead>")
+
+        # Body
+        rows_html.append("<tbody>")
+        for _, row in df.iterrows():
+            cells = "".join(
+                f"<td>{html_mod.escape(str(v))}</td>" for v in row
+            )
+            rows_html.append(f"<tr>{cells}</tr>")
+        rows_html.append("</tbody>")
+
+        table_html = f"<table>{''.join(rows_html)}</table>"
+        if truncated:
+            table_html += "<p class='text-muted text-center mt-2'><small>Showing first 500 rows</small></p>"
+
+        return {"html": table_html}
+
+    except Exception as e:
+        frappe.log_error(f"Spreadsheet preview error: {e}", "render_spreadsheet_preview")
+        return {"html": f"<p class='text-muted text-center'>Could not parse file</p>"}
