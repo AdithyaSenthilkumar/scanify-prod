@@ -38,28 +38,28 @@
                 <div class="division-switcher">
                     <button class="division-button" type="button" id="divisionMenuButton"
                         onclick="toggleDivisionMenu(event)">
-                        <div class="division-icon-wrapper">
-                            <i class="fa fa-building"></i>
-                        </div>
                         <div class="division-info">
-                            <span class="division-label">Division</span>
                             <span class="division-name">{{ division or "Prima" }}</span>
+                            <span class="division-label">Division</span>
+                            
                         </div>
                         <i class="fa fa-chevron-down ml-2 opacity-50"></i>
                     </button>
-                    <div class="dropdown-menu dropdown-menu-right shadow-lg border-0" id="divisionDropdown">
-                        <div class="dropdown-header"><strong>Switch Division</strong></div>
+                    <div class="dropdown-menu dropdown-menu-right" id="divisionDropdown">
+                        <div class="div-dropdown-header">
+                            <i class="fa fa-building mr-1"></i> Switch Division
+                        </div>
                         <a class="dropdown-item division-option" href="javascript:void(0)"
                             onclick="switchDivision('Prima', event)">
-                            <i class="fa fa-check mr-2"
-                                style="visibility: {{ 'visible' if division == 'Prima' else 'hidden' }}"></i>
-                            <span>Prima</span>
+                            <span class="div-color-dot dot-prima"></span>
+                            <span class="div-option-name">Prima</span>
+                            {% if division == 'Prima' %}<span class="div-active-badge">Active</span>{% endif %}
                         </a>
                         <a class="dropdown-item division-option" href="javascript:void(0)"
                             onclick="switchDivision('Vektra', event)">
-                            <i class="fa fa-check mr-2"
-                                style="visibility: {{ 'visible' if division == 'Vektra' else 'hidden' }}"></i>
-                            <span>Vektra</span>
+                            <span class="div-color-dot dot-vektra"></span>
+                            <span class="div-option-name">Vektra</span>
+                            {% if division == 'Vektra' %}<span class="div-active-badge">Active</span>{% endif %}
                         </a>
                     </div>
                 </div>

@@ -176,53 +176,127 @@ a:hover {
     display: flex;
     align-items: center;
     gap: 12px;
-    background: var(--color-white);
-    border: 1px solid var(--color-border);
-    padding: 0 14px;
-    height: 44px;
-    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+    border: 1.5px solid #c7d2fe;
+    padding: 0 18px;
+    height: 52px;
+    border-radius: 14px;
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     flex-shrink: 0;
+    box-shadow: 0 1px 6px rgba(99, 102, 241, 0.12);
 }
 
 .division-button:hover {
     border-color: var(--color-accent);
-    background: #f8faff;
-    box-shadow: var(--shadow-sm);
+    background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.22);
+    transform: translateY(-1px);
 }
 
 .division-icon-wrapper {
-    width: 32px;
-    height: 32px;
-    background: #eef2ff;
-    color: var(--color-accent);
-    border-radius: 8px;
+    width: 38px;
+    height: 38px;
+    background: var(--color-accent);
+    color: #fff;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 16px;
+    box-shadow: 0 3px 8px rgba(99, 102, 241, 0.30);
+    flex-shrink: 0;
 }
 
 .division-info {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    line-height: 1.2;
+    line-height: 1.25;
 }
 
 .division-label {
-    font-size: 10px;
-    font-weight: 600;
+    font-size: 9px;
+    font-weight: 700;
     text-transform: uppercase;
-    color: var(--color-text-muted);
-    letter-spacing: 0.05em;
+    color: #818cf8;
+    letter-spacing: 0.08em;
 }
 
 .division-name {
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 700;
+    color: #3730a3;
+    letter-spacing: -0.01em;
+}
+
+/* Division Dropdown */
+#divisionDropdown {
+    min-width: 210px;
+    border-radius: 14px !important;
+    padding: 10px !important;
+    border: 1px solid #e0e7ff !important;
+    box-shadow: 0 8px 32px rgba(99, 102, 241, 0.16) !important;
+    animation: dropdownFade 0.2s ease-out;
+    top: calc(100% + 8px) !important;
+}
+
+.div-dropdown-header {
+    padding: 4px 10px 10px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: #818cf8;
+    border-bottom: 1px solid #e0e7ff;
+    margin-bottom: 6px;
+}
+
+#divisionDropdown .division-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
     color: var(--color-primary);
+    transition: background 0.15s;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+#divisionDropdown .division-option:hover {
+    background: #f0f4ff;
+    color: var(--color-accent);
+}
+
+.div-color-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.div-color-dot.dot-prima  { background: #4f46e5; box-shadow: 0 0 0 2px #c7d2fe; }
+.div-color-dot.dot-vektra { background: #059669; box-shadow: 0 0 0 2px #a7f3d0; }
+
+.div-option-name {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.div-active-badge {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: #eef2ff;
+    color: #4f46e5;
+    padding: 2px 8px;
+    border-radius: 99px;
+    border: 1px solid #c7d2fe;
 }
 
 /* User Menu */
