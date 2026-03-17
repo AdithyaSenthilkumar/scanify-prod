@@ -528,7 +528,10 @@ IMPORTANT:
 
                     response = genai_client.models.generate_content(
                         model=current_model,
-                        contents=[prompt, file_part]
+                        contents=[prompt, file_part],
+                        config=genai_types.GenerateContentConfig(
+                            thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
+                        )
                     )
 
                 elif file_ext in [".csv", ".txt"]:
@@ -536,7 +539,10 @@ IMPORTANT:
                         file_content = f.read()
                     response = genai_client.models.generate_content(
                         model=current_model,
-                        contents=f"{prompt}\n\nCONTENT:\n{file_content}"
+                        contents=f"{prompt}\n\nCONTENT:\n{file_content}",
+                        config=genai_types.GenerateContentConfig(
+                            thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
+                        )
                     )
 
                 elif file_ext in [".xls", ".xlsx"]:
@@ -545,7 +551,10 @@ IMPORTANT:
                     file_content = df.to_string()
                     response = genai_client.models.generate_content(
                         model=current_model,
-                        contents=f"{prompt}\n\nCONTENT:\n{file_content}"
+                        contents=f"{prompt}\n\nCONTENT:\n{file_content}",
+                        config=genai_types.GenerateContentConfig(
+                            thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
+                        )
                     )
 
                 else:
@@ -716,7 +725,10 @@ IMPORTANT:
 
         response = client.models.generate_content(
             model=model_name,
-            contents=prompt
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
+            )
         )
 
         resp_text = response.text.strip()
@@ -1041,7 +1053,10 @@ def process_bulk_extraction(docname, month, zip_file_url):
                 )
                 map_resp = bulk_genai_client.models.generate_content(
                     model=model_name,
-                    contents=map_prompt
+                    contents=map_prompt,
+                    config=genai_types.GenerateContentConfig(
+                        thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
+                    )
                 )
                 resp_text = map_resp.text.strip()
                 if resp_text.startswith("```"):
@@ -1072,6 +1087,14 @@ def process_bulk_extraction(docname, month, zip_file_url):
                             "message": "Could not identify stockist from filename"
                         })
                         failed_count += 1
+                        # Update progress + counters so UI reflects this failure
+                        doc.progress = (idx / len(all_files)) * 100
+                        doc.success_count = success_count
+                        doc.failed_count = failed_count
+                        doc.skipped_count = skipped_count
+                        doc.extraction_log = json.dumps(results)
+                        doc.save(ignore_permissions=True)
+                        frappe.db.commit()
                         continue
                     
                     # Check if already exists
@@ -1091,7 +1114,11 @@ def process_bulk_extraction(docname, month, zip_file_url):
                             "stockist": stockist_name
                         })
                         failed_count += 1
-                        # Save partial log so UI can show in-flight progress
+                        # Update progress + counters so UI reflects this failure
+                        doc.progress = (idx / len(all_files)) * 100
+                        doc.success_count = success_count
+                        doc.failed_count = failed_count
+                        doc.skipped_count = skipped_count
                         doc.extraction_log = json.dumps(results)
                         doc.save(ignore_permissions=True)
                         frappe.db.commit()
@@ -8773,3 +8800,90 @@ def render_spreadsheet_preview(file_url):
     except Exception as e:
         frappe.log_error(f"Spreadsheet preview error: {e}", "render_spreadsheet_preview")
         return {"html": f"<p class='text-muted text-center'>Could not parse file</p>"}
+
+
+@frappe.whitelist()
+def get_products_for_division(division=None):
+    """Return all active products for a division for manual statement entry."""
+    if not division:
+        division = get_user_division()
+
+    products = frappe.get_all(
+        "Product Master",
+        filters={"status": "Active", "division": division},
+        fields=["product_code", "product_name", "pack", "pts", "ptr", "pack_conversion"],
+        order_by="product_name asc",
+        limit_page_length=0,
+    )
+    return products
+
+
+@frappe.whitelist()
+def create_manual_statement(stockist_code, statement_month, items, uploaded_file=None, remarks=None):
+    """
+    Create a Stockist Statement from manual entry (no AI extraction).
+    items: JSON array of product rows with quantities.
+    """
+    try:
+        if isinstance(items, str):
+            items = json.loads(items)
+
+        if not stockist_code or not statement_month:
+            return {"success": False, "message": "Stockist code and statement month are required."}
+
+        # Normalise month
+        if len(statement_month) == 7:
+            statement_month = statement_month + "-01"
+
+        # Check for duplicates
+        existing = frappe.db.exists("Stockist Statement", {
+            "stockist_code": stockist_code,
+            "statement_month": statement_month,
+        })
+        if existing:
+            return {"success": False, "message": f"A statement already exists: {existing}"}
+
+        doc = frappe.new_doc("Stockist Statement")
+        doc.stockist_code = stockist_code
+        doc.statement_month = statement_month
+        doc.extracted_data_status = "Completed"
+        if uploaded_file:
+            doc.uploaded_file = uploaded_file
+        if remarks:
+            doc.remarks = remarks
+
+        for row in items:
+            product_code = row.get("productcode") or row.get("product_code")
+            if not product_code:
+                continue
+            doc.append("items", {
+                "product_code": product_code,
+                "opening_qty": flt(row.get("openingqty") or 0),
+                "purchase_qty": flt(row.get("purchaseqty") or 0),
+                "sales_qty": flt(row.get("salesqty") or 0),
+                "free_qty": flt(row.get("freeqty") or 0),
+                "free_qty_scheme": flt(row.get("freeqtyscheme") or 0),
+                "return_qty": flt(row.get("returnqty") or 0),
+                "misc_out_qty": flt(row.get("miscoutqty") or 0),
+                "closing_qty": flt(row.get("closingqty") or 0),
+                "closing_value": flt(row.get("closingvalue") or 0),
+            })
+
+        if not doc.items:
+            return {"success": False, "message": "No valid product rows provided."}
+
+        doc.calculate_closing_and_totals()
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        doc.submit()
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": f"Statement submitted with {len(doc.items)} items.",
+            "doc_name": doc.name,
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Create Manual Statement Error")
+        return {"success": False, "message": str(e)}

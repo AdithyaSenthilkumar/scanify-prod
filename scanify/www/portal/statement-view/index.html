@@ -245,17 +245,22 @@
                     <div class="ss-qc-panel-header">
                         <h6><i class="fa fa-file-pdf"></i> Original Statement</h6>
                         <div class="ss-zoom-btns">
-                            <button class="btn btn-sm btn-light" onclick="sv_zoom_in()"><i
+                            <button class="btn btn-sm btn-light" onclick="sv_zoom_in()" title="Zoom In"><i
                                     class="fa fa-search-plus"></i></button>
-                            <button class="btn btn-sm btn-light" onclick="sv_zoom_out()"><i
+                            <button class="btn btn-sm btn-light" onclick="sv_zoom_out()" title="Zoom Out"><i
                                     class="fa fa-search-minus"></i></button>
-                            <button class="btn btn-sm btn-light" onclick="sv_reset_zoom()"><i
+                            <button class="btn btn-sm btn-light" onclick="sv_reset_zoom()" title="Reset"><i
                                     class="fa fa-sync"></i></button>
+                            <button class="btn btn-sm btn-light" onclick="sv_fit_to_width()" title="Fit Width"><i
+                                    class="fa fa-arrows-alt-h"></i></button>
+                            <span class="ss-zoom-level" id="sv-zoom-level-display">100%</span>
                         </div>
                     </div>
                     <div class="ss-doc-viewer" id="sv-doc-viewer">
-                        <iframe id="sv-pdf-viewer" style="display:none;width:100%;height:100%;border:none;"></iframe>
-                        <img id="sv-img-viewer" style="display:none;max-width:100%;">
+                        <div class="ss-viewer-canvas" id="sv-viewer-canvas">
+                            <div id="sv-pdf-canvas-container" style="display:none;"></div>
+                            <img id="sv-img-viewer" style="display:none;" draggable="false">
+                        </div>
                         <div id="sv-table-viewer"
                             style="display:none;width:100%;height:100%;background:white;padding:10px;overflow:auto;">
                         </div>
@@ -603,6 +608,33 @@
         font-size: 12px;
     }
 
+    /* Enhanced doc viewer */
+    .ss-doc-viewer {
+        flex: 1;
+        overflow: hidden;
+        background: #f1f5f9;
+        position: relative;
+        cursor: grab;
+        touch-action: none;
+    }
+    .ss-doc-viewer.is-dragging { cursor: grabbing; }
+    .ss-viewer-canvas {
+        position: absolute;
+        top: 0; left: 0;
+        transform-origin: 0 0;
+        will-change: transform;
+        transition: none;
+    }
+    #sv-pdf-canvas-container { background: #525659; }
+    #sv-pdf-canvas-container canvas { display: block; margin: 0 auto 2px auto; background: white; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+    .ss-viewer-canvas img { display: block; max-width: none; user-select: none; -webkit-user-drag: none; pointer-events: none; }
+    .ss-zoom-level {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 48px; font-size: 11px; font-weight: 600;
+        color: #4f46e5; background: #eef2ff; border-radius: 6px;
+        padding: 2px 8px; margin-left: 4px;
+    }
+
 
     /* All shared .ss-* styles are fully defined below */
     .ss-modal-fs {
@@ -806,6 +838,8 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
     const DOC_NAME = {{ doc_name | tojson }};
@@ -1188,16 +1222,39 @@
     window.sv_open_qc = function () {
         sv_render_qc_table();
 
-        // Show uploaded file
-        const file = sv_doc.uploaded_file;
-        if (file) {
+        // Reset viewer state
+        sv_zoom = 1; sv_pan_x = 0; sv_pan_y = 0;
+        _sv_viewer_bound = false;
+        const $canvas = $('#sv-viewer-canvas');
+        $canvas.removeClass('pdf-active').css('transform', '');
+
+        // Hide all viewers and clear sources
+        $('#sv-pdf-canvas-container').hide().empty();
+        $('#sv-img-viewer').hide().attr('src', '');
+        $('#sv-table-viewer').hide();
+        $canvas.show();
+
+        // Show modal first, then init viewer once visible so dimensions are available
+        $('#sv-qc-modal').off('shown.bs.modal.svviewer').one('shown.bs.modal.svviewer', function () {
+            const file = sv_doc.uploaded_file;
+            if (!file) return;
             const ext = file.split('.').pop().toLowerCase();
-            $('#sv-pdf-viewer, #sv-img-viewer, #sv-table-viewer').hide();
             if (ext === 'pdf') {
-                $('#sv-pdf-viewer').attr('src', file).show();
+                sv_render_pdf_to_canvas(file);
             } else if (['jpg', 'jpeg', 'png'].includes(ext)) {
-                $('#sv-img-viewer').attr('src', file).show();
+                const $img = $('#sv-img-viewer');
+                $img.off('load').on('load', function () {
+                    $canvas.css({ width: this.naturalWidth + 'px', height: this.naturalHeight + 'px' });
+                    const viewer = document.getElementById('sv-doc-viewer');
+                    const fitZoom = viewer.clientWidth / this.naturalWidth;
+                    sv_zoom = Math.min(fitZoom, 1);
+                    sv_pan_x = 0; sv_pan_y = 0;
+                    sv_apply_transform();
+                    sv_init_viewer_events();
+                });
+                $img.attr('src', file).show();
             } else if (['csv', 'xls', 'xlsx', 'txt'].includes(ext)) {
+                $canvas.hide();
                 $('#sv-table-viewer').html('<div class="text-center p-4 text-muted"><i class="fa fa-spinner fa-spin fa-2x"></i><br>Loading tabular data...</div>').show();
                 fetch(file)
                     .then(res => res.arrayBuffer())
@@ -1211,9 +1268,10 @@
                         $('#sv-table-viewer').html('<div class="alert alert-danger m-3">Error loading file data: ' + err.message + '</div>');
                     });
             }
-        }
+        });
 
         $('#sv-qc-modal').off('hidden.bs.modal').on('hidden.bs.modal', function () {
+            _sv_viewer_bound = false;
             render_sv_page();
         }).modal('show');
     };
@@ -1351,12 +1409,179 @@
         }
     };
 
-    // Zoom
-    window.sv_zoom_in = function () { sv_zoom = Math.min(sv_zoom + 0.2, 3); sv_apply_zoom(); };
-    window.sv_zoom_out = function () { sv_zoom = Math.max(sv_zoom - 0.2, 0.4); sv_apply_zoom(); };
-    window.sv_reset_zoom = function () { sv_zoom = 1; sv_apply_zoom(); };
-    function sv_apply_zoom() {
-        $('#sv-doc-viewer img, #sv-doc-viewer iframe').css('transform', `scale(${sv_zoom})`);
+    // ============================================================
+    // POWERFUL PAN / ZOOM / DRAG VIEWER (statement-view QC)
+    // ============================================================
+    let sv_pan_x = 0, sv_pan_y = 0;
+    let _sv_dragging = false, _sv_drag_sx = 0, _sv_drag_sy = 0;
+    let _sv_viewer_bound = false;
+    let _sv_touch_state = null;
+
+    /* ---- PDF.js Canvas Renderer for statement-view ---- */
+    function sv_render_pdf_to_canvas(url) {
+        var $container = $('#sv-pdf-canvas-container');
+        var $viewerCanvas = $('#sv-viewer-canvas');
+        var viewer = document.getElementById('sv-doc-viewer');
+        $container.empty().show();
+        $container.html('<div style="text-align:center;padding:2rem;color:#94a3b8;"><i class="fa fa-spinner fa-spin fa-2x"></i><br><small>Rendering PDF…</small></div>');
+
+        var PDF_SCALE = 1.5;
+        pdfjsLib.getDocument(url).promise.then(function (pdf) {
+            $container.empty();
+            var totalHeight = 0, maxWidth = 0;
+            var chain = Promise.resolve();
+            for (var p = 1; p <= pdf.numPages; p++) {
+                (function (pageNum) {
+                    chain = chain.then(function () {
+                        return pdf.getPage(pageNum).then(function (page) {
+                            var vp = page.getViewport({ scale: PDF_SCALE });
+                            var c = document.createElement('canvas');
+                            c.width = vp.width;
+                            c.height = vp.height;
+                            c.style.width = (vp.width / PDF_SCALE) + 'px';
+                            c.style.height = (vp.height / PDF_SCALE) + 'px';
+                            $container.append(c);
+                            totalHeight += (vp.height / PDF_SCALE) + 2;
+                            maxWidth = Math.max(maxWidth, vp.width / PDF_SCALE);
+                            return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+                        });
+                    });
+                })(p);
+            }
+            chain.then(function () {
+                $viewerCanvas.css({ width: maxWidth + 'px', height: totalHeight + 'px' });
+                var fitZoom = viewer.clientWidth / maxWidth;
+                sv_zoom = Math.min(fitZoom, 1);
+                sv_pan_x = 0; sv_pan_y = 0;
+                sv_apply_transform();
+                sv_init_viewer_events();
+            });
+        }).catch(function () {
+            $container.html('<div style="text-align:center;padding:2rem;color:#ef4444;"><i class="fa fa-exclamation-triangle fa-2x"></i><br>Failed to load PDF</div>');
+        });
+    }
+
+    function sv_apply_transform() {
+        const canvas = document.getElementById('sv-viewer-canvas');
+        if (canvas) canvas.style.transform = 'translate(' + sv_pan_x + 'px, ' + sv_pan_y + 'px) scale(' + sv_zoom + ')';
+        const el = document.getElementById('sv-zoom-level-display');
+        if (el) el.textContent = Math.round(sv_zoom * 100) + '%';
+    }
+
+    function sv_zoom_at_point(vx, vy, delta) {
+        var oldZoom = sv_zoom;
+        var newZoom = Math.min(Math.max(sv_zoom + delta, 0.1), 8);
+        if (newZoom === oldZoom) return;
+        var scale = newZoom / oldZoom;
+        sv_pan_x = vx - scale * (vx - sv_pan_x);
+        sv_pan_y = vy - scale * (vy - sv_pan_y);
+        sv_zoom = newZoom;
+        sv_apply_transform();
+    }
+
+    window.sv_zoom_in = function () {
+        var v = document.getElementById('sv-doc-viewer');
+        if (!v) return;
+        sv_zoom_at_point(v.clientWidth / 2, v.clientHeight / 2, 0.25);
+    };
+    window.sv_zoom_out = function () {
+        var v = document.getElementById('sv-doc-viewer');
+        if (!v) return;
+        sv_zoom_at_point(v.clientWidth / 2, v.clientHeight / 2, -0.25);
+    };
+    window.sv_reset_zoom = function () {
+        sv_zoom = 1; sv_pan_x = 0; sv_pan_y = 0; sv_apply_transform();
+    };
+    window.sv_fit_to_width = function () {
+        var viewer = document.getElementById('sv-doc-viewer');
+        var canvas = document.getElementById('sv-viewer-canvas');
+        if (!viewer || !canvas) return;
+        var cw = parseInt(canvas.style.width) || canvas.scrollWidth || viewer.clientWidth;
+        sv_zoom = viewer.clientWidth / cw;
+        sv_pan_x = 0; sv_pan_y = 0;
+        sv_apply_transform();
+    };
+
+    function sv_init_viewer_events() {
+        if (_sv_viewer_bound) return;
+        _sv_viewer_bound = true;
+        var viewer = document.getElementById('sv-doc-viewer');
+        if (!viewer) return;
+
+        viewer.addEventListener('wheel', function (e) {
+            e.preventDefault();
+            var rect = viewer.getBoundingClientRect();
+            sv_zoom_at_point(e.clientX - rect.left, e.clientY - rect.top, e.deltaY > 0 ? -0.15 : 0.15);
+        }, { passive: false });
+
+        viewer.addEventListener('mousedown', function (e) {
+            if (e.button !== 0) return;
+            if (e.target.tagName === 'IFRAME' && sv_zoom <= 1.05) return;
+            _sv_dragging = true;
+            _sv_drag_sx = e.clientX - sv_pan_x;
+            _sv_drag_sy = e.clientY - sv_pan_y;
+            viewer.classList.add('is-dragging');
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', function (e) {
+            if (!_sv_dragging) return;
+            sv_pan_x = e.clientX - _sv_drag_sx;
+            sv_pan_y = e.clientY - _sv_drag_sy;
+            sv_apply_transform();
+        });
+        document.addEventListener('mouseup', function () {
+            if (!_sv_dragging) return;
+            _sv_dragging = false;
+            viewer.classList.remove('is-dragging');
+        });
+
+        // Touch support
+        viewer.addEventListener('touchstart', function (e) {
+            if (e.touches.length === 1) {
+                _sv_dragging = true;
+                _sv_drag_sx = e.touches[0].clientX - sv_pan_x;
+                _sv_drag_sy = e.touches[0].clientY - sv_pan_y;
+                _sv_touch_state = null;
+            } else if (e.touches.length === 2) {
+                _sv_dragging = false;
+                var dx = e.touches[0].clientX - e.touches[1].clientX;
+                var dy = e.touches[0].clientY - e.touches[1].clientY;
+                var rect = viewer.getBoundingClientRect();
+                _sv_touch_state = {
+                    dist: Math.sqrt(dx*dx + dy*dy), zoom: sv_zoom,
+                    cx: ((e.touches[0].clientX + e.touches[1].clientX)/2) - rect.left,
+                    cy: ((e.touches[0].clientY + e.touches[1].clientY)/2) - rect.top,
+                    panX: sv_pan_x, panY: sv_pan_y
+                };
+            }
+            e.preventDefault();
+        }, { passive: false });
+        viewer.addEventListener('touchmove', function (e) {
+            if (e.touches.length === 1 && _sv_dragging) {
+                sv_pan_x = e.touches[0].clientX - _sv_drag_sx;
+                sv_pan_y = e.touches[0].clientY - _sv_drag_sy;
+                sv_apply_transform();
+            } else if (e.touches.length === 2 && _sv_touch_state) {
+                var dx = e.touches[0].clientX - e.touches[1].clientX;
+                var dy = e.touches[0].clientY - e.touches[1].clientY;
+                var newDist = Math.sqrt(dx*dx + dy*dy);
+                var scale = newDist / _sv_touch_state.dist;
+                var nz = Math.min(Math.max(_sv_touch_state.zoom * scale, 0.1), 8);
+                var zr = nz / _sv_touch_state.zoom;
+                sv_pan_x = _sv_touch_state.cx - zr * (_sv_touch_state.cx - _sv_touch_state.panX);
+                sv_pan_y = _sv_touch_state.cy - zr * (_sv_touch_state.cy - _sv_touch_state.panY);
+                sv_zoom = nz;
+                sv_apply_transform();
+            }
+            e.preventDefault();
+        }, { passive: false });
+        viewer.addEventListener('touchend', function () { _sv_dragging = false; _sv_touch_state = null; });
+
+        viewer.addEventListener('dblclick', function (e) {
+            var rect = viewer.getBoundingClientRect();
+            if (sv_zoom > 1.5) { sv_zoom = 1; sv_pan_x = 0; sv_pan_y = 0; sv_apply_transform(); }
+            else { sv_zoom_at_point(e.clientX - rect.left, e.clientY - rect.top, 1.0); }
+        });
     }
 </script>
 {% endblock %}

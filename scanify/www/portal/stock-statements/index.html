@@ -306,14 +306,18 @@
           <div class="ss-qc-panel-header">
             <h6><i class="fa fa-file-pdf"></i> Original Statement</h6>
             <div class="ss-zoom-btns">
-              <button class="btn btn-sm btn-light" onclick="zoom_in()"><i class="fa fa-search-plus"></i></button>
-              <button class="btn btn-sm btn-light" onclick="zoom_out()"><i class="fa fa-search-minus"></i></button>
-              <button class="btn btn-sm btn-light" onclick="reset_zoom()"><i class="fa fa-sync"></i></button>
+              <button class="btn btn-sm btn-light" onclick="zoom_in()" title="Zoom In"><i class="fa fa-search-plus"></i></button>
+              <button class="btn btn-sm btn-light" onclick="zoom_out()" title="Zoom Out"><i class="fa fa-search-minus"></i></button>
+              <button class="btn btn-sm btn-light" onclick="reset_zoom()" title="Reset"><i class="fa fa-sync"></i></button>
+              <button class="btn btn-sm btn-light" onclick="fit_to_width()" title="Fit Width"><i class="fa fa-arrows-alt-h"></i></button>
+              <span class="ss-zoom-level" id="zoom-level-display">100%</span>
             </div>
           </div>
           <div class="ss-doc-viewer" id="document-viewer">
-            <iframe id="pdf-viewer" style="display:none;width:100%;height:100%;border:none;"></iframe>
-            <img id="img-viewer" style="display:none;cursor:grab;transform-origin:0 0;">
+            <div class="ss-viewer-canvas" id="viewer-canvas">
+              <div id="pdf-canvas-container" style="display:none;"></div>
+              <img id="img-viewer" style="display:none;" draggable="false">
+            </div>
             <div id="spreadsheet-viewer" style="display:none;padding:12px;overflow:auto;height:100%;"></div>
           </div>
         </div>
@@ -1012,20 +1016,62 @@
 
   .ss-doc-viewer {
     flex: 1;
-    overflow: auto;
+    overflow: hidden;
     background: #f1f5f9;
     position: relative;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .ss-doc-viewer.is-dragging {
+    cursor: grabbing;
+  }
+
+  .ss-viewer-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+    transition: none;
+  }
+
+  #pdf-canvas-container {
+    background: #525659;
+  }
+
+  #pdf-canvas-container canvas {
+    display: block;
+    margin: 0 auto 2px auto;
+    background: white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  }
+
+  .ss-viewer-canvas img {
+    display: block;
+    max-width: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
   }
 
   .ss-doc-viewer img {
-    transform-origin: 0 0;
-    transition: none;
     user-select: none;
     -webkit-user-drag: none;
   }
 
-  .ss-doc-viewer img.dragging {
-    cursor: grabbing;
+  .ss-zoom-level {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #4f46e5;
+    background: #eef2ff;
+    border-radius: 6px;
+    padding: 2px 8px;
+    margin-left: 4px;
   }
 
   #spreadsheet-viewer table {
@@ -1153,5 +1199,9 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+</script>
 <script src="/assets/scanify/js/stock-statements.js"></script>
 {% endblock %}

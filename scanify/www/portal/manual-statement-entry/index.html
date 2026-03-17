@@ -1,0 +1,939 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Manual Statement Entry{% endblock %}
+
+{% block portal_content %}
+<div class="me-page">
+
+  <!-- Page Header -->
+  <div class="me-page-header">
+    <div>
+      <h1 class="page-title"><i class="fa fa-edit"></i> Manual Statement Entry</h1>
+      <p class="page-subtitle">Enter stock statement data manually</p>
+    </div>
+    <a href="/portal/stock-statements-list" class="btn btn-secondary">
+      <i class="fa fa-list"></i> View All Statements
+    </a>
+  </div>
+
+  <!-- Entry Form Card -->
+  <div class="card me-entry-card" id="entry-card">
+    <div class="card-header">
+      <span><i class="fa fa-clipboard"></i> Statement Details</span>
+    </div>
+    <div class="card-body">
+      <form id="manual-form" onsubmit="return false;">
+
+        <!-- Row 1: Month + Stockist -->
+        <div class="row">
+          <div class="col-md-4">
+            <div class="form-group">
+              <label>Statement Month <span class="text-danger">*</span></label>
+              <input type="month" class="form-control" id="me-month" required>
+              <small class="form-text text-muted">Select the statement period</small>
+            </div>
+          </div>
+          <div class="col-md-8">
+            <div class="form-group position-relative">
+              <label>Stockist <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="me-stockist-search"
+                placeholder="Search by name or code…" autocomplete="off" required>
+              <input type="hidden" id="me-stockist-code">
+              <small class="form-text text-muted" id="me-stockist-info"></small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Auto-populated read-only fields -->
+        <div class="row me-meta-row" id="me-meta-row" style="display:none;">
+          <div class="col-md-3">
+            <div class="form-group">
+              <label>HQ</label>
+              <input type="text" class="form-control me-readonly" id="me-hq" readonly>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="form-group">
+              <label>Team</label>
+              <input type="text" class="form-control me-readonly" id="me-team" readonly>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="form-group">
+              <label>Region</label>
+              <input type="text" class="form-control me-readonly" id="me-region" readonly>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="form-group">
+              <label>Zone</label>
+              <input type="text" class="form-control me-readonly" id="me-zone" readonly>
+            </div>
+          </div>
+        </div>
+
+        <!-- Duplicate warning placeholder -->
+        <div id="me-duplicate-warning"></div>
+
+        <!-- Upload Section (optional) -->
+        <div class="me-upload-section">
+          <label class="upload-label">Attach Statement <small class="text-muted">(optional)</small></label>
+          <div class="me-dropzone" id="me-drop-zone">
+            <input type="file" id="me-file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv,.txt">
+            <div class="me-upload-placeholder" id="me-upload-placeholder">
+              <i class="fa fa-paperclip me-attach-icon"></i>
+              <span class="me-attach-text">Drag &amp; drop or click to attach supporting document</span>
+            </div>
+            <div class="me-file-preview" id="me-file-preview" style="display:none;">
+              <div class="file-card">
+                <div class="file-card-icon"><i class="fa fa-file-alt"></i></div>
+                <div class="file-card-info">
+                  <strong id="me-file-name"></strong>
+                  <small id="me-file-size" class="text-muted"></small>
+                </div>
+                <button type="button" class="btn-icon-remove" id="me-clear-file" title="Remove">
+                  <i class="fa fa-times"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Remarks -->
+        <div class="row">
+          <div class="col-md-12">
+            <div class="form-group">
+              <label>Remarks</label>
+              <textarea class="form-control" id="me-remarks" rows="2" placeholder="Optional notes…"></textarea>
+            </div>
+          </div>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  <!-- Product Table Section -->
+  <div class="card me-products-card" id="products-section" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="fa fa-table"></i> Product Data Entry</span>
+      <div class="d-flex align-items-center gap-2">
+        <input type="text" class="form-control form-control-sm me-product-filter"
+          id="me-product-filter" placeholder="Filter products…" style="width:200px;">
+        <button class="btn btn-outline-primary btn-sm ml-2" onclick="me_load_all_products()">
+          <i class="fa fa-sync"></i> Reload Products
+        </button>
+      </div>
+    </div>
+    <div class="card-body p-0">
+      <div class="me-table-wrapper">
+        <table class="table table-bordered table-sm mb-0" id="me-products-table">
+          <thead class="me-table-head">
+            <tr>
+              <th class="me-th-code">Code</th>
+              <th class="me-th-name">Product Name</th>
+              <th class="me-th-pack">Pack</th>
+              <th class="me-th-pts">PTS</th>
+              <th class="me-th-num">Opening</th>
+              <th class="me-th-num">Purchase</th>
+              <th class="me-th-num">Sales</th>
+              <th class="me-th-num">Free</th>
+              <th class="me-th-num">Return</th>
+              <th class="me-th-num">Misc Out</th>
+              <th class="me-th-num">Closing</th>
+              <th class="me-th-val">Open Val</th>
+              <th class="me-th-val">Purch Val</th>
+              <th class="me-th-val">Sales(PTS)</th>
+              <th class="me-th-val">Cls Val</th>
+            </tr>
+          </thead>
+          <tbody id="me-products-tbody"></tbody>
+          <tfoot class="me-table-foot">
+            <tr id="me-totals-row">
+              <td colspan="4" class="text-right font-weight-bold">TOTALS</td>
+              <td class="text-right" id="me-tot-opening">0</td>
+              <td class="text-right" id="me-tot-purchase">0</td>
+              <td class="text-right" id="me-tot-sales">0</td>
+              <td class="text-right" id="me-tot-free">0</td>
+              <td class="text-right" id="me-tot-return">0</td>
+              <td class="text-right" id="me-tot-miscout">0</td>
+              <td class="text-right" id="me-tot-closing">0</td>
+              <td class="text-right" id="me-tot-openval">0.00</td>
+              <td class="text-right" id="me-tot-purchval">0.00</td>
+              <td class="text-right" id="me-tot-salesval">0.00</td>
+              <td class="text-right" id="me-tot-clsval">0.00</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary + Submit -->
+  <div id="me-summary-section" style="display:none;">
+    <div class="me-stats-row">
+      <div class="me-stat-card me-stat-blue">
+        <div class="me-stat-inner">
+          <div class="me-stat-icon"><i class="fa fa-box"></i></div>
+          <div>
+            <div class="me-stat-value" id="me-stat-products">0</div>
+            <div class="me-stat-label">Products with Data</div>
+          </div>
+        </div>
+      </div>
+      <div class="me-stat-card me-stat-green">
+        <div class="me-stat-inner">
+          <div class="me-stat-icon"><i class="fa fa-cubes"></i></div>
+          <div>
+            <div class="me-stat-value" id="me-stat-opening">₹0.00</div>
+            <div class="me-stat-label">Opening Value</div>
+          </div>
+        </div>
+      </div>
+      <div class="me-stat-card me-stat-orange">
+        <div class="me-stat-inner">
+          <div class="me-stat-icon"><i class="fa fa-shopping-cart"></i></div>
+          <div>
+            <div class="me-stat-value" id="me-stat-sales">₹0.00</div>
+            <div class="me-stat-label">Sales Value (PTS)</div>
+          </div>
+        </div>
+      </div>
+      <div class="me-stat-card me-stat-purple">
+        <div class="me-stat-inner">
+          <div class="me-stat-icon"><i class="fa fa-warehouse"></i></div>
+          <div>
+            <div class="me-stat-value" id="me-stat-closing">₹0.00</div>
+            <div class="me-stat-label">Closing Value</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="me-action-bar">
+      <button type="button" class="btn me-submit-btn" id="me-submit-btn" onclick="me_submit_statement(this)">
+        <i class="fa fa-paper-plane btn-icon"></i>
+        <span class="btn-text">Submit &amp; Finalise</span>
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<style>
+  .me-page { padding: 0; }
+
+  .me-page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+  }
+
+  .me-entry-card {
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 1.25rem;
+  }
+
+  .me-readonly {
+    background: #f8fafc !important;
+    color: #64748b;
+    font-size: 13px;
+  }
+
+  .me-meta-row { margin-top: 4px; }
+
+  /* Upload */
+  .me-upload-section { margin: 1rem 0; }
+  .upload-label { font-weight: 600; font-size: 14px; color: #1e293b; margin-bottom: 8px; display: block; }
+
+  .me-dropzone {
+    border: 2px dashed #c7d2fe;
+    border-radius: 12px;
+    background: #f8f8ff;
+    padding: 1rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.3s;
+  }
+  .me-dropzone input[type="file"] {
+    position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+    opacity: 0; cursor: pointer; z-index: 1;
+  }
+  .me-dropzone:hover, .me-dropzone.drag-over {
+    border-color: #4f46e5;
+    background: #eef2ff;
+  }
+  .me-attach-icon { font-size: 1.2rem; color: #4f46e5; margin-right: 8px; }
+  .me-attach-text { font-size: 13px; color: #64748b; }
+
+  .me-file-preview { position: relative; z-index: 2; }
+  .file-card {
+    display: flex; align-items: center; gap: 1rem;
+    background: white; border-radius: 10px; padding: 0.75rem 1rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .file-card-icon { font-size: 2rem; color: #4f46e5; width: 40px; text-align: center; }
+  .file-card-info { flex: 1; min-width: 0; text-align: left; }
+  .btn-icon-remove {
+    background: #fee2e2; color: #dc2626; border: none; border-radius: 8px;
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: background 0.2s;
+  }
+  .btn-icon-remove:hover { background: #dc2626; color: white; }
+
+  /* Autocomplete */
+  .me-autocomplete {
+    position: absolute; z-index: 99999; background: #fff;
+    border: 1px solid #ced4da; border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12); max-height: 260px; overflow-y: auto;
+  }
+  .me-autocomplete .autocomplete-item {
+    padding: 10px 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9;
+    transition: background 0.15s;
+  }
+  .me-autocomplete .autocomplete-item:hover { background: #f8faff; }
+
+  /* Products Table */
+  .me-products-card {
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 1.25rem;
+  }
+
+  .me-table-wrapper {
+    max-height: 65vh;
+    overflow: auto;
+  }
+
+  .me-table-head th {
+    background: #1e293b;
+    color: white;
+    font-size: 11px;
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 8px 6px;
+    text-align: center;
+    border-color: #334155;
+  }
+  .me-th-code { min-width: 80px; }
+  .me-th-name { min-width: 180px; }
+  .me-th-pack { min-width: 60px; }
+  .me-th-pts  { min-width: 70px; }
+  .me-th-num  { min-width: 75px; }
+  .me-th-val  { min-width: 85px; }
+
+  .me-table-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+  }
+  .me-table-foot td {
+    background: #d1fae5 !important;
+    font-weight: 700;
+    font-size: 12px;
+  }
+
+  #me-products-table {
+    font-size: 12px;
+    margin-bottom: 0;
+  }
+  #me-products-table td {
+    vertical-align: middle;
+    padding: 2px 4px;
+  }
+  #me-products-table td.me-code-cell {
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 11px;
+  }
+  #me-products-table td.me-name-cell {
+    font-size: 11px;
+    color: #334155;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #me-products-table td.me-readonly-cell {
+    text-align: right;
+    color: #64748b;
+    font-size: 11px;
+  }
+
+  .me-input {
+    width: 100%;
+    min-width: 60px;
+    padding: 3px 5px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 12px;
+    text-align: right;
+    color: #1e293b;
+    background: #fff;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .me-input:focus {
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 2px rgba(79,70,229,0.15);
+    background: #eef2ff;
+  }
+  .me-input.has-value {
+    background: #fefce8;
+    border-color: #f59e0b;
+  }
+
+  .me-calc-cell {
+    text-align: right;
+    font-size: 11px;
+    color: #4f46e5;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .me-product-filter {
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
+  /* Stats */
+  .me-stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 1.25rem;
+  }
+  @media(max-width: 768px) { .me-stats-row { grid-template-columns: repeat(2, 1fr); } }
+
+  .me-stat-card {
+    background: white; border-radius: 12px; padding: 1rem 1.25rem;
+    border: 1px solid #e2e8f0; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .me-stat-inner { display: flex; align-items: center; gap: 12px; }
+  .me-stat-icon {
+    width: 42px; height: 42px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+  }
+  .me-stat-blue .me-stat-icon { background: #dbeafe; color: #2563eb; }
+  .me-stat-green .me-stat-icon { background: #d1fae5; color: #059669; }
+  .me-stat-orange .me-stat-icon { background: #ffedd5; color: #d97706; }
+  .me-stat-purple .me-stat-icon { background: #ede9fe; color: #7c3aed; }
+  .me-stat-value { font-size: 1.25rem; font-weight: 700; color: #1e293b; line-height: 1; }
+  .me-stat-label { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+  /* Submit */
+  .me-action-bar {
+    display: flex; justify-content: center; padding: 0.5rem 0 1.5rem;
+  }
+  .me-submit-btn {
+    background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+    color: white; border: none; padding: 0.85rem 3rem;
+    font-size: 1.05rem; font-weight: 700; border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(5,150,105,0.35);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+  .me-submit-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 32px rgba(5,150,105,0.45);
+    color: white;
+  }
+
+  /* Row highlight on data entry */
+  #me-products-table tr.me-row-active {
+    background: #fefce8 !important;
+  }
+
+  .gap-2 { gap: 0.5rem; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // ============================================================
+  // MANUAL STATEMENT ENTRY
+  // ============================================================
+
+  let me_products = [];      // Master product list
+  let me_product_data = {};  // productcode → row data with quantities
+
+  function get_csrf() {
+    return window.csrftoken || window.csrf_token || (window.frappe && frappe.csrf_token) || '';
+  }
+
+  function me_get_division() {
+    try {
+      const btn = document.querySelector('.division-name');
+      if (btn && btn.textContent.trim()) return btn.textContent.trim();
+    } catch (e) {}
+    const match = document.cookie.match(/(?:^|;\s*)division=([^;]*)/);
+    if (match) return decodeURIComponent(match[1]);
+    return '';
+  }
+
+  function me_call(method, args) {
+    return new Promise(function (resolve, reject) {
+      $.ajax({
+        url: '/api/method/' + method,
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': get_csrf() },
+        data: JSON.stringify(args || {}),
+        success: function (r) { resolve(r.message); },
+        error: function (xhr) {
+          reject(new Error((xhr.responseJSON && xhr.responseJSON.message) || 'API error'));
+        }
+      });
+    });
+  }
+
+  function me_fmt(v, currency) {
+    var n = parseFloat(v || 0);
+    if (isNaN(n)) return currency ? '0.00' : '0';
+    if (currency) return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return Math.round(n).toString();
+  }
+
+  function me_escape(s) {
+    return String(s || '').replace(/[&<>"']/g, function(m) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+    });
+  }
+
+  function me_get_cf(pack_str) {
+    if (!pack_str) return 1;
+    var s = String(pack_str).trim().toUpperCase();
+    var m = s.match(/(\d+)\s*[xX]\s*(\d+)/);
+    if (m) return parseFloat(m[1]);
+    return 1;
+  }
+
+  // ---- Initialise ----
+  $(document).ready(function () {
+    var today = new Date();
+    $('#me-month').val(today.toISOString().slice(0, 7));
+
+    me_init_stockist_search();
+    me_init_file_upload();
+
+    $('#me-month').on('change', function () {
+      me_check_duplicate();
+    });
+
+    // Product filter
+    $('#me-product-filter').on('input', function () {
+      var term = $(this).val().trim().toLowerCase();
+      $('#me-products-tbody tr').each(function () {
+        var code = $(this).data('code') || '';
+        var name = $(this).data('name') || '';
+        if (!term || code.toLowerCase().indexOf(term) >= 0 || name.toLowerCase().indexOf(term) >= 0) {
+          $(this).show();
+        } else {
+          $(this).hide();
+        }
+      });
+    });
+  });
+
+  // ---- Stockist Search ----
+  function me_init_stockist_search() {
+    var timeout;
+    $('#me-stockist-search').on('input focus click', function (e) {
+      var term = $(this).val().trim();
+      clearTimeout(timeout);
+      if (e.type === 'input') {
+        $('#me-stockist-code').val('');
+        $('#me-hq,#me-team,#me-region,#me-zone').val('');
+        $('#me-stockist-info').text('');
+        $('#me-meta-row').hide();
+        $('#products-section,#me-summary-section').hide();
+      }
+      timeout = setTimeout(function () { me_search_stockists(term); }, 250);
+    });
+
+    $(document).on('click', function (e) {
+      if (!$(e.target).closest('#me-stockist-search, .me-autocomplete').length) {
+        $('.me-autocomplete').remove();
+      }
+    });
+  }
+
+  function me_search_stockists(term) {
+    $.ajax({
+      url: '/api/method/scanify.api.searchstockists',
+      type: 'POST',
+      contentType: 'application/json',
+      headers: { 'X-Frappe-CSRF-Token': get_csrf() },
+      data: JSON.stringify({ searchterm: term, division: me_get_division() }),
+      success: function (r) { me_render_stockist_results(r.message || []); },
+      error: function () { $('.me-autocomplete').remove(); }
+    });
+  }
+
+  function me_render_stockist_results(stockists) {
+    $('.me-autocomplete').remove();
+    if (!stockists.length) return;
+
+    var $input = $('#me-stockist-search');
+    var $menu = $('<div class="me-autocomplete"></div>');
+
+    stockists.forEach(function (st) {
+      var label = st.stockist_code + ' - ' + st.stockist_name;
+      var meta = [st.hq, st.team, st.region, st.zone].filter(Boolean).join(' | ');
+      var $item = $('<div class="autocomplete-item">' +
+        '<div class="font-weight-bold">' + me_escape(st.stockist_code) + ' — ' + me_escape(st.stockist_name) + '</div>' +
+        '<small class="text-muted">' + me_escape(meta) + '</small></div>');
+
+      $item.on('click', function () {
+        $('#me-stockist-search').val(label);
+        $('#me-stockist-code').val(st.stockist_code);
+        $('.me-autocomplete').remove();
+        me_populate_stockist(st.stockist_code);
+      });
+      $menu.append($item);
+    });
+
+    var offset = $input.offset();
+    $menu.css({
+      position: 'absolute',
+      top: (offset.top + $input.outerHeight() + 2) + 'px',
+      left: offset.left + 'px',
+      width: $input.outerWidth() + 'px'
+    });
+    $('body').append($menu);
+  }
+
+  async function me_populate_stockist(code) {
+    try {
+      var d = await me_call('scanify.api.get_stockist_details', { stockist_code: code });
+      $('#me-hq').val(d.hq || '');
+      $('#me-team').val(d.team || '');
+      $('#me-region').val(d.region || '');
+      $('#me-zone').val(d.zone || '');
+      $('#me-stockist-info').text('Selected: ' + (d.stockist_name || code));
+      $('#me-meta-row').show();
+      me_check_duplicate();
+      me_load_all_products();
+    } catch (e) {
+      $('#me-stockist-info').text('');
+      showAlert('Unable to fetch stockist details', 'warning');
+    }
+  }
+
+  // ---- Duplicate Check ----
+  function me_check_duplicate() {
+    var code = $('#me-stockist-code').val();
+    var month = $('#me-month').val();
+    $('#me-duplicate-warning').empty();
+    $('#me-submit-btn').prop('disabled', false);
+    if (!code || !month) return;
+
+    me_call('scanify.api.check_statement_exists', {
+      stockist_code: code, statement_month: month
+    }).then(function (r) {
+      if (r && r.exists) {
+        $('#me-duplicate-warning').html(
+          '<div class="alert alert-danger mt-2"><i class="fa fa-exclamation-triangle"></i> ' +
+          '<strong>Duplicate!</strong> Statement already exists: <strong>' + me_escape(r.statement_name) + '</strong></div>'
+        );
+        $('#me-submit-btn').prop('disabled', true);
+      }
+    });
+  }
+
+  // ---- File Upload ----
+  function me_init_file_upload() {
+    var dropzone = document.getElementById('me-drop-zone');
+    var fileInput = document.getElementById('me-file');
+
+    dropzone.addEventListener('dragover', function (e) { e.preventDefault(); dropzone.classList.add('drag-over'); });
+    dropzone.addEventListener('dragleave', function () { dropzone.classList.remove('drag-over'); });
+    dropzone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dropzone.classList.remove('drag-over');
+      if (e.dataTransfer.files && e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        me_show_file(e.dataTransfer.files[0]);
+      }
+    });
+    fileInput.addEventListener('change', function () {
+      if (this.files && this.files.length) me_show_file(this.files[0]);
+    });
+    $('#me-clear-file').on('click', function (e) {
+      e.stopPropagation();
+      document.getElementById('me-file').value = '';
+      $('#me-file-preview').hide();
+      $('#me-upload-placeholder').show();
+    });
+  }
+
+  function me_show_file(file) {
+    $('#me-file-name').text(file.name);
+    $('#me-file-size').text((file.size / 1024).toFixed(2) + ' KB');
+    $('#me-upload-placeholder').hide();
+    $('#me-file-preview').show();
+  }
+
+  // ---- Load Products ----
+  window.me_load_all_products = async function () {
+    var division = me_get_division();
+    try {
+      me_products = await me_call('scanify.api.get_products_for_division', { division: division });
+      if (!me_products || !me_products.length) {
+        showAlert('No products found for division: ' + division, 'warning');
+        return;
+      }
+      me_render_products_table();
+      $('#products-section').fadeIn(300);
+      $('#me-summary-section').fadeIn(300);
+    } catch (e) {
+      showAlert('Failed to load products: ' + e.message, 'danger');
+    }
+  };
+
+  // ---- Render Products Table ----
+  function me_render_products_table() {
+    var $tbody = $('#me-products-tbody');
+    $tbody.empty();
+
+    me_products.forEach(function (p, idx) {
+      var code = p.product_code || '';
+      var name = p.product_name || '';
+      var pack = p.pack || '';
+      var pts = parseFloat(p.pts || 0);
+      var cf = me_get_cf(pack);
+
+      // Initialise data entry row
+      if (!me_product_data[code]) {
+        me_product_data[code] = {
+          productcode: code, productname: name, pack: pack,
+          pts: pts, ptr: parseFloat(p.ptr || 0), conversion_factor: cf,
+          openingqty: 0, purchaseqty: 0, salesqty: 0, freeqty: 0,
+          returnqty: 0, miscoutqty: 0, closingqty: 0,
+          openingvalue: 0, purchasevalue: 0, salesvaluepts: 0, closingvalue: 0
+        };
+      }
+
+      var row = me_product_data[code];
+
+      var tr = '<tr data-code="' + me_escape(code) + '" data-name="' + me_escape(name) + '" data-idx="' + idx + '">' +
+        '<td class="me-code-cell">' + me_escape(code) + '</td>' +
+        '<td class="me-name-cell" title="' + me_escape(name) + '">' + me_escape(name) + '</td>' +
+        '<td class="me-readonly-cell">' + me_escape(pack) + '</td>' +
+        '<td class="me-readonly-cell">' + me_fmt(pts, true) + '</td>' +
+        me_input_cell(code, 'openingqty', row.openingqty) +
+        me_input_cell(code, 'purchaseqty', row.purchaseqty) +
+        me_input_cell(code, 'salesqty', row.salesqty) +
+        me_input_cell(code, 'freeqty', row.freeqty) +
+        me_input_cell(code, 'returnqty', row.returnqty) +
+        me_input_cell(code, 'miscoutqty', row.miscoutqty) +
+        me_input_cell(code, 'closingqty', row.closingqty) +
+        '<td class="me-calc-cell" data-code="' + me_escape(code) + '" data-calc="openingvalue">' + me_fmt(row.openingvalue, true) + '</td>' +
+        '<td class="me-calc-cell" data-code="' + me_escape(code) + '" data-calc="purchasevalue">' + me_fmt(row.purchasevalue, true) + '</td>' +
+        '<td class="me-calc-cell" data-code="' + me_escape(code) + '" data-calc="salesvaluepts">' + me_fmt(row.salesvaluepts, true) + '</td>' +
+        '<td class="me-calc-cell" data-code="' + me_escape(code) + '" data-calc="closingvalue">' + me_fmt(row.closingvalue, true) + '</td>' +
+        '</tr>';
+      $tbody.append(tr);
+    });
+
+    // Bind input events
+    $tbody.off('input change', '.me-input').on('input', '.me-input', function () {
+      me_on_input_change(this);
+    });
+
+    // Highlight row on focus
+    $tbody.off('focus blur', '.me-input')
+      .on('focus', '.me-input', function () { $(this).closest('tr').addClass('me-row-active'); })
+      .on('blur', '.me-input', function () { $(this).closest('tr').removeClass('me-row-active'); });
+
+    me_recalc_totals();
+  }
+
+  function me_input_cell(code, field, val) {
+    var v = val || '';
+    if (v === 0) v = '';
+    return '<td class="p-0"><input type="number" class="me-input' + (v ? ' has-value' : '') + '" ' +
+      'data-code="' + me_escape(code) + '" data-field="' + field + '" ' +
+      'value="' + (v || '') + '" min="0" step="any" tabindex="0"></td>';
+  }
+
+  // ---- Calculation on input ----
+  function me_on_input_change(input) {
+    var code = $(input).data('code');
+    var field = $(input).data('field');
+    var val = parseFloat($(input).val()) || 0;
+
+    var row = me_product_data[code];
+    if (!row) return;
+
+    row[field] = val;
+
+    // Mark input as having value
+    if (val > 0) { $(input).addClass('has-value'); }
+    else { $(input).removeClass('has-value'); }
+
+    // Calculate derived values
+    var cf = row.conversion_factor || 1;
+    var pts = row.pts || 0;
+
+    switch (field) {
+      case 'openingqty':
+        row.openingvalue = (row.openingqty / cf) * pts;
+        break;
+      case 'purchaseqty':
+        row.purchasevalue = (row.purchaseqty / cf) * pts;
+        break;
+      case 'salesqty':
+        row.salesvaluepts = (row.salesqty / cf) * pts;
+        break;
+      case 'closingqty':
+        row.closingvalue = (row.closingqty / cf) * pts;
+        break;
+    }
+
+    // Update calculated cells for this row
+    $('td[data-code="' + code + '"][data-calc="openingvalue"]').text(me_fmt(row.openingvalue, true));
+    $('td[data-code="' + code + '"][data-calc="purchasevalue"]').text(me_fmt(row.purchasevalue, true));
+    $('td[data-code="' + code + '"][data-calc="salesvaluepts"]').text(me_fmt(row.salesvaluepts, true));
+    $('td[data-code="' + code + '"][data-calc="closingvalue"]').text(me_fmt(row.closingvalue, true));
+
+    me_recalc_totals();
+  }
+
+  // ---- Totals ----
+  function me_recalc_totals() {
+    var t = {
+      openingqty: 0, purchaseqty: 0, salesqty: 0, freeqty: 0,
+      returnqty: 0, miscoutqty: 0, closingqty: 0,
+      openingvalue: 0, purchasevalue: 0, salesvaluepts: 0, closingvalue: 0,
+      count: 0
+    };
+
+    Object.keys(me_product_data).forEach(function (code) {
+      var r = me_product_data[code];
+      var hasData = (r.openingqty || r.purchaseqty || r.salesqty || r.freeqty ||
+                     r.returnqty || r.miscoutqty || r.closingqty);
+      if (hasData) t.count++;
+      t.openingqty += r.openingqty || 0;
+      t.purchaseqty += r.purchaseqty || 0;
+      t.salesqty += r.salesqty || 0;
+      t.freeqty += r.freeqty || 0;
+      t.returnqty += r.returnqty || 0;
+      t.miscoutqty += r.miscoutqty || 0;
+      t.closingqty += r.closingqty || 0;
+      t.openingvalue += r.openingvalue || 0;
+      t.purchasevalue += r.purchasevalue || 0;
+      t.salesvaluepts += r.salesvaluepts || 0;
+      t.closingvalue += r.closingvalue || 0;
+    });
+
+    $('#me-tot-opening').text(me_fmt(t.openingqty));
+    $('#me-tot-purchase').text(me_fmt(t.purchaseqty));
+    $('#me-tot-sales').text(me_fmt(t.salesqty));
+    $('#me-tot-free').text(me_fmt(t.freeqty));
+    $('#me-tot-return').text(me_fmt(t.returnqty));
+    $('#me-tot-miscout').text(me_fmt(t.miscoutqty));
+    $('#me-tot-closing').text(me_fmt(t.closingqty));
+    $('#me-tot-openval').text(me_fmt(t.openingvalue, true));
+    $('#me-tot-purchval').text(me_fmt(t.purchasevalue, true));
+    $('#me-tot-salesval').text(me_fmt(t.salesvaluepts, true));
+    $('#me-tot-clsval').text(me_fmt(t.closingvalue, true));
+
+    // Summary cards
+    $('#me-stat-products').text(t.count);
+    $('#me-stat-opening').text('₹' + me_fmt(t.openingvalue, true));
+    $('#me-stat-sales').text('₹' + me_fmt(t.salesvaluepts, true));
+    $('#me-stat-closing').text('₹' + me_fmt(t.closingvalue, true));
+  }
+
+  // ---- Submit ----
+  window.me_submit_statement = async function (btn) {
+    var $btn = $(btn);
+    var stockist_code = $('#me-stockist-code').val();
+    var month = $('#me-month').val();
+
+    if (!stockist_code) { showAlert('Please select a stockist', 'warning'); return; }
+    if (!month) { showAlert('Please select a statement month', 'warning'); return; }
+
+    // Collect rows with data
+    var items = [];
+    Object.keys(me_product_data).forEach(function (code) {
+      var r = me_product_data[code];
+      if (r.openingqty || r.purchaseqty || r.salesqty || r.freeqty ||
+          r.returnqty || r.miscoutqty || r.closingqty) {
+        items.push({
+          productcode: r.productcode,
+          openingqty: r.openingqty || 0,
+          purchaseqty: r.purchaseqty || 0,
+          salesqty: r.salesqty || 0,
+          freeqty: r.freeqty || 0,
+          returnqty: r.returnqty || 0,
+          miscoutqty: r.miscoutqty || 0,
+          closingqty: r.closingqty || 0,
+          closingvalue: r.closingvalue || 0
+        });
+      }
+    });
+
+    if (!items.length) {
+      showAlert('Please enter data for at least one product', 'warning');
+      return;
+    }
+
+    if (!confirm('Submit this statement with ' + items.length + ' products? This action cannot be undone.')) return;
+
+    $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Submitting…');
+
+    try {
+      // Upload file if attached
+      var uploaded_file_url = null;
+      var file = document.getElementById('me-file').files[0];
+      if (file) {
+        var formData = new FormData();
+        formData.append('file', file);
+        formData.append('is_private', 1);
+        var uploadResult = await new Promise(function (resolve, reject) {
+          $.ajax({
+            url: '/api/method/upload_file',
+            type: 'POST',
+            headers: { 'X-Frappe-CSRF-Token': get_csrf() },
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function (r) { resolve(r.message && r.message.file_url); },
+            error: function () { resolve(null); }
+          });
+        });
+        uploaded_file_url = uploadResult;
+      }
+
+      var result = await me_call('scanify.api.create_manual_statement', {
+        stockist_code: stockist_code,
+        statement_month: month,
+        items: items,
+        uploaded_file: uploaded_file_url || '',
+        remarks: $('#me-remarks').val() || ''
+      });
+
+      if (result && result.success) {
+        $btn.html('<i class="fa fa-check"></i> Submitted');
+        showAlert('Statement submitted successfully with ' + items.length + ' products!', 'success');
+        setTimeout(function () {
+          window.location.href = '/portal/stock-statements-list';
+        }, 1500);
+      } else {
+        $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit & Finalise');
+        showAlert('Submission failed: ' + ((result && result.message) || 'Unknown error'), 'danger');
+      }
+    } catch (e) {
+      $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit & Finalise');
+      showAlert('Error: ' + e.message, 'danger');
+    }
+  };
+</script>
+{% endblock %}
