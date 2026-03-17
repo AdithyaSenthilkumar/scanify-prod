@@ -128,97 +128,150 @@ def build_product_catalog_for_prompt():
 @frappe.whitelist()
 def extract_stockist_statement(doc_name, file_url):
     """
-    Extract stockist statement data using Gemini AI - ENHANCED WITH PRODUCT CATALOG
+    Extract stockist statement data using Gemini AI.
+    Runs the heavy Gemini call in a background thread to avoid nginx 504 timeouts.
+    Frontend should poll check_extraction_status() for completion.
+    """
+    import threading
+
+    try:
+        doc = frappe.get_doc("Stockist Statement", doc_name)
+
+        if doc.extracted_data_status == "In Progress":
+            return {"success": True, "message": "Extraction already in progress", "async": True}
+
+        if not file_url:
+            return {"success": False, "message": "No file uploaded"}
+
+        # Validate file exists before spawning thread
+        from frappe.utils.file_manager import get_file_path
+        file_path = get_file_path(file_url)
+        if not os.path.exists(file_path):
+            return {"success": False, "message": f"File not found: {file_url}"}
+
+        # Mark as In Progress immediately
+        doc.extracted_data_status = "In Progress"
+        doc.extraction_notes = ""
+        doc.save()
+        frappe.db.commit()
+
+        # Capture context for background thread
+        site = frappe.local.site
+
+        def _run_extraction():
+            try:
+                frappe.init(site=site)
+                frappe.connect()
+                _do_extract(doc_name, file_url)
+            except Exception as thread_err:
+                try:
+                    frappe.init(site=site)
+                    frappe.connect()
+                    _doc = frappe.get_doc("Stockist Statement", doc_name)
+                    _doc.extracted_data_status = "Failed"
+                    _doc.extraction_notes = f"Extraction failed: {str(thread_err)}"
+                    _doc.save()
+                    frappe.db.commit()
+                except Exception:
+                    pass
+                frappe.log_error(frappe.get_traceback(), "Gemini Extraction Thread Error")
+            finally:
+                try:
+                    frappe.destroy()
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=_run_extraction, daemon=True, name=f"extract_{doc_name}")
+        t.start()
+
+        return {"success": True, "message": "Extraction started", "async": True}
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Gemini Extraction Error")
+        return {"success": False, "message": f"Extraction failed: {str(e)}"}
+
+
+def _do_extract(doc_name, file_url):
+    """
+    Actual extraction logic, runs inside a background thread with its own DB connection.
     """
     api_key, model_name, is_enabled = get_gemini_settings()
     genai_client = genai_sdk.Client(api_key=api_key)
-    
-    doc = None
-    try:
-        doc = frappe.get_doc("Stockist Statement", doc_name)
-        doc.extracted_data_status = "In Progress"
+
+    doc = frappe.get_doc("Stockist Statement", doc_name)
+
+    from frappe.utils.file_manager import get_file_path
+    file_path = get_file_path(file_url)
+
+    # Build product catalog
+    product_catalog, products_list = build_product_catalog_for_prompt()
+
+    # Extract with enhanced prompt
+    extracted_data = call_gemini_extraction_with_catalog(
+        file_path,
+        doc.stockist_code,
+        product_catalog,
+        products_list,
+        model_name,
+        genai_client
+    )
+
+    if not extracted_data or len(extracted_data) == 0:
+        doc.extracted_data_status = "Failed"
+        doc.extraction_notes = "No data extracted - AI returned empty results"
         doc.save()
         frappe.db.commit()
-        
-        if not file_url:
-            raise ValueError("No file uploaded")
-        
-        # Get file path
-        from frappe.utils.file_manager import get_file_path
-        file_path = get_file_path(file_url)
-        
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_url}")
-        
-        # Build product catalog
-        product_catalog, products_list = build_product_catalog_for_prompt()
-        
-        # Extract with enhanced prompt
-        extracted_data = call_gemini_extraction_with_catalog(
-            file_path,
-            doc.stockist_code,
-            product_catalog,
-            products_list,
-            model_name,
-            genai_client
-        )
-        
-        if not extracted_data or len(extracted_data) == 0:
-            doc.extracted_data_status = "Failed"
-            doc.extraction_notes = "No data extracted - AI returned empty results"
-            doc.save()
-            frappe.db.commit()
-            return {"success": False, "message": "No data extracted"}
-        
-        # Clear existing items and add new ones
-        doc.items = []
-        items_added = 0
-        
-        for item_data in extracted_data:
-            if item_data.get("product_code"):
-                doc.append("items", {
-                    "product_code": item_data.get("product_code"),
-                    "opening_qty": flt(item_data.get("opening_qty"), 0),
-                    "purchase_qty": flt(item_data.get("purchase_qty"), 0),
-                    "sales_qty": flt(item_data.get("sales_qty"), 0),
-                    "free_qty": flt(item_data.get("free_qty"), 0),
-                    "return_qty": flt(item_data.get("return_qty"), 0),
-                    "misc_out_qty": flt(item_data.get("misc_out_qty"), 0),
-                    "closing_qty": flt(item_data.get("closing_qty"), None),
-                    "closing_value": flt(item_data.get("closing_value"), 0),
-                })
-                items_added += 1
-        
-        if items_added == 0:
-            doc.extracted_data_status = "Failed"
-            doc.extraction_notes = "No valid products found in extracted data"
-            doc.save()
-            frappe.db.commit()
-            return {"success": False, "message": "No valid products found"}
-        
-        doc.extracted_data_status = "Completed"
-        doc.extraction_notes = f"Successfully extracted {items_added} items using AI with product catalog"
-        doc.populate_previous_month_closing()
-        doc.calculate_closing_and_totals()
+        return
+
+    # Clear existing items and add new ones
+    doc.items = []
+    items_added = 0
+
+    for item_data in extracted_data:
+        if item_data.get("product_code"):
+            doc.append("items", {
+                "product_code": item_data.get("product_code"),
+                "opening_qty": flt(item_data.get("opening_qty"), 0),
+                "purchase_qty": flt(item_data.get("purchase_qty"), 0),
+                "sales_qty": flt(item_data.get("sales_qty"), 0),
+                "free_qty": flt(item_data.get("free_qty"), 0),
+                "return_qty": flt(item_data.get("return_qty"), 0),
+                "misc_out_qty": flt(item_data.get("misc_out_qty"), 0),
+                "closing_qty": flt(item_data.get("closing_qty"), None),
+                "closing_value": flt(item_data.get("closing_value"), 0),
+            })
+            items_added += 1
+
+    if items_added == 0:
+        doc.extracted_data_status = "Failed"
+        doc.extraction_notes = "No valid products found in extracted data"
         doc.save()
         frappe.db.commit()
-        
-        return {"success": True, "message": f"Successfully extracted {items_added} items"}
-        
-    except Exception as e:
-        error_msg = str(e)
-        frappe.log_error(frappe.get_traceback(), "Gemini Extraction Error")
-        
-        if doc:
-            try:
-                doc.extracted_data_status = "Failed"
-                doc.extraction_notes = f"Extraction failed: {error_msg}"
-                doc.save()
-                frappe.db.commit()
-            except:
-                pass
-        
-        return {"success": False, "message": f"Extraction failed: {error_msg}"}
+        return
+
+    doc.extracted_data_status = "Completed"
+    doc.extraction_notes = f"Successfully extracted {items_added} items using AI with product catalog"
+    doc.populate_previous_month_closing()
+    doc.calculate_closing_and_totals()
+    doc.save()
+    frappe.db.commit()
+
+
+@frappe.whitelist()
+def check_extraction_status(doc_name):
+    """Poll endpoint: returns current extraction status for a Stockist Statement."""
+    status = frappe.db.get_value(
+        "Stockist Statement", doc_name,
+        ["extracted_data_status", "extraction_notes"],
+        as_dict=True
+    )
+    if not status:
+        return {"success": False, "message": "Document not found"}
+    return {
+        "success": True,
+        "status": status.extracted_data_status,
+        "notes": status.extraction_notes or ""
+    }
 
 
 @frappe.whitelist()
@@ -405,20 +458,20 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
    - Extract quantities for all columns AND closing value if present.
 
    Column meanings:
-   - Opening: "Op.Qty", "OPSTK", "Opening", "Open.Qty"
+   - Opening: "Op.Qty", "OPSTK", "Opening", "Open.Qty", "QpnStk"
    - Purchase: "Purch.Qty", "PURCH", "Receipt", "Pr.Qty"
    - Sales: "Sales", "Sale", "Sl", "Sold"
    - Free: "Free Qty", "Free", "Scheme Qty"
    - Return: "Return", "Ret", "Sales Ret"
    - Misc Out: "Misc.Out", "M.Out", "Transfer"
-   - Closing Qty: "Closing", "Cls", "Cl.Bal", "Closing Qty", "Balance"
+   - Closing Qty: "Closing", "Cls", "Cl.Bal", "ClsStk", "Closing Qty", "Balance"
    - Closing Value: Closing Value, Closing Val, Cl.Value, Closing Amount
-
 
    IMPORTANT:
     - If Closing Qty is present, extract it
     - If Closing Value is present, extract it (do NOT calculate)
     - If Closing Value is not present, leave closingvalue as 0
+    - Ignore previous month closing/sales columns if present, like PMSalesQty, Prev.Cls, etc.
 
 3. OUTPUT FORMAT - QUANTITIES ONLY:
    - Return ONLY valid JSON array
@@ -460,33 +513,19 @@ IMPORTANT:
                         file_data = f.read()
 
                     if file_ext == ".pdf":
-                        import fitz  # PyMuPDF
-                        pdf = fitz.open(file_path)
-                        max_pages = 20  # Guard against very large PDFs
-                        page_count = min(len(pdf), max_pages)
-                        if len(pdf) > max_pages:
-                            frappe.logger().warning(
-                                f"PDF has {len(pdf)} pages, processing only first {max_pages} pages"
-                            )
-                        image_parts = []
-                        for page_idx in range(page_count):
-                            page = pdf[page_idx]
-                            pix = page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))
-                            img_data = pix.tobytes("png")
-                            image_parts.append(
-                                genai_types.Part.from_bytes(data=img_data, mime_type="image/png")
-                            )
-                        pdf.close()
+                        # Send PDF directly to Gemini — native PDF processing
+                        # preserves full text/table quality (no lossy rasterization)
+                        file_part = genai_types.Part.from_bytes(
+                            data=file_data, mime_type="application/pdf"
+                        )
                     else:
-                        image_parts = [
-                            genai_types.Part.from_bytes(
-                                data=file_data, mime_type=mime_type or "image/jpeg"
-                            )
-                        ]
+                        file_part = genai_types.Part.from_bytes(
+                            data=file_data, mime_type=mime_type or "image/jpeg"
+                        )
 
                     response = genai_client.models.generate_content(
                         model=model_name,
-                        contents=[prompt] + image_parts
+                        contents=[prompt, file_part]
                     )
 
                 elif file_ext in [".csv", ".txt"]:

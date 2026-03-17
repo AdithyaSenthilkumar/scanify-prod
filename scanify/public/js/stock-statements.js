@@ -284,39 +284,19 @@ async function handle_extraction() {
     statement_doc = await create_statement_doc(stockist_code, month, uploaded_file_url);
     set_step('step-create', 'done');
 
-    // Step 3: AI extract
+    // Step 3: Kick off AI extraction (runs in background thread on server)
     set_step('step-ai', 'active');
     const result = await extract_statement(statement_doc, uploaded_file_url);
-    if (!result || !result.success) throw new Error((result && result.message) || 'Extraction failed');
+    if (!result || !result.success) throw new Error((result && result.message) || 'Extraction failed to start');
     set_step('step-ai', 'done');
 
-    // Step 4: Enrich
-    set_step('step-enrich', 'active');
-    const doc_data = await call_api('frappe.client.get', { doctype: 'Stockist Statement', name: statement_doc });
-
-    extracted_data = (doc_data.items || []).map(item => ({
-      productcode: item.product_code,
-      openingqty: item.opening_qty || 0,
-      purchaseqty: item.purchase_qty || 0,
-      salesqty: item.sales_qty || 0,
-      freeqty: item.free_qty || 0,
-      freeqtyscheme: 0,
-      returnqty: item.return_qty || 0,
-      miscoutqty: item.misc_out_qty || 0,
-      closingqty: item.closing_qty || 0,
-      closingvalue: item.closing_value || 0
-    }));
-
-    await enrich_data_with_master_info();
-    set_step('step-enrich', 'done');
-
-    // Data is already saved to the doc during extraction.
-    // Show toast and redirect to list — user can QC/submit from the view page.
+    // Extraction is running in the background — redirect to list immediately.
+    // The list page shows "In Progress" badge; user can refresh or click View once done.
     $('#extraction-loader').fadeOut(300, () => {
-      show_alert('Extraction completed successfully! Redirecting to statements list…', 'success');
+      show_alert('Statement created! AI extraction is processing in the background. Check the list for status.', 'success');
       setTimeout(() => {
         window.location.href = '/portal/stock-statements-list';
-      }, 2000);
+      }, 1500);
     });
 
   } catch (err) {
@@ -380,6 +360,7 @@ async function create_statement_doc(stockist_code, month, file_url) {
 }
 
 async function extract_statement(doc_name, file_url) {
+  // Kick off extraction — returns immediately, extraction runs in background thread
   return call_api('scanify.api.extract_stockist_statement', { doc_name, file_url });
 }
 
