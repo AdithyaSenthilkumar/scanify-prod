@@ -629,21 +629,33 @@ window.open_qc_screen = function () {
       });
       $img.attr('src', uploaded_file_url).show();
     } else if (['xls', 'xlsx', 'csv', 'txt'].includes(ext)) {
-      // Render spreadsheet as HTML table - no pan/zoom needed
-      $canvas.hide();
-      $('#spreadsheet-viewer').show().html(
+      // Render spreadsheet inside the draggable canvas
+      var $sv = $('#spreadsheet-viewer');
+      $sv.empty().show().html(
         '<div class="text-center py-4"><i class="fa fa-spinner fa-spin fa-2x text-muted"></i><br><small class="text-muted mt-2">Loading spreadsheet…</small></div>'
       );
       call_api('scanify.api.render_spreadsheet_preview', {
         file_url: uploaded_file_url
       }).then(r => {
         if (r && r.html) {
-          $('#spreadsheet-viewer').html(r.html);
+          $sv.html(r.html);
         } else {
-          $('#spreadsheet-viewer').html('<div class="text-center text-muted py-4"><i class="fa fa-file-alt fa-2x mb-2"></i><br>Could not render preview</div>');
+          $sv.html('<div class="text-center text-muted py-4"><i class="fa fa-file-alt fa-2x mb-2"></i><br>Could not render preview</div>');
         }
+        // Size canvas to the rendered content and enable pan/zoom
+        setTimeout(function () {
+          var w = $sv[0].scrollWidth || $sv[0].offsetWidth;
+          var h = $sv[0].scrollHeight || $sv[0].offsetHeight;
+          $canvas.css({ width: w + 'px', height: h + 'px' });
+          var viewer = document.getElementById('document-viewer');
+          var fitZoom = viewer.clientWidth / w;
+          current_zoom = Math.min(fitZoom, 1);
+          pan_x = 0; pan_y = 0;
+          apply_viewer_transform();
+          init_qc_viewer_events();
+        }, 50);
       }).catch(() => {
-        $('#spreadsheet-viewer').html('<div class="text-center text-muted py-4"><i class="fa fa-file-alt fa-2x mb-2"></i><br>Could not render preview</div>');
+        $sv.html('<div class="text-center text-muted py-4"><i class="fa fa-file-alt fa-2x mb-2"></i><br>Could not render preview</div>');
       });
     }
   });

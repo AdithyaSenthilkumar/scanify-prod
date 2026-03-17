@@ -317,8 +317,8 @@
             <div class="ss-viewer-canvas" id="viewer-canvas">
               <div id="pdf-canvas-container" style="display:none;"></div>
               <img id="img-viewer" style="display:none;" draggable="false">
+              <div id="spreadsheet-viewer" style="display:none;"></div>
             </div>
-            <div id="spreadsheet-viewer" style="display:none;padding:12px;overflow:auto;height:100%;"></div>
           </div>
         </div>
         <!-- Right: Data Table -->
@@ -1045,6 +1045,19 @@
     margin: 0 auto 2px auto;
     background: white;
     box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  }
+
+  #spreadsheet-viewer {
+    background: white;
+    padding: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    border-radius: 4px;
+  }
+
+  #spreadsheet-viewer table {
+    white-space: nowrap;
+    font-size: 12px;
+    margin: 0;
   }
 
   .ss-viewer-canvas img {
