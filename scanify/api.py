@@ -501,20 +501,23 @@ IMPORTANT:
         
         frappe.logger().info(f"Using Gemini model: {model_name}")
 
-        # Retry logic for rate limiting
+        # Retry logic for rate limiting (429) and unavailable (503)
         max_retries = 3
         base_delay = 2
         response = None
+        current_model = model_name
+        # Fallback model when primary is overloaded (503)
+        fallback_model = "gemini-3-flash-preview"
+        attempt = 0
+        used_fallback = False
 
-        for attempt in range(max_retries):
+        while attempt < max_retries:
             try:
                 if file_ext in [".pdf", ".jpg", ".jpeg", ".png"]:
                     with open(file_path, "rb") as f:
                         file_data = f.read()
 
                     if file_ext == ".pdf":
-                        # Send PDF directly to Gemini — native PDF processing
-                        # preserves full text/table quality (no lossy rasterization)
                         file_part = genai_types.Part.from_bytes(
                             data=file_data, mime_type="application/pdf"
                         )
@@ -524,7 +527,7 @@ IMPORTANT:
                         )
 
                     response = genai_client.models.generate_content(
-                        model=model_name,
+                        model=current_model,
                         contents=[prompt, file_part]
                     )
 
@@ -532,7 +535,7 @@ IMPORTANT:
                     with open(file_path, "r", encoding="utf-8") as f:
                         file_content = f.read()
                     response = genai_client.models.generate_content(
-                        model=model_name,
+                        model=current_model,
                         contents=f"{prompt}\n\nCONTENT:\n{file_content}"
                     )
 
@@ -541,7 +544,7 @@ IMPORTANT:
                     df = pd.read_excel(file_path)
                     file_content = df.to_string()
                     response = genai_client.models.generate_content(
-                        model=model_name,
+                        model=current_model,
                         contents=f"{prompt}\n\nCONTENT:\n{file_content}"
                     )
 
@@ -553,12 +556,33 @@ IMPORTANT:
             except Exception as e:
                 err_str = str(e).lower()
                 is_rate_limit = "quota" in err_str or "rate" in err_str or "429" in err_str or "resource_exhausted" in err_str
-                if is_rate_limit and attempt < max_retries - 1:
+                is_unavailable = "503" in err_str or "unavailable" in err_str or "overloaded" in err_str or "high demand" in err_str
+
+                if (is_rate_limit or is_unavailable) and attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)
-                    frappe.logger().warning(f"Rate limit hit (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
+                    frappe.logger().warning(
+                        f"{'503 Unavailable' if is_unavailable else 'Rate limit'} on {current_model} "
+                        f"(attempt {attempt + 1}/{max_retries}), retrying in {delay}s..."
+                    )
                     time.sleep(delay)
-                elif is_rate_limit:
-                    frappe.throw(f"Gemini API rate limit exceeded after {max_retries} retries. Please try again later.")
+                    attempt += 1
+                elif is_unavailable and not used_fallback:
+                    # Primary model exhausted retries — switch to fallback
+                    frappe.logger().warning(
+                        f"{current_model} unavailable after {max_retries} attempts, "
+                        f"falling back to {fallback_model}"
+                    )
+                    current_model = fallback_model
+                    used_fallback = True
+                    attempt = 0
+                    max_retries = 2
+                    time.sleep(base_delay)
+                elif is_rate_limit or is_unavailable:
+                    frappe.throw(
+                        f"Gemini API unavailable after retries (tried {model_name}"
+                        f"{' and ' + fallback_model if used_fallback else ''}). "
+                        f"Please try again later."
+                    )
                 else:
                     raise e
         
