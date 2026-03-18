@@ -1,12 +1,13 @@
 import frappe
 import re
 from frappe.model.document import Document
-from frappe.utils import flt, add_months, get_first_day, get_last_day
+from frappe.utils import flt, add_months, get_first_day, get_last_day, getdate
 
 class StockistStatement(Document):
     def validate(self):
         self.set_division_from_stockist()
-        self.calculate_closing_and_totals()   # your existing method
+        self.calculate_closing_and_totals()
+        self.calculate_qc_confidence()
     def before_insert(self):
         """Auto-populate previous month closing when creating new statement"""
         self.populate_previous_month_closing()
@@ -20,8 +21,7 @@ class StockistStatement(Document):
         
         try:
             # Calculate previous month
-            current_date = getdate(self.statement_month)
-            previous_month = current_date - relativedelta(months=1)
+            previous_month = add_months(self.statement_month, -1)
             previous_month_first = get_first_day(previous_month)
             
             # Find previous month's submitted statement
@@ -96,6 +96,29 @@ class StockistStatement(Document):
 
         return approved_map
     
+    def calculate_qc_confidence(self):
+        """Set qc_confidence based on mapping_status of items.
+        All Matched  = every item is 'matched'
+        Verification Needed = some items are 'auto_mapped', none 'unmapped'
+        QC Needed = any item is 'unmapped'
+        """
+        has_unmapped = False
+        has_auto_mapped = False
+        for item in self.items:
+            status = (item.mapping_status or "matched").strip()
+            if status == "unmapped":
+                has_unmapped = True
+                break
+            elif status == "auto_mapped":
+                has_auto_mapped = True
+
+        if has_unmapped:
+            self.qc_confidence = "QC Needed"
+        elif has_auto_mapped:
+            self.qc_confidence = "Verification Needed"
+        else:
+            self.qc_confidence = "All Matched"
+
     def calculate_closing_and_totals(self):
         """Calculate closing qty and value totals with pack-to-strip conversion"""
 

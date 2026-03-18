@@ -191,6 +191,16 @@ def extract_stockist_statement(doc_name, file_url):
         return {"success": False, "message": f"Extraction failed: {str(e)}"}
 
 
+def _build_correction_map(stockist_code):
+    """Build {RAW_PRODUCT_NAME: product_code} map from Stockist Product Correction for a stockist."""
+    corrections = frappe.get_all(
+        "Stockist Product Correction",
+        filters={"stockist_code": stockist_code, "status": "Active"},
+        fields=["raw_product_name", "mapped_product_code"],
+    )
+    return {c["raw_product_name"].strip().upper(): c["mapped_product_code"] for c in corrections}
+
+
 def _do_extract(doc_name, file_url):
     """
     Actual extraction logic, runs inside a background thread with its own DB connection.
@@ -223,24 +233,68 @@ def _do_extract(doc_name, file_url):
         frappe.db.commit()
         return
 
+    # Load per-stockist correction map (raw_product_name → product_code)
+    correction_map = _build_correction_map(doc.stockist_code)
+
+    # Build set of product codes that belong to this statement's division
+    statement_division = doc.division
+    division_product_codes = set()
+    if statement_division:
+        div_products = frappe.get_all(
+            "Product Master",
+            filters={"status": "Active"},
+            fields=["product_code", "division"]
+        )
+        for dp in div_products:
+            if dp.get("division") in (statement_division, "Both"):
+                division_product_codes.add(dp["product_code"])
+
     # Clear existing items and add new ones
     doc.items = []
     items_added = 0
+    unmapped_count = 0
+    auto_mapped_count = 0
+    skipped_division_count = 0
 
     for item_data in extracted_data:
-        if item_data.get("product_code"):
-            doc.append("items", {
-                "product_code": item_data.get("product_code"),
-                "opening_qty": flt(item_data.get("opening_qty"), 0),
-                "purchase_qty": flt(item_data.get("purchase_qty"), 0),
-                "sales_qty": flt(item_data.get("sales_qty"), 0),
-                "free_qty": flt(item_data.get("free_qty"), 0),
-                "return_qty": flt(item_data.get("return_qty"), 0),
-                "misc_out_qty": flt(item_data.get("misc_out_qty"), 0),
-                "closing_qty": flt(item_data.get("closing_qty"), None),
-                "closing_value": flt(item_data.get("closing_value"), 0),
-            })
-            items_added += 1
+        raw_name = (item_data.get("raw_product_name") or "").strip().upper()
+        is_unmapped = item_data.get("unmapped", False)
+        product_code = item_data.get("product_code") if not is_unmapped else None
+        mapping_status = "matched"
+
+        # Apply correction map — overrides BOTH unmapped items AND incorrect Gemini matches
+        if raw_name and raw_name in correction_map:
+            corrected_code = correction_map[raw_name]
+            if is_unmapped or corrected_code != product_code:
+                product_code = corrected_code
+                mapping_status = "auto_mapped"
+                auto_mapped_count += 1
+        elif is_unmapped:
+            mapping_status = "unmapped"
+            unmapped_count += 1
+
+        # Skip items whose mapped product does not belong to this division
+        if product_code and statement_division and division_product_codes and product_code not in division_product_codes:
+            skipped_division_count += 1
+            frappe.logger().info(f"Skipped product {product_code} ('{raw_name}') — not in {statement_division} division")
+            continue
+
+        row = {
+            "raw_product_name": raw_name,
+            "mapping_status": mapping_status,
+            "opening_qty": flt(item_data.get("opening_qty"), 0),
+            "purchase_qty": flt(item_data.get("purchase_qty"), 0),
+            "sales_qty": flt(item_data.get("sales_qty"), 0),
+            "free_qty": flt(item_data.get("free_qty"), 0),
+            "return_qty": flt(item_data.get("return_qty"), 0),
+            "misc_out_qty": flt(item_data.get("misc_out_qty"), 0),
+            "closing_qty": flt(item_data.get("closing_qty"), None),
+            "closing_value": flt(item_data.get("closing_value"), 0),
+        }
+        if product_code:
+            row["product_code"] = product_code
+        doc.append("items", row)
+        items_added += 1
 
     if items_added == 0:
         doc.extracted_data_status = "Failed"
@@ -250,9 +304,17 @@ def _do_extract(doc_name, file_url):
         return
 
     doc.extracted_data_status = "Completed"
-    doc.extraction_notes = f"Successfully extracted {items_added} items using AI with product catalog"
+    notes_parts = [f"Successfully extracted {items_added} items using AI with product catalog"]
+    if auto_mapped_count:
+        notes_parts.append(f"{auto_mapped_count} auto-mapped from corrections")
+    if unmapped_count:
+        notes_parts.append(f"{unmapped_count} unmapped items need QC")
+    if skipped_division_count:
+        notes_parts.append(f"{skipped_division_count} items skipped (not in {statement_division} division)")
+    doc.extraction_notes = ". ".join(notes_parts)
     doc.populate_previous_month_closing()
     doc.calculate_closing_and_totals()
+    doc.calculate_qc_confidence()
     doc.save()
     frappe.db.commit()
 
@@ -294,11 +356,14 @@ def save_extracted_statement(doc_name, data):
         # Replace items in doc
         doc.items = []
         for row in data:
-            product_code = row.get("productcode") or row.get("product_code")
-            if not product_code:
-                continue
-            doc.append("items", {
-                "product_code": product_code,
+            product_code = row.get("productcode") or row.get("product_code") or None
+            mapping_status = row.get("mapping_status") or row.get("mappingstatus") or "matched"
+            raw_product_name = row.get("raw_product_name") or row.get("rawproductname") or ""
+
+            # Unmapped items are kept in the statement but won't contribute to totals
+            item_dict = {
+                "raw_product_name": raw_product_name,
+                "mapping_status": mapping_status,
                 "opening_qty": flt(row.get("openingqty") or row.get("opening_qty") or 0),
                 "purchase_qty": flt(row.get("purchaseqty") or row.get("purchase_qty") or 0),
                 "sales_qty": flt(row.get("salesqty") or row.get("sales_qty") or 0),
@@ -308,7 +373,10 @@ def save_extracted_statement(doc_name, data):
                 "misc_out_qty": flt(row.get("miscoutqty") or row.get("misc_out_qty") or 0),
                 "closing_qty": flt(row.get("closingqty") or row.get("closing_qty") or 0),
                 "closing_value": flt(row.get("closingvalue") or row.get("closing_value") or 0),
-            })
+            }
+            if product_code:
+                item_dict["product_code"] = product_code
+            doc.append("items", item_dict)
 
         doc.extracted_data_status = "Completed"
         doc.calculate_closing_and_totals()
@@ -331,6 +399,55 @@ def save_extracted_statement(doc_name, data):
 
 
 @frappe.whitelist()
+def save_draft_statement(doc_name, data):
+    """
+    Persist the current items of a draft Stockist Statement without submitting.
+    Called automatically from the portal QC screen on every edit (debounced).
+    """
+    try:
+        if isinstance(data, str):
+            data = json.loads(data)
+
+        doc = frappe.get_doc("Stockist Statement", doc_name)
+
+        if doc.docstatus == 1:
+            return {"success": False, "message": "Statement already submitted."}
+
+        doc.items = []
+        for row in data:
+            product_code = row.get("productcode") or row.get("product_code") or None
+            mapping_status = row.get("mapping_status") or row.get("mappingstatus") or "matched"
+            raw_product_name = row.get("raw_product_name") or row.get("rawproductname") or ""
+
+            item_dict = {
+                "raw_product_name": raw_product_name,
+                "mapping_status": mapping_status,
+                "opening_qty": flt(row.get("openingqty") or row.get("opening_qty") or 0),
+                "purchase_qty": flt(row.get("purchaseqty") or row.get("purchase_qty") or 0),
+                "sales_qty": flt(row.get("salesqty") or row.get("sales_qty") or 0),
+                "free_qty": flt(row.get("freeqty") or row.get("free_qty") or 0),
+                "free_qty_scheme": flt(row.get("freeqtyscheme") or 0),
+                "return_qty": flt(row.get("returnqty") or row.get("return_qty") or 0),
+                "misc_out_qty": flt(row.get("miscoutqty") or row.get("misc_out_qty") or 0),
+                "closing_qty": flt(row.get("closingqty") or row.get("closing_qty") or 0),
+                "closing_value": flt(row.get("closingvalue") or row.get("closing_value") or 0),
+            }
+            if product_code:
+                item_dict["product_code"] = product_code
+            doc.append("items", item_dict)
+
+        doc.calculate_closing_and_totals()
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {"success": True, "message": f"Draft saved ({len(doc.items)} items)."}
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Save Draft Statement Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
 def get_statement_for_view(doc_name):
     """
     Return full statement data for the portal view page.
@@ -340,13 +457,17 @@ def get_statement_for_view(doc_name):
         # Build items list enriched with product master info
         items = []
         for item in doc.items:
-            product = frappe.db.get_value(
-                "Product Master", item.product_code,
-                ["product_name", "pts", "ptr", "pack"], as_dict=True
-            ) or {}
+            product = {}
+            if item.product_code:
+                product = frappe.db.get_value(
+                    "Product Master", item.product_code,
+                    ["product_name", "pts", "ptr", "pack"], as_dict=True
+                ) or {}
             items.append({
-                "productcode": item.product_code,
+                "productcode": item.product_code or "",
                 "productname": item.product_name or product.get("product_name", ""),
+                "rawproductname": item.raw_product_name or "",
+                "mappingstatus": item.mapping_status or "matched",
                 "pack": item.pack or product.get("pack", ""),
                 "pts": flt(item.pts or product.get("pts", 0)),
                 "ptr": flt(product.get("ptr", 0)),
@@ -381,11 +502,13 @@ def get_statement_for_view(doc_name):
                 "extracted_data_status": doc.extracted_data_status,
                 "uploaded_file": doc.uploaded_file,
                 "docstatus": doc.docstatus,
+                "qc_confidence": doc.qc_confidence or "",
                 "total_opening_value": flt(doc.total_opening_value),
                 "total_purchase_value": flt(doc.total_purchase_value),
                 "total_closing_value": flt(doc.total_closing_value),
                 "total_sales_value_pts": flt(doc.total_sales_value_pts),
                 "total_sales_value_ptr": flt(doc.total_sales_value_ptr),
+                "division": doc.division or "",
             },
             "items": items
         }
@@ -452,7 +575,9 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
 1. PRODUCT MATCHING (CRITICAL):
    - Match each product in the statement to the EXACT product code from the catalog above
    - Use product name, pack size, and pack conversion for matching
-   - ONLY return products that exist in the catalog
+   - Return ALL products from the statement, including those you CANNOT match to the catalog
+   - For matched products: set "product_code" to the catalog code and "unmapped" to false
+   - For unmatched products: set "product_code" to null and "unmapped" to true, and include the raw product name as "raw_product_name"
 
 2. QUANTITY EXTRACTION ONLY (CRITICAL):
    - Extract quantities for all columns AND closing value if present.
@@ -476,11 +601,14 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
 3. OUTPUT FORMAT - QUANTITIES ONLY:
    - Return ONLY valid JSON array
    - Include ONLY quantities (NO values/prices)
+   - Include ALL products from the statement, matched and unmatched
    
 EXPECTED JSON FORMAT:
 [
   {{
     "product_code": "ARC",
+    "raw_product_name": "ARCALION 200MG",
+    "unmapped": false,
     "opening_qty": 88,
     "purchase_qty": 29,
     "sales_qty": 59,
@@ -489,6 +617,19 @@ EXPECTED JSON FORMAT:
     "misc_out_qty": 0,
     "closing_qty": 58,
     "closing_value": 500.00
+  }},
+  {{
+    "product_code": null,
+    "raw_product_name": "UNKNOWN PRODUCT XYZ",
+    "unmapped": true,
+    "opening_qty": 10,
+    "purchase_qty": 5,
+    "sales_qty": 8,
+    "free_qty": 0,
+    "return_qty": 0,
+    "misc_out_qty": 0,
+    "closing_qty": 7,
+    "closing_value": 0
   }}
 ]
 
@@ -496,7 +637,9 @@ IMPORTANT:
 - NO values/prices in output
 - NO markdown formatting
 - ONLY valid JSON array with quantities
-- Use EXACT product codes from catalog
+- Use EXACT product codes from catalog for matched products
+- Set product_code to null for unmatched products
+- Always include raw_product_name for ALL products
 """
         
         frappe.logger().info(f"Using Gemini model: {model_name}")
@@ -643,17 +786,30 @@ IMPORTANT:
         extracted_items = extracted_items or []
         frappe.logger().info(f"Parsed Items Count: {len(extracted_items)}")
         
-        # Validate product codes exist
+        # Validate product codes and tag mapping status
         valid_codes = {p["product_code"] for p in products_list}
         validated_items = []
         
         for item in extracted_items:
-            if item.get("product_code") in valid_codes:
+            raw_name = (item.get("raw_product_name") or "").strip()
+            pc = (item.get("product_code") or "").strip() or None
+            is_unmapped = item.get("unmapped", False)
+
+            if pc and pc in valid_codes:
+                # Gemini matched to a valid catalog product
+                item["product_code"] = pc
+                item["raw_product_name"] = raw_name
+                item["unmapped"] = False
                 validated_items.append(item)
             else:
-                frappe.logger().warning(f"Skipping invalid product code: {item.get('product_code')}")
+                # Unmatched — keep the item but mark unmapped
+                item["product_code"] = None
+                item["raw_product_name"] = raw_name
+                item["unmapped"] = True
+                validated_items.append(item)
+                frappe.logger().info(f"Unmapped product kept: {raw_name} (code={pc})")
         
-        frappe.logger().info(f"Final Validated Items: {len(validated_items)}")
+        frappe.logger().info(f"Final Items: {len(validated_items)} (matched: {sum(1 for i in validated_items if not i.get('unmapped'))}, unmapped: {sum(1 for i in validated_items if i.get('unmapped'))})")
         return validated_items
         
     except Exception as e:
@@ -836,6 +992,22 @@ def get_bulk_job_status(docname):
                 log_data = json.loads(doc.extraction_log)
             except Exception:
                 log_data = []
+
+        # Enrich log with live QC confidence from actual statements
+        statement_names = [r["statement"] for r in log_data if r.get("statement")]
+        if statement_names:
+            live_qc = {
+                row.name: row.qc_confidence
+                for row in frappe.get_all(
+                    "Stockist Statement",
+                    filters={"name": ["in", statement_names]},
+                    fields=["name", "qc_confidence"],
+                )
+            }
+            for entry in log_data:
+                if entry.get("statement") and entry["statement"] in live_qc:
+                    entry["qc_confidence"] = live_qc[entry["statement"]] or entry.get("qc_confidence", "")
+
         return {
             "success": True,
             "status": doc.status,
@@ -919,7 +1091,7 @@ def get_bulk_jobs_list(division=None):
 
 
 @frappe.whitelist()
-def create_bulk_ocr_job(statement_month, zip_file_url, division=None):
+def create_bulk_ocr_job(statement_month, zip_file_url, division=None, job_name=None):
     """
     Create a new Bulk Statement Upload document from portal.
     Returns the created doc name.
@@ -933,6 +1105,7 @@ def create_bulk_ocr_job(statement_month, zip_file_url, division=None):
             "statement_month": statement_month,
             "zip_file": zip_file_url,
             "division": division,
+            "job_name": job_name or "",
             "status": "Pending",
         })
         doc.insert(ignore_permissions=True)
@@ -1156,9 +1329,45 @@ def process_bulk_extraction(docname, month, zip_file_url):
                     )
                     
                     if extracted_data and len(extracted_data) > 0:
+                        # Load per-stockist correction map
+                        correction_map = _build_correction_map(stockist_code)
+                        unmapped_count = 0
+                        auto_mapped_count = 0
+                        skipped_div_count = 0
+
+                        # Build division filter for bulk job
+                        bulk_division = doc.division
+                        bulk_div_codes = set()
+                        if bulk_division:
+                            for dp in products_list:
+                                if dp.get("division") in (bulk_division, "Both"):
+                                    bulk_div_codes.add(dp["product_code"])
+
                         for item_data in extracted_data:
-                            statement.append("items", {
-                                "product_code": item_data.get("product_code"),
+                            raw_name = (item_data.get("raw_product_name") or "").strip().upper()
+                            is_unmapped = item_data.get("unmapped", False)
+                            product_code = item_data.get("product_code") if not is_unmapped else None
+                            mapping_status = "matched"
+
+                            # Apply correction map — overrides BOTH unmapped items AND incorrect Gemini matches
+                            if raw_name and raw_name in correction_map:
+                                corrected_code = correction_map[raw_name]
+                                if is_unmapped or corrected_code != product_code:
+                                    product_code = corrected_code
+                                    mapping_status = "auto_mapped"
+                                    auto_mapped_count += 1
+                            elif is_unmapped:
+                                mapping_status = "unmapped"
+                                unmapped_count += 1
+
+                            # Skip items whose product is not in this division
+                            if product_code and bulk_division and bulk_div_codes and product_code not in bulk_div_codes:
+                                skipped_div_count += 1
+                                continue
+
+                            row = {
+                                "raw_product_name": raw_name,
+                                "mapping_status": mapping_status,
                                 "opening_qty": flt(item_data.get("opening_qty") or 0),
                                 "purchase_qty": flt(item_data.get("purchase_qty") or 0),
                                 "sales_qty": flt(item_data.get("sales_qty") or 0),
@@ -1167,15 +1376,27 @@ def process_bulk_extraction(docname, month, zip_file_url):
                                 "misc_out_qty": flt(item_data.get("misc_out_qty") or 0),
                                 "closing_qty": flt(item_data.get("closing_qty") or 0),
                                 "closing_value": flt(item_data.get("closing_value") or 0),
-                            })
+                            }
+                            if product_code:
+                                row["product_code"] = product_code
+                            statement.append("items", row)
                         
+                        notes_parts = [f"Extracted {len(extracted_data)} products successfully"]
+                        if auto_mapped_count:
+                            notes_parts.append(f"{auto_mapped_count} auto-mapped")
+                        if unmapped_count:
+                            notes_parts.append(f"{unmapped_count} unmapped")
+                        if skipped_div_count:
+                            notes_parts.append(f"{skipped_div_count} skipped (not in {bulk_division} division)")
                         statement.extracted_data_status = "Completed"
-                        statement.extraction_notes = f"Extracted {len(extracted_data)} products successfully"
+                        statement.extraction_notes = ". ".join(notes_parts)
                     else:
                         statement.extracted_data_status = "Failed"
                         statement.extraction_notes = "No data extracted from file"
                     
+                    statement.populate_previous_month_closing()
                     statement.calculate_closing_and_totals()
+                    statement.calculate_qc_confidence()
                     statement.save(ignore_permissions=True)
                     
                     results.append({
@@ -1183,7 +1404,8 @@ def process_bulk_extraction(docname, month, zip_file_url):
                         "status": "Success",
                         "statement": statement.name,
                         "stockist": stockist_name,
-                        "items_extracted": len(extracted_data) if extracted_data else 0
+                        "items_extracted": len(extracted_data) if extracted_data else 0,
+                        "qc_confidence": statement.qc_confidence or "All Matched",
                     })
                     success_count += 1
                     
@@ -1352,6 +1574,7 @@ def bulk_extract_statements(month, zip_file_url):
                             statement.extracted_data_status = "Failed"
                             statement.extraction_notes = "No data extracted from file"
                         
+                        statement.populate_previous_month_closing()
                         statement.calculate_closing_and_totals()
                         statement.save(ignore_permissions=True)
                         
@@ -8886,4 +9109,249 @@ def create_manual_statement(stockist_code, statement_month, items, uploaded_file
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Create Manual Statement Error")
+        return {"success": False, "message": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════════
+# PRODUCT CORRECTION / MAPPING ENDPOINTS
+# ═══════════════════════════════════════════════════════════════
+
+@frappe.whitelist()
+def save_product_correction(stockist_code, raw_product_name, mapped_product_code, statement_name=None):
+    """
+    Create or update a Stockist Product Correction record.
+    Called from the portal when QC maps an unmapped item.
+    """
+    try:
+        if not stockist_code or not raw_product_name or not mapped_product_code:
+            return {"success": False, "message": "stockist_code, raw_product_name, and mapped_product_code are required"}
+
+        raw_name = raw_product_name.strip().upper()
+
+        # Check if correction already exists
+        existing = frappe.db.get_value(
+            "Stockist Product Correction",
+            {"stockist_code": stockist_code, "raw_product_name": raw_name},
+            "name",
+        )
+
+        if existing:
+            doc = frappe.get_doc("Stockist Product Correction", existing)
+            doc.mapped_product_code = mapped_product_code
+            doc.status = "Active"
+            doc.save(ignore_permissions=True)
+        else:
+            doc = frappe.get_doc({
+                "doctype": "Stockist Product Correction",
+                "stockist_code": stockist_code,
+                "raw_product_name": raw_name,
+                "mapped_product_code": mapped_product_code,
+                "division": frappe.db.get_value("Stockist Master", stockist_code, "division"),
+                "created_from_statement": statement_name or "",
+                "status": "Active",
+            })
+            doc.insert(ignore_permissions=True)
+
+        frappe.db.commit()
+        return {"success": True, "correction_name": doc.name, "message": "Correction saved"}
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Save Product Correction Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_product_search_for_mapping(query, division=None):
+    """
+    Search Product Master for mapping dropdown in QC screen.
+    Returns matching products by code or name.
+    """
+    try:
+        query = (query or "").strip()
+        if len(query) < 2:
+            return {"success": True, "results": []}
+
+        filters = [
+            ["Product Master", "status", "=", "Active"],
+        ]
+        if division:
+            filters.append(["Product Master", "division", "=", division])
+
+        # Search by product_code or product_name
+        or_filters = [
+            ["Product Master", "name", "like", f"%{query}%"],
+            ["Product Master", "product_name", "like", f"%{query}%"],
+        ]
+
+        results = frappe.get_all(
+            "Product Master",
+            filters=filters,
+            or_filters=or_filters,
+            fields=["name as product_code", "product_name", "pack", "pts", "division"],
+            order_by="name asc",
+            limit_page_length=20,
+        )
+
+        return {"success": True, "results": results}
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Product Search For Mapping Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def apply_mapping_and_save_correction(doc_name, row_idx, mapped_product_code):
+    """
+    Map a single unmapped item in a statement to a product,
+    save the correction for future auto-mapping, and recalculate.
+    row_idx: 0-based index in the items table.
+    """
+    try:
+        row_idx = int(row_idx)
+        doc = frappe.get_doc("Stockist Statement", doc_name)
+
+        if doc.docstatus == 1:
+            return {"success": False, "message": "Cannot modify a submitted statement"}
+
+        if row_idx < 0 or row_idx >= len(doc.items):
+            return {"success": False, "message": f"Invalid row index: {row_idx}"}
+
+        item = doc.items[row_idx]
+        raw_name = (item.raw_product_name or "").strip().upper()
+
+        # Verify the product exists
+        if not frappe.db.exists("Product Master", mapped_product_code):
+            return {"success": False, "message": f"Product '{mapped_product_code}' not found"}
+
+        # Update the item
+        item.product_code = mapped_product_code
+        item.mapping_status = "matched"
+
+        # Save correction for future use
+        if raw_name:
+            save_product_correction(
+                stockist_code=doc.stockist_code,
+                raw_product_name=raw_name,
+                mapped_product_code=mapped_product_code,
+                statement_name=doc.name,
+            )
+
+        # Recalculate
+        doc.calculate_closing_and_totals()
+        doc.calculate_qc_confidence()
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": f"Mapped '{raw_name}' → {mapped_product_code}",
+            "qc_confidence": doc.qc_confidence,
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Apply Mapping Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def override_qc_confidence(doc_name, new_confidence):
+    """
+    Manually override QC confidence for a statement.
+    Used when a user confirms auto-mapped items are correct.
+    Only allows setting to 'All Matched' from 'Verification Needed'.
+    """
+    try:
+        if new_confidence != "All Matched":
+            return {"success": False, "message": "Only 'All Matched' override is supported"}
+
+        doc = frappe.get_doc("Stockist Statement", doc_name)
+
+        if doc.docstatus != 0:
+            return {"success": False, "message": "Can only override QC on draft statements"}
+
+        if doc.qc_confidence != "Verification Needed":
+            return {"success": False, "message": "Override only available for 'Verification Needed' statements"}
+
+        # Mark all auto_mapped items as matched
+        for item in doc.items:
+            if item.mapping_status == "auto_mapped":
+                item.mapping_status = "matched"
+
+        doc.qc_confidence = "All Matched"
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {"success": True, "qc_confidence": doc.qc_confidence}
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Override QC Confidence Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_bulk_jobs_list_enhanced(division=None, page=1, page_size=20):
+    """
+    Enhanced bulk jobs list with job_name and QC confidence summary.
+    """
+    try:
+        if not division:
+            division = get_user_division()
+
+        page = int(page or 1)
+        page_size = int(page_size or 20)
+        offset = (page - 1) * page_size
+
+        filters = {}
+        if division:
+            filters["division"] = division
+
+        jobs = frappe.get_all(
+            "Bulk Statement Upload",
+            filters=filters,
+            fields=[
+                "name", "job_name", "statement_month", "division", "status",
+                "progress", "total_files", "success_count", "failed_count",
+                "skipped_count", "creation", "zip_file",
+            ],
+            order_by="creation desc",
+            start=offset,
+            page_length=page_size,
+        )
+
+        total_count = frappe.db.count("Bulk Statement Upload", filters=filters)
+
+        # For each job, get QC confidence summary from its statements
+        for job in jobs:
+            job["statement_month"] = str(job.get("statement_month") or "")
+            job["creation"] = str(job.get("creation") or "")
+            log_data = frappe.db.get_value("Bulk Statement Upload", job["name"], "extraction_log")
+            if log_data:
+                try:
+                    log_entries = json.loads(log_data)
+                    statement_names = [e.get("statement") for e in log_entries if e.get("statement")]
+                    if statement_names:
+                        qc_counts = frappe.db.sql("""
+                            SELECT qc_confidence, COUNT(*) as cnt
+                            FROM `tabStockist Statement`
+                            WHERE name IN %(names)s
+                            GROUP BY qc_confidence
+                        """, {"names": statement_names}, as_dict=True)
+                        job["qc_summary"] = {r.qc_confidence: r.cnt for r in qc_counts}
+                    else:
+                        job["qc_summary"] = {}
+                except (json.JSONDecodeError, TypeError):
+                    job["qc_summary"] = {}
+            else:
+                job["qc_summary"] = {}
+
+        return {
+            "success": True,
+            "jobs": jobs,
+            "total": total_count,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Bulk Jobs List Enhanced Error")
         return {"success": False, "message": str(e)}

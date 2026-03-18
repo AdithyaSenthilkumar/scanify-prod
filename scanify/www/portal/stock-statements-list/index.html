@@ -97,10 +97,20 @@
                                 {% else %}
                                 <span class="badge badge-secondary">{{ row.docstatus }}</span>
                                 {% endif %}
+                                {% if row.qc_confidence %}
+                                <br>
+                                {% if row.qc_confidence == 'All Matched' %}
+                                <span class="badge badge-success qc-badge mt-1"><i class="fa fa-check-circle"></i> All Matched</span>
+                                {% elif row.qc_confidence == 'Verification Needed' %}
+                                <span class="badge badge-warning qc-badge mt-1"><i class="fa fa-exclamation-triangle"></i> Verification</span>
+                                {% elif row.qc_confidence == 'QC Needed' %}
+                                <span class="badge badge-danger qc-badge mt-1"><i class="fa fa-times-circle"></i> QC Needed</span>
+                                {% endif %}
+                                {% endif %}
                             </td>
                             <td class="text-center">
                                 <a href="/portal/statement-view?name={{ row.name }}"
-                                    class="btn btn-sm btn-primary shadow-sm" title="View Statement">
+                                    class="btn btn-xs btn-primary" title="View Statement" style="font-size:11px;padding:3px 10px;">
                                     <i class="fa fa-eye"></i> View
                                 </a>
                             </td>
@@ -127,6 +137,15 @@
     <!-- Pagination -->
     <div id="pagination-controls" class="d-flex justify-content-between align-items-center mt-3"></div>
 </div>
+
+<style>
+    .qc-badge {
+        font-size: 10px;
+        padding: 2px 6px;
+        display: inline-block;
+        line-height: 1.4;
+    }
+</style>
 {% endblock %}
 
 {% block scripts %}

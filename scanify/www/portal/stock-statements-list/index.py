@@ -32,7 +32,7 @@ def get_context(context):
     statements = frappe.get_all(
         "Stockist Statement",
         filters={"docstatus": ["in", [0, 1]], "stockist_code": ["in", stockists]},
-        fields=["name", "stockist_code", "statement_month", "extracted_data_status", "docstatus", "creation"],
+        fields=["name", "stockist_code", "statement_month", "extracted_data_status", "docstatus", "creation", "qc_confidence"],
         order_by="creation desc",
         limit_page_length=300
     )

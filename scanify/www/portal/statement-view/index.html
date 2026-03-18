@@ -36,39 +36,46 @@
 
         <!-- Info + Actions Bar -->
         <div class="card sv-info-bar">
-            <div class="card-body">
-                <div class="sv-info-top">
-                    <!-- Left: stockist info -->
-                    <div class="sv-info-left">
-                        <div class="sv-info-grid">
-                            <div class="sv-info-item">
-                                <label>Stockist</label>
-                                <span id="sv-stockist"></span>
-                            </div>
-                            <div class="sv-info-item">
-                                <label>Month</label>
-                                <span id="sv-month"></span>
-                            </div>
-                            <div class="sv-info-item">
-                                <label>HQ</label>
-                                <span id="sv-hq">—</span>
-                            </div>
-                            <div class="sv-info-item">
-                                <label>Team</label>
-                                <span id="sv-team">—</span>
-                            </div>
-                            <div class="sv-info-item">
-                                <label>Status</label>
-                                <span id="sv-status-badge"></span>
-                            </div>
-                            <div class="sv-info-item">
-                                <label>Statement Status</label>
-                                <span id="sv-docstatus"></span>
-                            </div>
-                        </div>
+            <div class="card-body p-0">
+                <!-- Row 1: Key info fields -->
+                <div class="sv-info-row sv-info-fields">
+                    <div class="sv-info-cell sv-info-cell-wide">
+                        <div class="sv-info-label">Stockist</div>
+                        <div class="sv-info-value" id="sv-stockist"></div>
                     </div>
-                    <!-- Right: Actions -->
-                    <div class="sv-info-right" id="sv-actions-bar">
+                    <div class="sv-info-cell">
+                        <div class="sv-info-label">Month</div>
+                        <div class="sv-info-value" id="sv-month"></div>
+                    </div>
+                    <div class="sv-info-cell">
+                        <div class="sv-info-label">HQ</div>
+                        <div class="sv-info-value" id="sv-hq">—</div>
+                    </div>
+                    <div class="sv-info-cell">
+                        <div class="sv-info-label">Team</div>
+                        <div class="sv-info-value" id="sv-team">—</div>
+                    </div>
+                </div>
+                <!-- Row 2: Statuses + QC + Actions -->
+                <div class="sv-info-row sv-info-status-row">
+                    <div class="sv-status-group">
+                        <div class="sv-status-chip">
+                            <span class="sv-status-label">OCR Status</span>
+                            <span id="sv-status-badge"></span>
+                        </div>
+                        <div class="sv-status-chip">
+                            <span class="sv-status-label">Statement</span>
+                            <span id="sv-docstatus"></span>
+                        </div>
+                        <div class="sv-status-chip" id="sv-qc-chip" style="display:none;">
+                            <span class="sv-status-label">QC Confidence</span>
+                            <span id="sv-qc-confidence"></span>
+                        </div>
+                        <button class="btn btn-sm sv-mark-matched-btn" id="sv-mark-matched-btn" style="display:none;" onclick="sv_mark_all_matched()">
+                            <i class="fa fa-check-double"></i> Mark as All Matched
+                        </button>
+                    </div>
+                    <div class="sv-actions-group" id="sv-actions-bar">
                         <button class="btn btn-outline-primary btn-sm" onclick="sv_open_full_table()">
                             <i class="fa fa-table"></i> Full Table
                         </button>
@@ -78,9 +85,7 @@
                         <button class="btn btn-outline-info btn-sm" onclick="sv_open_primary_sales()">
                             <i class="fa fa-truck"></i> View Primary Sales
                         </button>
-                        <!-- Only shown for draft (not yet submitted) statements -->
-                        <button class="btn btn-success btn-sm" id="sv-submit-btn" onclick="sv_submit_statement(this)"
-                            style="display:none;">
+                        <button class="btn btn-success btn-sm" id="sv-submit-btn" onclick="sv_submit_statement(this)" style="display:none;">
                             <i class="fa fa-paper-plane"></i> Submit &amp; Finalise
                         </button>
                     </div>
@@ -236,23 +241,25 @@
 <div class="modal fade" id="sv-qc-modal" tabindex="-1">
     <div class="modal-dialog ss-modal-fs">
         <div class="modal-content ss-modal-content-fs">
-            <div class="ss-modal-header">
-                <h5><i class="fa fa-clipboard-check"></i> QC Screen</h5>
-                <button class="ss-modal-close" data-dismiss="modal">&times;</button>
+            <div class="ss-modal-header qc-header">
+                <div class="qc-header-left">
+                    <div class="qc-header-icon"><i class="fa fa-clipboard-check"></i></div>
+                    <div>
+                        <h5>QC Screen</h5>
+                        <span class="qc-header-sub" id="qc-header-sub"></span>
+                    </div>
+                </div>
+                <button class="ss-modal-close" data-dismiss="modal"><i class="fa fa-times"></i></button>
             </div>
             <div class="ss-qc-body">
                 <div class="ss-qc-left">
                     <div class="ss-qc-panel-header">
                         <h6><i class="fa fa-file-pdf"></i> Original Statement</h6>
                         <div class="ss-zoom-btns">
-                            <button class="btn btn-sm btn-light" onclick="sv_zoom_in()" title="Zoom In"><i
-                                    class="fa fa-search-plus"></i></button>
-                            <button class="btn btn-sm btn-light" onclick="sv_zoom_out()" title="Zoom Out"><i
-                                    class="fa fa-search-minus"></i></button>
-                            <button class="btn btn-sm btn-light" onclick="sv_reset_zoom()" title="Reset"><i
-                                    class="fa fa-sync"></i></button>
-                            <button class="btn btn-sm btn-light" onclick="sv_fit_to_width()" title="Fit Width"><i
-                                    class="fa fa-arrows-alt-h"></i></button>
+                            <button class="qc-zoom-btn" onclick="sv_zoom_in()" title="Zoom In"><i class="fa fa-search-plus"></i></button>
+                            <button class="qc-zoom-btn" onclick="sv_zoom_out()" title="Zoom Out"><i class="fa fa-search-minus"></i></button>
+                            <button class="qc-zoom-btn" onclick="sv_reset_zoom()" title="Reset"><i class="fa fa-sync"></i></button>
+                            <button class="qc-zoom-btn" onclick="sv_fit_to_width()" title="Fit Width"><i class="fa fa-arrows-alt-h"></i></button>
                             <span class="ss-zoom-level" id="sv-zoom-level-display">100%</span>
                         </div>
                     </div>
@@ -264,19 +271,24 @@
                         </div>
                     </div>
                 </div>
+                <div class="ss-qc-divider"></div>
                 <div class="ss-qc-right">
-                    <div class="ss-qc-panel-header">
-                        <h6><i class="fa fa-database"></i> Extracted Data</h6>
+                    <div class="ss-qc-panel-header qc-data-header">
+                        <div class="d-flex align-items-center gap-2">
+                            <h6><i class="fa fa-database"></i> Extracted Data</h6>
+                            <button class="btn btn-sm btn-outline-success sv-qc-add-row-btn" id="sv-qc-add-row-btn" onclick="sv_qc_add_row()" style="display:none;" title="Add Row">
+                                <i class="fa fa-plus"></i> Add Row
+                            </button>
+                        </div>
                         <div class="ss-col-selector">
-                            <label class="small text-muted mb-1 d-block">Columns (max 8):</label>
                             <div class="ss-col-chips" id="sv-column-checkboxes">
                                 <label class="ss-chip"><input type="checkbox" value="productcode" checked disabled> Code</label>
                                 <label class="ss-chip"><input type="checkbox" value="productname" checked> Name</label>
-                                <label class="ss-chip"><input type="checkbox" value="pack"> Pack</label>
+                                <label class="ss-chip"><input type="checkbox" value="pack" checked> Pack</label>
                                 <label class="ss-chip"><input type="checkbox" value="pts"> PTS</label>
                                 <label class="ss-chip"><input type="checkbox" value="conversion_factor"> Conv</label>
                                 <label class="ss-chip"><input type="checkbox" value="openingqty" checked> Opening</label>
-                                <label class="ss-chip"><input type="checkbox" value="purchaseqty"> Purchase</label>
+                                <label class="ss-chip"><input type="checkbox" value="purchaseqty" checked> Purchase</label>
                                 <label class="ss-chip"><input type="checkbox" value="salesqty" checked> Sales</label>
                                 <label class="ss-chip"><input type="checkbox" value="freeqty"> Free</label>
                                 <label class="ss-chip"><input type="checkbox" value="returnqty"> Return</label>
@@ -284,7 +296,7 @@
                                 <label class="ss-chip"><input type="checkbox" value="miscoutqty"> Misc Out</label>
                                 <label class="ss-chip"><input type="checkbox" value="freeqtyscheme"> Free(Sch)</label>
                                 <label class="ss-chip"><input type="checkbox" value="schemedeductedqty"> Sch Ded</label>
-                                <label class="ss-chip"><input type="checkbox" value="openingvalue"> Open Val</label>
+                                <label class="ss-chip"><input type="checkbox" value="openingvalue" checked> Open Val</label>
                                 <label class="ss-chip"><input type="checkbox" value="purchasevalue"> Purch Val</label>
                                 <label class="ss-chip"><input type="checkbox" value="salesvaluepts"> Sales(PTS)</label>
                                 <label class="ss-chip"><input type="checkbox" value="salesvalueptr"> Sales(PTR)</label>
@@ -293,8 +305,8 @@
                         </div>
                     </div>
                     <div class="ss-qc-table-wrap">
-                        <table class="table table-bordered table-sm ss-qc-table" id="sv-qc-table">
-                            <thead id="sv-qc-thead" class="ss-full-thead"></thead>
+                        <table class="table table-sm ss-qc-table" id="sv-qc-table">
+                            <thead id="sv-qc-thead" class="ss-qc-thead"></thead>
                             <tbody id="sv-qc-tbody"></tbody>
                         </table>
                     </div>
@@ -470,58 +482,121 @@
 
     .sv-info-bar {
         margin-bottom: 1rem;
+        overflow: hidden;
     }
 
-    .sv-info-top {
+    .sv-info-row {
+        padding: 14px 20px;
+    }
+
+    .sv-info-fields {
         display: flex;
-        align-items: flex-start;
+        gap: 0;
+        border-bottom: 1px solid #e2e8f0;
+        padding: 0;
+    }
+
+    .sv-info-cell {
+        flex: 1;
+        padding: 14px 20px;
+        border-right: 1px solid #f1f5f9;
+    }
+
+    .sv-info-cell:last-child {
+        border-right: none;
+    }
+
+    .sv-info-cell-wide {
+        flex: 2;
+    }
+
+    .sv-info-label {
+        font-size: 10px;
+        font-weight: 700;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 4px;
+    }
+
+    .sv-info-value {
+        font-size: 13.5px;
+        font-weight: 600;
+        color: #1e293b;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .sv-info-status-row {
+        display: flex;
+        align-items: center;
         justify-content: space-between;
-        gap: 1rem;
+        gap: 12px;
+        flex-wrap: wrap;
+        background: #f8fafc;
+    }
+
+    .sv-status-group {
+        display: flex;
+        align-items: center;
+        gap: 16px;
         flex-wrap: wrap;
     }
 
-    .sv-info-left {
-        flex: 1;
+    .sv-status-chip {
+        display: flex;
+        align-items: center;
+        gap: 6px;
     }
 
-    .sv-info-right {
+    .sv-status-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .sv-actions-group {
         display: flex;
         gap: 8px;
         flex-wrap: wrap;
-        align-items: flex-start;
-        padding-top: 4px;
+        align-items: center;
     }
 
-    .sv-info-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 12px 24px;
+    .sv-mark-matched-btn {
+        background: #ecfdf5;
+        color: #059669;
+        border: 1px solid #a7f3d0;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 3px 10px;
+        border-radius: 6px;
+        transition: all 0.15s;
+    }
+
+    .sv-mark-matched-btn:hover {
+        background: #d1fae5;
+        color: #047857;
+        border-color: #6ee7b7;
     }
 
     @media(max-width: 768px) {
-        .sv-info-grid {
-            grid-template-columns: repeat(2, 1fr);
+        .sv-info-fields {
+            flex-wrap: wrap;
         }
-    }
-
-    .sv-info-item {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .sv-info-item label {
-        font-size: 11px;
-        font-weight: 600;
-        color: #94a3b8;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        margin-bottom: 2px;
-    }
-
-    .sv-info-item span {
-        font-size: 13px;
-        font-weight: 600;
-        color: #1e293b;
+        .sv-info-cell {
+            flex: 1 1 45%;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .sv-info-cell-wide {
+            flex: 1 1 100%;
+        }
+        .sv-info-status-row {
+            flex-direction: column;
+            align-items: flex-start;
+        }
     }
 
     .sv-stats-row {
@@ -717,11 +792,18 @@
     }
 
     .ss-qc-left {
-        width: 45%;
+        width: 42%;
         flex-shrink: 0;
-        border-right: 1px solid #e2e8f0;
         display: flex;
         flex-direction: column;
+        background: #0f172a;
+    }
+
+    .ss-qc-divider {
+        width: 3px;
+        background: linear-gradient(180deg, #6366f1 0%, #8b5cf6 50%, #6366f1 100%);
+        flex-shrink: 0;
+        position: relative;
     }
 
     .ss-qc-right {
@@ -729,10 +811,68 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        background: #fafbfc;
     }
 
+    /* --- QC Header --- */
+    .qc-header {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        padding: 10px 20px !important;
+        border-bottom: none !important;
+    }
+
+    .qc-header-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .qc-header-icon {
+        width: 36px;
+        height: 36px;
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        color: white;
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    }
+
+    .qc-header h5 {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        margin: 0;
+    }
+
+    .qc-header-sub {
+        font-size: 11px;
+        color: #94a3b8;
+        font-weight: 500;
+    }
+
+    .qc-header .ss-modal-close {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        background: rgba(255,255,255,0.08);
+        transition: all 0.2s;
+        font-size: 14px;
+        padding: 0;
+    }
+
+    .qc-header .ss-modal-close:hover {
+        background: rgba(255,255,255,0.18);
+    }
+
+    /* --- Panel Headers --- */
     .ss-qc-panel-header {
-        padding: 0.75rem 1rem;
+        padding: 8px 14px;
         border-bottom: 1px solid #e2e8f0;
         background: #f8fafc;
         display: flex;
@@ -742,37 +882,263 @@
         flex-shrink: 0;
     }
 
+    .ss-qc-left .ss-qc-panel-header {
+        background: #1e293b;
+        border-bottom: 1px solid #334155;
+    }
+
+    .ss-qc-left .ss-qc-panel-header h6 {
+        color: #e2e8f0;
+        font-size: 12px;
+        font-weight: 600;
+        margin: 0;
+    }
+
     .ss-qc-panel-header h6 {
         margin: 0;
         font-weight: 700;
         color: #1e293b;
-        font-size: 13px;
+        font-size: 12px;
     }
 
+    /* --- Zoom Buttons --- */
     .ss-zoom-btns {
         display: flex;
-        gap: 4px;
+        gap: 3px;
+        align-items: center;
     }
 
+    .qc-zoom-btn {
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 6px;
+        color: #94a3b8;
+        font-size: 11px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+
+    .qc-zoom-btn:hover {
+        background: rgba(255,255,255,0.15);
+        color: #e2e8f0;
+        border-color: rgba(255,255,255,0.2);
+    }
+
+    .ss-zoom-level {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 42px;
+        font-size: 10px;
+        font-weight: 700;
+        color: #a5b4fc;
+        background: rgba(99, 102, 241, 0.15);
+        border-radius: 5px;
+        padding: 2px 6px;
+        margin-left: 2px;
+        letter-spacing: 0.03em;
+    }
+
+    /* --- Doc Viewer --- */
     .ss-doc-viewer {
         flex: 1;
         overflow: auto;
-        background: #f1f5f9;
+        background: #0f172a;
     }
 
+    /* --- Column Chips --- */
+    .qc-data-header {
+        background: #f1f5f9;
+        border-bottom: 1px solid #e2e8f0;
+        padding: 6px 10px;
+        flex-wrap: wrap;
+    }
+
+    .qc-data-header h6 {
+        white-space: nowrap;
+    }
+
+    .ss-col-selector {
+        text-align: right;
+    }
+
+    .ss-col-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+        justify-content: flex-end;
+    }
+
+    .ss-chip {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        cursor: pointer;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 20px;
+        padding: 1px 8px;
+        font-size: 10px;
+        font-weight: 600;
+        color: #94a3b8;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        white-space: nowrap;
+        user-select: none;
+    }
+
+    .ss-chip:hover {
+        border-color: #c7d2fe;
+        color: #6366f1;
+    }
+
+    .ss-chip input {
+        cursor: pointer;
+        display: none;
+    }
+
+    .ss-chip:has(input:checked) {
+        background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+        border-color: #a5b4fc;
+        color: #4338ca;
+        box-shadow: 0 1px 3px rgba(99, 102, 241, 0.12);
+    }
+
+    .ss-chip:has(input:disabled) {
+        opacity: 0.7;
+        cursor: default;
+    }
+
+    /* --- QC Table --- */
     .ss-qc-table-wrap {
         flex: 1;
         overflow: auto;
+        background: #fafbfc;
     }
 
     .ss-qc-table {
-        font-size: 11px;
+        font-size: 11.5px;
+        margin: 0;
+        border-collapse: separate;
+        border-spacing: 0;
+        width: 100%;
     }
 
-    /* Inline edit inputs for draft mode */
-    .sv-edit-input,
-    .sv-edit-input-ft,
+    .ss-qc-thead th {
+        background: #1e293b;
+        color: #e2e8f0;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        padding: 6px 8px;
+        white-space: nowrap;
+        border: none;
+        border-bottom: 2px solid #6366f1;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .ss-qc-table tbody tr {
+        transition: background 0.12s;
+    }
+
+    .ss-qc-table tbody tr:hover {
+        background: #eef2ff !important;
+    }
+
+    .ss-qc-table tbody tr:nth-child(even) {
+        background: #f8fafc;
+    }
+
+    .ss-qc-table td {
+        padding: 2px 6px;
+        border: none;
+        border-bottom: 1px solid #f1f5f9;
+        vertical-align: middle;
+        font-variant-numeric: tabular-nums;
+        color: #334155;
+        line-height: 1.4;
+    }
+
+    .ss-qc-table td.text-right {
+        font-weight: 600;
+        font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+        font-size: 11px;
+        color: #1e293b;
+    }
+
+    /* --- Unmapped & Auto-mapped Row Accents --- */
+    .ss-qc-table tr.qc-row-unmapped {
+        background: linear-gradient(90deg, #fef2f2 0%, #fff5f5 100%) !important;
+        border-left: 3px solid #ef4444;
+    }
+
+    .ss-qc-table tr.qc-row-unmapped:hover {
+        background: linear-gradient(90deg, #fee2e2 0%, #fef2f2 100%) !important;
+    }
+
+    .ss-qc-table tr.qc-row-auto {
+        background: linear-gradient(90deg, #fffbeb 0%, #fefce8 100%) !important;
+        border-left: 3px solid #f59e0b;
+    }
+
+    .ss-qc-table tr.qc-row-auto:hover {
+        background: linear-gradient(90deg, #fef3c7 0%, #fffbeb 100%) !important;
+    }
+
+    /* --- Inline Inputs --- */
     .sv-edit-input-qc {
+        width: 62px;
+        min-width: 50px;
+        padding: 2px 4px;
+        border: 1.5px solid #c7d2fe;
+        border-radius: 5px;
+        font-size: 11px;
+        font-weight: 600;
+        text-align: right;
+        color: #1e293b;
+        background: #f5f3ff;
+        outline: none;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        display: block;
+        margin: 0 auto;
+        font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    }
+
+    .sv-edit-input-qc:focus {
+        border-color: #6366f1;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15), 0 1px 2px rgba(0,0,0,0.06);
+        background: white;
+        transform: scale(1.02);
+    }
+
+    /* --- Unmapped Product Select --- */
+    .sv-product-select {
+        font-size: 10.5px !important;
+        padding: 2px 4px !important;
+        border-radius: 5px !important;
+        border-color: #fca5a5 !important;
+        background: #fff5f5 !important;
+    }
+
+    .sv-product-select:focus {
+        border-color: #ef4444 !important;
+        box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15) !important;
+    }
+
+    .sv-map-btn {
+        border-radius: 0 5px 5px 0 !important;
+    }
+
+    /* Full Table inline edit inputs */
+    .sv-edit-input,
+    .sv-edit-input-ft {
         width: 70px;
         min-width: 60px;
         padding: 2px 4px;
@@ -789,49 +1155,59 @@
     }
 
     .sv-edit-input:focus,
-    .sv-edit-input-ft:focus,
-    .sv-edit-input-qc:focus {
+    .sv-edit-input-ft:focus {
         border-color: #4f46e5;
         box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
         background: white;
     }
 
-    /* ======== Column chip selector (QC screen) ======== */
-    .ss-col-selector {
-        text-align: right;
-    }
-
-    .ss-col-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-        justify-content: flex-end;
-    }
-
-    .ss-chip {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        cursor: pointer;
-        background: white;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        padding: 2px 8px;
+    /* QC Add/Delete Row */
+    .sv-qc-add-row-btn {
         font-size: 11px;
-        font-weight: 500;
-        color: #334155;
+        padding: 2px 10px;
+        border-radius: 6px;
+        font-weight: 600;
+        margin-left: 8px;
+    }
+
+    .sv-qc-del-btn {
+        background: none;
+        border: none;
+        color: #ef4444;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 2px 6px;
+        border-radius: 4px;
         transition: all 0.15s;
+        line-height: 1;
+    }
+
+    .sv-qc-del-btn:hover {
+        background: #fef2f2;
+        color: #dc2626;
+    }
+
+    /* Narrow product code column */
+    .ss-qc-table td:first-child,
+    .ss-qc-thead th:first-child {
+        max-width: 80px;
+        overflow: hidden;
+        text-overflow: ellipsis;
         white-space: nowrap;
     }
 
-    .ss-chip input {
-        cursor: pointer;
+    /* Remove spinner arrows from text inputs used as number fields */
+    .sv-edit-input-qc,
+    .sv-edit-input-ft {
+        -moz-appearance: textfield;
+        appearance: textfield;
     }
-
-    .ss-chip:has(input:checked) {
-        background: #eef2ff;
-        border-color: #818cf8;
-        color: #4f46e5;
+    .sv-edit-input-qc::-webkit-outer-spin-button,
+    .sv-edit-input-qc::-webkit-inner-spin-button,
+    .sv-edit-input-ft::-webkit-outer-spin-button,
+    .sv-edit-input-ft::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
     }
 </style>
 
@@ -846,6 +1222,71 @@
     let sv_items = [];
     let sv_doc = {};
     let sv_zoom = 1;
+    let sv_all_products = [];  // preloaded product list for mapping dropdown
+
+    // ---- Debounced Draft Auto-Save ----
+    let _sv_save_timer = null;
+    let _sv_saving = false;
+    function sv_schedule_draft_save() {
+        // Only auto-save draft statements with completed extraction
+        if (sv_doc.docstatus !== 0 || sv_doc.extracted_data_status !== 'Completed') return;
+        if (_sv_save_timer) clearTimeout(_sv_save_timer);
+        _sv_save_timer = setTimeout(sv_do_draft_save, 800);
+    }
+    function sv_do_draft_save() {
+        if (_sv_saving) { sv_schedule_draft_save(); return; }
+        _sv_saving = true;
+        sv_show_save_indicator('saving');
+        sv_call('scanify.api.save_draft_statement', {
+            doc_name: DOC_NAME,
+            data: sv_items.map(function (r) {
+                return {
+                    productcode: r.productcode,
+                    rawproductname: r.rawproductname || '',
+                    mapping_status: r.mappingstatus || 'matched',
+                    openingqty: r.openingqty,
+                    purchaseqty: r.purchaseqty,
+                    salesqty: r.salesqty,
+                    freeqty: r.freeqty,
+                    freeqtyscheme: r.freeqtyscheme || 0,
+                    returnqty: r.returnqty || 0,
+                    miscoutqty: r.miscoutqty || 0,
+                    closingqty: r.closingqty,
+                    closingvalue: r.closingvalue
+                };
+            })
+        }).then(function (res) {
+            _sv_saving = false;
+            if (res && res.success) {
+                sv_show_save_indicator('saved');
+            } else {
+                sv_show_save_indicator('error', (res && res.message) || 'Save failed');
+            }
+        }).catch(function (e) {
+            _sv_saving = false;
+            sv_show_save_indicator('error', e.message);
+        });
+    }
+    function sv_show_save_indicator(state, msg) {
+        let $ind = $('#sv-save-indicator');
+        if (!$ind.length) {
+            $ind = $('<div id="sv-save-indicator" style="position:fixed;bottom:20px;right:20px;z-index:99999;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;box-shadow:0 2px 12px rgba(0,0,0,0.15);transition:opacity 0.3s;"></div>');
+            $('body').append($ind);
+        }
+        $ind.stop(true).css('opacity', 1);
+        if (state === 'saving') {
+            $ind.css({ background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe' })
+                .html('<i class="fa fa-spinner fa-spin"></i> Saving…');
+        } else if (state === 'saved') {
+            $ind.css({ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' })
+                .html('<i class="fa fa-check"></i> Saved');
+            setTimeout(function () { $ind.animate({ opacity: 0 }, 1500); }, 1500);
+        } else {
+            $ind.css({ background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5' })
+                .html('<i class="fa fa-exclamation-triangle"></i> ' + sv_escape(msg || 'Error'));
+            setTimeout(function () { $ind.animate({ opacity: 0 }, 3000); }, 4000);
+        }
+    }
 
     // Column configuration for the dynamic QC table in the revisit-draft flow.
     // readonly:true  => display-only cell that shows a calculated value.
@@ -914,6 +1355,12 @@
 
             // Fetch previous month closing and merge into items
             await sv_load_prev_closing();
+
+            // Preload all products for mapping dropdown
+            try {
+                const prodRes = await sv_call('scanify.api.get_active_products', { division: sv_doc.division || '' });
+                if (Array.isArray(prodRes)) sv_all_products = prodRes;
+            } catch (e) { console.warn('Could not preload products:', e); }
 
             render_sv_page();
 
@@ -1032,6 +1479,9 @@
             const cfg = sv_qc_col_configs.find(function (c) { return c.id === calcField; });
             $(this).text(sv_fmt(row[calcField], cfg && cfg.curr));
         });
+
+        // Auto-save draft
+        sv_schedule_draft_save();
     }
 
     function sv_refresh_totals() {
@@ -1042,6 +1492,12 @@
         $('#svt-sales-pts').text('₹' + sv_fmt(t.t_sales_pts, true));
         $('#svt-closing').text('₹' + sv_fmt(t.t_close, true));
         $('#sv-totals-section').show();
+        // Update stat cards
+        $('#sv-total-products').text(sv_items.length);
+        $('#sv-open-val').text('₹' + sv_fmt(t.t_open, true));
+        $('#sv-sales-val').text('₹' + sv_fmt(t.t_sales_pts, true));
+        $('#sv-close-val').text('₹' + sv_fmt(t.t_close, true));
+        $('#sv-item-count').text(sv_items.length + ' products');
     }
 
     function render_sv_page() {
@@ -1073,6 +1529,27 @@
         };
         $('#sv-docstatus').html(docstatusLabels[sv_doc.docstatus] || `<span class="badge badge-secondary">${sv_doc.docstatus}</span>`);
 
+        // QC Confidence badge
+        const qcConf = sv_doc.qc_confidence || '';
+        const qcBadgeMap = {
+            'All Matched': '<span class="badge badge-success"><i class="fa fa-check-circle"></i> All Matched</span>',
+            'Verification Needed': '<span class="badge badge-warning"><i class="fa fa-exclamation-triangle"></i> Verification Needed</span>',
+            'QC Needed': '<span class="badge badge-danger"><i class="fa fa-times-circle"></i> QC Needed</span>'
+        };
+        if (qcConf && qcBadgeMap[qcConf]) {
+            $('#sv-qc-chip').show();
+            $('#sv-qc-confidence').html(qcBadgeMap[qcConf]);
+            // Show "Mark as All Matched" only for Verification Needed on draft statements
+            if (qcConf === 'Verification Needed' && sv_doc.docstatus === 0) {
+                $('#sv-mark-matched-btn').show();
+            } else {
+                $('#sv-mark-matched-btn').hide();
+            }
+        } else {
+            $('#sv-qc-chip').hide();
+            $('#sv-mark-matched-btn').hide();
+        }
+
         // Show Submit button only for draft statements with completed extraction
         if (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed') {
             $('#sv-submit-btn').show();
@@ -1093,15 +1570,23 @@
             const prevClass = row.prev_closing_qty != null && parseFloat(row.openingqty) !== parseFloat(row.prev_closing_qty)
                 ? 'text-right text-warning' : 'text-right text-muted';
 
+            // Row coloring based on mapping status
+            const ms = (row.mappingstatus || 'matched');
+            const rowStyle = ms === 'unmapped' ? 'background:#fde2e2;' : ms === 'auto_mapped' ? 'background:#fff7cd;' : '';
+
             // Preview table is read-only regardless of draft status.
             // Editing is available only in the QC screen and Full Table modal.
             function qtyCell(field, val) {
                 return `<td class="text-right">${sv_fmt(val)}</td>`;
             }
 
-            $tbody.append(`<tr>
-      <td><strong>${sv_escape(row.productcode)}</strong></td>
-      <td>${sv_escape(row.productname || '')}</td>
+            // For unmapped items, show raw name instead of blank product code
+            const displayCode = row.productcode || (row.rawproductname ? `<span class="text-danger" title="Unmapped: ${sv_escape(row.rawproductname)}">${sv_escape(row.rawproductname)}</span>` : '—');
+            const displayName = row.productname || (ms === 'unmapped' ? '<span class="text-danger"><i class="fa fa-exclamation-triangle"></i> Unmapped</span>' : '');
+
+            $tbody.append(`<tr style="${rowStyle}">
+      <td><strong>${displayCode}</strong></td>
+      <td>${displayName}</td>
       <td>${sv_escape(row.pack || '')}</td>
       <td class="${prevClass}">${prevCls}</td>
       ${qtyCell('openingqty', row.openingqty)}
@@ -1133,6 +1618,8 @@
             doc_name: DOC_NAME,
             data: sv_items.map(r => ({
                 productcode: r.productcode,
+                rawproductname: r.rawproductname || '',
+                mapping_status: r.mappingstatus || 'matched',
                 openingqty: r.openingqty,
                 purchaseqty: r.purchaseqty,
                 salesqty: r.salesqty,
@@ -1165,10 +1652,7 @@
     window.sv_open_full_table = function () {
         const $tbody = $('#sv-full-tbody');
         $tbody.empty();
-        const isDraft = (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed');
 
-        const editableQtyCols = ['openingqty', 'purchaseqty', 'salesqty', 'freeqty',
-            'returnqty', 'miscoutqty', 'closingqty'];  // freeqtyscheme is scheme-managed, not editable
         const cols = [
             'productcode', 'productname', 'pack', 'pts', 'conversion_factor', 'prev_closing_qty',
             'openingqty', 'purchaseqty', 'salesqty', 'freeqty',
@@ -1180,38 +1664,20 @@
         const textCols = ['productcode', 'productname', 'pack'];
 
         sv_items.forEach((row, rowIdx) => {
-            let tr = '<tr>';
+            const ms = (row.mappingstatus || 'matched');
+            const rowStyle = ms === 'unmapped' ? ' style="background:#fde2e2;"' : ms === 'auto_mapped' ? ' style="background:#fff7cd;"' : '';
+            let tr = '<tr' + rowStyle + '>';
             cols.forEach(c => {
                 const v = row[c];
                 const isText = textCols.includes(c);
                 const isCurr = currCols.includes(c);
-                const isEditable = isDraft && editableQtyCols.includes(c);
                 const align = isText ? '' : 'text-right';
-                if (isEditable) {
-                    tr += `<td class="p-0">
-                        <input type="number" step="any" class="sv-edit-input-ft"
-                            data-row="${rowIdx}" data-field="${c}"
-                            value="${sv_fmt(v)}">
-                    </td>`;
-                } else {
-                    const display = isText ? sv_escape(v || '') : (isCurr ? sv_fmt(v, true) : (v != null ? sv_fmt(v) : '—'));
-                    // Add data-calcfield to currency cells so sv_recalc_row
-                    // can refresh them automatically when an editable qty changes.
-                    // schemedeductedqty is NOT a calc cell — it is set only on scheme approval.
-                    const isCalcCell = isCurr;
-                    const calcAttr = isCalcCell ? ` data-calcfield="${c}"` : '';
-                    tr += `<td class="${align}"${calcAttr}>${display}</td>`;
-                }
+                const display = isText ? sv_escape(v || '') : (isCurr ? sv_fmt(v, true) : (v != null ? sv_fmt(v) : '—'));
+                tr += `<td class="${align}">${display}</td>`;
             });
             tr += '</tr>';
             $tbody.append(tr);
         });
-
-        if (isDraft) {
-            $tbody.off('change', '.sv-edit-input-ft').on('change', '.sv-edit-input-ft', function () {
-                sv_recalc_row($(this));
-            });
-        }
 
         $('#sv-full-modal').off('hidden.bs.modal').on('hidden.bs.modal', function () {
             render_sv_page();
@@ -1220,6 +1686,15 @@
 
     // ---- QC Screen ----
     window.sv_open_qc = function () {
+        // Populate header subtitle
+        const itemCount = sv_items.length;
+        const unmapped = sv_items.filter(i => (i.mappingstatus || 'matched') === 'unmapped').length;
+        const autoMapped = sv_items.filter(i => (i.mappingstatus || 'matched') === 'auto_mapped').length;
+        let subParts = [sv_escape(sv_doc.stockist_name || sv_doc.stockist_code || ''), itemCount + ' items'];
+        if (unmapped) subParts.push(unmapped + ' unmapped');
+        if (autoMapped) subParts.push(autoMapped + ' auto-mapped');
+        $('#qc-header-sub').text(subParts.join(' · '));
+
         sv_render_qc_table();
 
         // Reset viewer state
@@ -1308,29 +1783,62 @@
         sv_qc_col_configs.forEach(function (c) {
             if (activeCols.includes(c.id)) thr += '<th>' + c.label + '</th>';
         });
+        if (isDraft) thr += '<th style="width:32px;"></th>';
         thr += '</tr>';
         $thead.html(thr);
+
+        // Show/hide add row button
+        if (isDraft) { $('#sv-qc-add-row-btn').show(); } else { $('#sv-qc-add-row-btn').hide(); }
 
         // Rows
         const qcTextCols = ['productcode', 'productname', 'pack'];
         sv_items.forEach(function (row, rowIdx) {
-            let tr = '<tr>';
+            const ms = (row.mappingstatus || 'matched');
+            const rowCls = ms === 'unmapped' ? ' class="qc-row-unmapped"' : ms === 'auto_mapped' ? ' class="qc-row-auto"' : '';
+            let tr = '<tr' + rowCls + ' data-row="' + rowIdx + '">';
             sv_qc_col_configs.forEach(function (c) {
                 if (!activeCols.includes(c.id)) return;
                 const v = row[c.id];
                 const isText = qcTextCols.includes(c.id);
                 const align = (c.curr || (!isText && typeof v === 'number')) ? 'text-right' : '';
-                if (c.readonly || !isDraft) {
+
+                // For unmapped items: show mapping dropdown in productcode column
+                if (c.id === 'productcode' && ms === 'unmapped' && isDraft) {
+                    const rawName = sv_escape(row.rawproductname || 'Unknown');
+                    let opts = '<option value="">— Select Product —</option>';
+                    sv_all_products.forEach(function (p) {
+                        opts += '<option value="' + sv_escape(p.name) + '">' + sv_escape(p.product_code || p.name) + ' — ' + sv_escape(p.product_name || '') + ' (' + sv_escape(p.pack || '') + ')</option>';
+                    });
+                    tr += '<td class="p-1" title="' + rawName + '">' +
+                        '<div class="input-group input-group-sm">' +
+                        '<select class="form-control sv-product-select" data-row="' + rowIdx + '">' + opts + '</select>' +
+                        '<div class="input-group-append"><button class="btn btn-outline-success btn-sm sv-map-btn" data-row="' + rowIdx + '" disabled><i class="fa fa-check"></i></button></div>' +
+                        '</div>' +
+                        '</td>';
+                } else if (c.id === 'productname' && ms === 'unmapped') {
+                    const rawTip = sv_escape(row.rawproductname || '');
+                    tr += '<td><span class="text-danger">Unmapped</span>' +
+                        (rawTip ? ' <button type="button" class="btn btn-outline-secondary btn-xs sv-unmapped-pop" style="padding:1px 5px;font-size:10px;line-height:1.4;border-radius:4px;"' +
+                            ' data-toggle="popover" data-trigger="click" data-placement="right"' +
+                            ' data-title="Unmapped Product Name" data-content="' + rawTip + '">' +
+                            '<i class="fa fa-info-circle"></i></button>' : '') +
+                        '</td>';
+                } else if (c.readonly || !isDraft) {
                     const display = c.curr ? sv_fmt(v, true) : sv_escape(String(v != null ? v : ''));
                     // Only add data-calcfield to numeric readonly cells, not text columns
                     const calcAttr = (c.readonly && !isText) ? ' data-calcfield="' + c.id + '"' : '';
-                    tr += '<td class="' + align + '"' + calcAttr + '>' + display + '</td>';
+                    // Show raw product name tooltip on unmapped/auto_mapped rows for text cols
+                    const tipAttr = (isText && row.rawproductname && (ms === 'unmapped' || ms === 'auto_mapped')) ? ' title="Raw: ' + sv_escape(row.rawproductname) + '"' : '';
+                    tr += '<td class="' + align + '"' + calcAttr + tipAttr + '>' + display + '</td>';
                 } else {
-                    tr += '<td class="p-0"><input type="number" step="any" class="sv-edit-input-qc"' +
+                    tr += '<td class="p-0"><input type="text" inputmode="decimal" class="sv-edit-input-qc"' +
                         ' data-row="' + rowIdx + '" data-field="' + c.id + '"' +
                         ' value="' + sv_fmt(v) + '"></td>';
                 }
             });
+            if (isDraft) {
+                tr += '<td class="text-center p-0"><button class="sv-qc-del-btn" data-row="' + rowIdx + '" title="Delete row"><i class="fa fa-trash-alt"></i></button></td>';
+            }
             tr += '</tr>';
             $tbody.append(tr);
         });
@@ -1339,19 +1847,176 @@
             $tbody.off('change', '.sv-edit-input-qc').on('change', '.sv-edit-input-qc', function () {
                 sv_recalc_row($(this));
             });
+            // Delete row handler
+            $tbody.off('click', '.sv-qc-del-btn').on('click', '.sv-qc-del-btn', function () {
+                sv_qc_delete_row($(this).data('row'));
+            });
         }
+
+        // Init unmapped popovers; dismiss others on new click
+        $tbody.find('.sv-unmapped-pop').popover({ html: false }).on('click', function () {
+            $tbody.find('.sv-unmapped-pop').not(this).popover('hide');
+        });
     }
+
+    // ---- QC Add Row ----
+    window.sv_qc_add_row = function () {
+        // Build product select options
+        let opts = '<option value="">— Select Product —</option>';
+        sv_all_products.forEach(function (p) {
+            opts += '<option value="' + sv_escape(p.name) + '">' +
+                sv_escape(p.product_code || p.name) + ' — ' + sv_escape(p.product_name || '') +
+                ' (' + sv_escape(p.pack || '') + ')</option>';
+        });
+
+        // Show a small modal/prompt to pick a product
+        const $modal = $(`<div class="modal fade" tabindex="-1">
+            <div class="modal-dialog modal-sm modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header py-2 px-3" style="background:#1e293b;">
+                        <h6 class="modal-title text-white mb-0"><i class="fa fa-plus"></i> Add Product Row</h6>
+                        <button class="close text-white" data-dismiss="modal">&times;</button>
+                    </div>
+                    <div class="modal-body p-3">
+                        <label class="font-weight-bold" style="font-size:12px;">Select Product</label>
+                        <select class="form-control form-control-sm sv-add-row-select">${opts}</select>
+                    </div>
+                    <div class="modal-footer py-2 px-3">
+                        <button class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                        <button class="btn btn-sm btn-success sv-add-row-confirm"><i class="fa fa-check"></i> Add</button>
+                    </div>
+                </div>
+            </div>
+        </div>`);
+
+        $('body').append($modal);
+        $modal.modal('show');
+
+        $modal.find('.sv-add-row-confirm').on('click', function () {
+            const productCode = $modal.find('.sv-add-row-select').val();
+            if (!productCode) { alert('Please select a product.'); return; }
+
+            // Check for duplicate
+            if (sv_items.some(function (i) { return i.productcode === productCode; })) {
+                alert('This product is already in the statement.'); return;
+            }
+
+            const p = sv_all_products.find(function (x) { return x.name === productCode; });
+            const newRow = {
+                productcode: productCode,
+                productname: p ? p.product_name || '' : '',
+                rawproductname: '',
+                mappingstatus: 'matched',
+                pack: p ? p.pack || '' : '',
+                pts: parseFloat(p ? p.pts || 0 : 0),
+                ptr: 0,
+                conversion_factor: 1,
+                openingqty: 0, purchaseqty: 0, salesqty: 0, freeqty: 0,
+                freeqtyscheme: 0, returnqty: 0, miscoutqty: 0, closingqty: 0,
+                closingvalue: 0, openingvalue: 0, purchasevalue: 0,
+                salesvaluepts: 0, salesvalueptr: 0, schemedeductedqty: 0,
+                prev_closing_qty: 0
+            };
+            sv_items.push(newRow);
+            sv_refresh_totals();
+            sv_render_qc_table();
+            sv_schedule_draft_save();
+            $modal.modal('hide');
+        });
+
+        $modal.on('hidden.bs.modal', function () { $modal.remove(); });
+    };
+
+    // ---- QC Delete Row ----
+    window.sv_qc_delete_row = function (rowIdx) {
+        if (rowIdx < 0 || rowIdx >= sv_items.length) return;
+        const row = sv_items[rowIdx];
+        const name = row.productname || row.productcode || row.rawproductname || 'this row';
+        if (!confirm('Delete "' + name + '" from the statement?')) return;
+        sv_items.splice(rowIdx, 1);
+        sv_refresh_totals();
+        sv_render_qc_table();
+        sv_schedule_draft_save();
+    };
 
     // Re-render QC table when column selection changes
     $(document).on('change', '#sv-column-checkboxes input', function () {
         const count = $('#sv-column-checkboxes input:checked').length;
-        if (count > 8) {
+        if (count > 10) {
             $(this).prop('checked', false);
-            alert('Maximum 8 columns allowed for QC view.');
+            alert('Maximum 10 columns allowed for QC view.');
             return;
         }
         sv_render_qc_table();
     });
+
+    // ---- Product Select for Unmapped Items (QC mapping) ----
+    $(document).on('change', '.sv-product-select', function () {
+        const rowIdx = $(this).data('row');
+        const val = $(this).val();
+        $(`.sv-map-btn[data-row="${rowIdx}"]`).prop('disabled', !val);
+    });
+
+    // Map button click — apply mapping via API
+    $(document).on('click', '.sv-map-btn', function () {
+        const $btn = $(this);
+        const rowIdx = $btn.data('row');
+        const productCode = $(`.sv-product-select[data-row="${rowIdx}"]`).val();
+        if (!productCode) return;
+
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+
+        sv_call('scanify.api.apply_mapping_and_save_correction', {
+            doc_name: DOC_NAME,
+            row_idx: rowIdx,
+            mapped_product_code: productCode
+        }).then(function (res) {
+            if (res && res.success) {
+                sv_items[rowIdx].productcode = productCode;
+                sv_items[rowIdx].mappingstatus = 'matched';
+                // Find product info from preloaded list
+                const p = sv_all_products.find(function (x) { return x.name === productCode; });
+                if (p) {
+                    sv_items[rowIdx].productname = p.product_name || '';
+                    sv_items[rowIdx].pack = p.pack || '';
+                    sv_items[rowIdx].pts = parseFloat(p.pts || 0);
+                }
+                if (res.qc_confidence) sv_doc.qc_confidence = res.qc_confidence;
+                sv_render_qc_table();
+            } else {
+                alert('Mapping failed: ' + ((res && res.message) || 'Unknown error'));
+                $btn.prop('disabled', false).html('<i class="fa fa-check"></i>');
+            }
+        }).catch(function (e) {
+            alert('Error: ' + e.message);
+            $btn.prop('disabled', false).html('<i class="fa fa-check"></i>');
+        });
+    });
+
+    // ---- Mark as All Matched (override QC confidence) ----
+    window.sv_mark_all_matched = async function () {
+        if (!confirm('Mark this statement as "All Matched"? This confirms all auto-mapped items are correct.')) return;
+        const $btn = $('#sv-mark-matched-btn');
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Updating…');
+        try {
+            const res = await sv_call('scanify.api.override_qc_confidence', {
+                doc_name: DOC_NAME, new_confidence: 'All Matched'
+            });
+            if (res && res.success) {
+                sv_doc.qc_confidence = 'All Matched';
+                // Update all auto_mapped items to matched locally
+                sv_items.forEach(function (item) {
+                    if (item.mappingstatus === 'auto_mapped') item.mappingstatus = 'matched';
+                });
+                render_sv_page();
+            } else {
+                alert('Failed: ' + ((res && res.message) || 'Unknown error'));
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+        }
+        $btn.prop('disabled', false).html('<i class="fa fa-check-double"></i> Mark as All Matched');
+    };
 
     // ---- Primary Sales View ----
     window.sv_open_primary_sales = async function () {

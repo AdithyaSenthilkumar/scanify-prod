@@ -25,6 +25,13 @@
             <form id="bk-form">
                 <div class="row">
                     <div class="col-md-12 d-flex justify-content-center mb-4">
+                        <div class="form-group text-center" style="max-width: 400px; width: 100%;">
+                            <label>Job Name</label>
+                            <input type="text" id="bk-job-name" class="form-control" placeholder="e.g. Jan 2026 Prima Statements" maxlength="140">
+                            <small class="form-text text-muted mt-1">Optional — a descriptive name for this bulk job</small>
+                        </div>
+                    </div>
+                    <div class="col-md-12 d-flex justify-content-center mb-4">
                         <div class="form-group text-center" style="max-width: 300px;">
                             <label>Statement Month <span class="text-danger">*</span></label>
                             <input type="month" id="bk-month" class="form-control" required>
@@ -464,7 +471,8 @@
                 const res = await apiCall('scanify.api.create_bulk_ocr_job', {
                     statement_month: monthVal + '-01',
                     zip_file_url: zipFileUrl,
-                    division: get_active_division()
+                    division: get_active_division(),
+                    job_name: document.getElementById('bk-job-name').value.trim()
                 });
                 if (!res.success) throw new Error(res.message || 'Could not create job');
 

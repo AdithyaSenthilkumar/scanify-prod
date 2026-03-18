@@ -7,6 +7,8 @@
  "field_order": [
   "product_code",
   "product_name",
+  "raw_product_name",
+  "mapping_status",
   "pack",
   "column_break_zxwe",
   "opening_qty",
@@ -37,7 +39,7 @@
    "in_list_view": 1,
    "label": "Product Code",
    "options": "Product Master",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fetch_from": "product_code.product_name",
@@ -46,6 +48,22 @@
    "in_list_view": 1,
    "label": "Product Name",
    "read_only": 1
+  },
+  {
+   "fieldname": "raw_product_name",
+   "fieldtype": "Data",
+   "label": "Raw Product Name (OCR)",
+   "read_only": 1,
+   "description": "Original product name as extracted by OCR"
+  },
+  {
+   "default": "matched",
+   "fieldname": "mapping_status",
+   "fieldtype": "Select",
+   "label": "Mapping Status",
+   "options": "matched\nauto_mapped\nunmapped",
+   "read_only": 1,
+   "in_list_view": 1
   },
   {
    "fetch_from": "product_code.pack",

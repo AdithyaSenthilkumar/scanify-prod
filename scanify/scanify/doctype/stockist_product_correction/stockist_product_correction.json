@@ -1,0 +1,111 @@
+{
+ "actions": [],
+ "autoname": "format:SPC-{####}",
+ "creation": "2026-03-18 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "stockist_code",
+  "raw_product_name",
+  "column_break_main",
+  "mapped_product_code",
+  "division",
+  "section_break_meta",
+  "created_from_statement",
+  "status"
+ ],
+ "fields": [
+  {
+   "fieldname": "stockist_code",
+   "fieldtype": "Link",
+   "label": "Stockist Code",
+   "options": "Stockist Master",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "raw_product_name",
+   "fieldtype": "Data",
+   "label": "Raw Product Name (from OCR)",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "The product name as it appears in the stockist's statement (normalized to uppercase)"
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "mapped_product_code",
+   "fieldtype": "Link",
+   "label": "Mapped Product Code",
+   "options": "Product Master",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "division",
+   "fieldtype": "Link",
+   "label": "Division",
+   "options": "Division"
+  },
+  {
+   "fieldname": "section_break_meta",
+   "fieldtype": "Section Break",
+   "label": "Metadata"
+  },
+  {
+   "fieldname": "created_from_statement",
+   "fieldtype": "Link",
+   "label": "Created From Statement",
+   "options": "Stockist Statement",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Active\nInactive",
+   "default": "Active",
+   "in_list_view": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-03-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Scanify",
+ "name": "Stockist Product Correction",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

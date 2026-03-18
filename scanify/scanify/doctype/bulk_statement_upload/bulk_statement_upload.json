@@ -5,6 +5,7 @@
   "doctype": "DocType",
   "engine": "InnoDB",
   "field_order": [
+    "job_name",
     "statement_month",
     "zip_file",
     "division",
@@ -15,6 +16,13 @@
     "amended_from"
   ],
   "fields": [
+    {
+      "fieldname": "job_name",
+      "fieldtype": "Data",
+      "label": "Job Name",
+      "description": "A descriptive name for this bulk upload job",
+      "in_list_view": 1
+    },
     {
       "fieldname": "statement_month",
       "fieldtype": "Date",

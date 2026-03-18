@@ -23,17 +23,19 @@
                     <thead class="bkl-thead">
                         <tr>
                             <th>Job ID</th>
+                            <th>Job Name</th>
                             <th>Month</th>
                             <th>Status</th>
                             <th>Progress</th>
                             <th>Results</th>
+                            <th>QC</th>
                             <th>Created</th>
                             <th class="text-center">Action</th>
                         </tr>
                     </thead>
                     <tbody id="bkl-tbody">
                         <tr>
-                            <td colspan="7" class="text-center py-5 text-muted" id="bkl-loading">
+                            <td colspan="9" class="text-center py-5 text-muted" id="bkl-loading">
                                 <i class="fa fa-spinner fa-spin fa-2x mb-2"></i><br>Loading jobs…
                             </td>
                         </tr>
@@ -152,6 +154,10 @@
         background: #f0f9ff;
         color: #0284c7;
     }
+
+    .chip-qc-green { background: #dcfce7; color: #16a34a; }
+    .chip-qc-yellow { background: #fef3c7; color: #d97706; }
+    .chip-qc-red { background: #fee2e2; color: #dc2626; }
 </style>
 {% endblock %}
 
@@ -261,12 +267,28 @@
                     <span class="text-muted" style="font-size:11px; margin-left:4px; font-weight:600;">Total: ${total}</span>
                 </div>` : '<span class="text-muted small">—</span>';
 
+                // QC summary chips
+                const qcs = job.qc_summary || {};
+                const qcAll = qcs['All Matched'] || 0;
+                const qcVer = qcs['Verification Needed'] || 0;
+                const qcNeed = qcs['QC Needed'] || 0;
+                const qcChips = (qcAll || qcVer || qcNeed) ? `
+                <div class="bkl-result-chips">
+                    ${qcAll ? `<span class="bkl-chip chip-qc-green" title="All Matched"><i class="fa fa-check-circle"></i> ${qcAll}</span>` : ''}
+                    ${qcVer ? `<span class="bkl-chip chip-qc-yellow" title="Verification Needed"><i class="fa fa-exclamation-triangle"></i> ${qcVer}</span>` : ''}
+                    ${qcNeed ? `<span class="bkl-chip chip-qc-red" title="QC Needed"><i class="fa fa-times-circle"></i> ${qcNeed}</span>` : ''}
+                </div>` : '<span class="text-muted small">—</span>';
+
+                const jobNameDisplay = job.job_name ? `<small class="text-muted d-block">${job.job_name}</small>` : '';
+
                 return `<tr>
-                <td><strong>${job.name}</strong></td>
+                <td><strong>${job.name}</strong>${jobNameDisplay}</td>
+                <td>${job.job_name || '<span class="text-muted">—</span>'}</td>
                 <td>${formatMonth(job.statement_month)}</td>
                 <td>${statusBadge(job.status)}</td>
                 <td>${progressBar(job.progress || 0)}</td>
                 <td>${chips}</td>
+                <td>${qcChips}</td>
                 <td><small class="text-muted">${formatDate(job.creation)}</small></td>
                 <td class="text-center">
                     <a href="/portal/bulk-ocr-view?name=${encodeURIComponent(job.name)}"
@@ -280,12 +302,12 @@
         }
 
         async function loadJobs() {
-            const res = await apiCall('scanify.api.get_bulk_jobs_list', { division: getActiveDivision() });
+            const res = await apiCall('scanify.api.get_bulk_jobs_list_enhanced', { division: getActiveDivision() });
             const tbody = document.getElementById('bkl-tbody');
 
             if (!res || !res.success || !res.jobs || !res.jobs.length) {
                 bklAllJobs = [];
-                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-5 text-muted">
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center py-5 text-muted">
                 <i class="fa fa-folder-open fa-3x mb-3 d-block text-light"></i>
                 No bulk OCR jobs found.<br>
                 <a href="/portal/bulk-ocr-new" class="btn btn-primary btn-sm mt-3">

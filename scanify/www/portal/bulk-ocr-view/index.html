@@ -69,6 +69,14 @@
                     </div>
                 </div>
 
+                <!-- QC Confidence summary chips -->
+                <div class="bkv-qc-summary mt-3" id="bkv-qc-summary" style="display:none;">
+                    <strong style="font-size:12px;color:#64748b;margin-right:10px;">QC Confidence:</strong>
+                    <span class="badge badge-success mr-1" id="bkv-qc-green" style="display:none;"><i class="fa fa-check-circle"></i> All Matched: <span>0</span></span>
+                    <span class="badge badge-warning mr-1" id="bkv-qc-yellow" style="display:none;"><i class="fa fa-exclamation-triangle"></i> Verification: <span>0</span></span>
+                    <span class="badge badge-danger mr-1" id="bkv-qc-red" style="display:none;"><i class="fa fa-times-circle"></i> QC Needed: <span>0</span></span>
+                </div>
+
                 <!-- In-progress pulse animation -->
                 <div id="bkv-active-indicator" style="display:none;" class="bkv-active-pulse mt-3">
                     <div class="bkv-pulse-dot"></div>
@@ -85,17 +93,28 @@
                     <input type="text" id="bkv-log-search" class="form-control form-control-sm"
                         placeholder="Filter files…" style="width:200px;display:inline-block;">
                     <select id="bkv-log-filter" class="form-control form-control-sm ml-2"
-                        style="width:130px;display:inline-block;">
+                        style="width:160px;display:inline-block;">
                         <option value="">All</option>
                         <option value="Success">Success</option>
                         <option value="Failed">Failed</option>
                         <option value="Skipped">Skipped</option>
+                        <option value="qc_needed">QC Needed Only</option>
                     </select>
                 </div>
             </div>
             <div class="card-body p-0">
-                <div class="table-responsive" style="max-height:500px;overflow-y:auto;">
+                <div style="max-height:500px;overflow-y:auto;">
                     <table class="table table-hover mb-0 bkv-log-table">
+                        <colgroup>
+                            <col style="width:3%;">
+                            <col style="width:11%;">
+                            <col style="width:14%;">
+                            <col style="width:8%;">
+                            <col style="width:5%;">
+                            <col style="width:13%;">
+                            <col style="width:40%;"><!-- Note: largest column -->
+                            <col style="width:6%;">
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th>#</th>
@@ -103,7 +122,8 @@
                                 <th>Stockist</th>
                                 <th>Status</th>
                                 <th>Items</th>
-                                <th>Note</th>
+                                <th>QC Confidence</th>
+                                <th>Note / Details</th>
                                 <th>Statement</th>
                             </tr>
                         </thead>
@@ -333,6 +353,8 @@
     /* Log table */
     .bkv-log-table {
         font-size: 12px;
+        table-layout: fixed;
+        width: 100%;
     }
 
     .bkv-log-table thead th {
@@ -343,6 +365,37 @@
         position: sticky;
         top: 0;
         z-index: 5;
+        padding: 10px 10px;
+    }
+
+    .bkv-log-table tbody td {
+        vertical-align: top;
+        padding: 8px 10px;
+    }
+
+    /* Note column: always wraps, no truncation */
+    .bkv-note-cell {
+        white-space: normal;
+        word-break: break-word;
+        line-height: 1.45;
+        color: #374151;
+    }
+
+    /* QC column */
+    .bkv-qc-cell {
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    .bkv-qc-cell .badge {
+        font-size: 11px;
+        padding: 4px 8px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: normal;
+        text-align: left;
+        line-height: 1.3;
     }
 
     .status-success {
@@ -407,13 +460,18 @@
         const filtered = data.filter(r => {
             const matchSearch = !search || (r.file || '').toLowerCase().includes(search)
                 || (r.stockist || '').toLowerCase().includes(search);
-            const matchStatus = !filter || r.status === filter;
+            let matchStatus = true;
+            if (filter === 'qc_needed') {
+                matchStatus = r.qc_confidence === 'QC Needed';
+            } else if (filter) {
+                matchStatus = r.status === filter;
+            }
             return matchSearch && matchStatus;
         });
 
         const tbody = document.getElementById('bkv-log-tbody');
         if (!filtered.length) {
-            tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">No results match the filter.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">No results match the filter.</td></tr>`;
             return;
         }
 
@@ -423,14 +481,23 @@
             const stLink = r.statement
                 ? `<a href="/portal/statement-view?name=${encodeURIComponent(r.statement)}" class="btn btn-xs btn-outline-primary" style="font-size:11px;padding:2px 8px;">View</a>`
                 : '—';
+
+            // QC confidence badge
+            const qc = r.qc_confidence || '';
+            let qcBadge = '<span class="text-muted">—</span>';
+            if (qc === 'All Matched') qcBadge = '<span class="badge badge-success"><i class="fa fa-check-circle"></i> All Matched</span>';
+            else if (qc === 'Verification Needed') qcBadge = '<span class="badge badge-warning"><i class="fa fa-exclamation-triangle"></i> Verification Needed</span>';
+            else if (qc === 'QC Needed') qcBadge = '<span class="badge badge-danger"><i class="fa fa-times-circle"></i> QC Needed</span>';
+
             return `<tr>
-            <td class="text-muted">${i + 1}</td>
-            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.file || ''}">${r.file || '—'}</td>
-            <td>${r.stockist || '—'}</td>
-            <td class="${stCls}">${r.status}</td>
-            <td>${r.items_extracted != null ? r.items_extracted : '—'}</td>
-            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.message || ''}">${r.message || '—'}</td>
-            <td>${stLink}</td>
+            <td class="text-muted" style="white-space:nowrap;">${i + 1}</td>
+            <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.file || ''}">${r.file || '—'}</td>
+            <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.stockist || ''}">${r.stockist || '—'}</td>
+            <td class="${stCls}" style="white-space:nowrap;">${r.status}</td>
+            <td style="text-align:center;">${r.items_extracted != null ? r.items_extracted : '—'}</td>
+            <td class="bkv-qc-cell">${qcBadge}</td>
+            <td class="bkv-note-cell">${r.message || '<span class="text-muted">—</span>'}</td>
+            <td style="white-space:nowrap;">${stLink}</td>
         </tr>`;
         }).join('');
     }
@@ -472,6 +539,22 @@
             allLogData = res.log;
             document.getElementById('bkv-log-card').style.display = '';
             renderLog(allLogData);
+
+            // Compute QC confidence summary from log entries
+            let qcGreen = 0, qcYellow = 0, qcRed = 0;
+            res.log.forEach(r => {
+                if (r.status === 'Success' && r.qc_confidence) {
+                    if (r.qc_confidence === 'All Matched') qcGreen++;
+                    else if (r.qc_confidence === 'Verification Needed') qcYellow++;
+                    else if (r.qc_confidence === 'QC Needed') qcRed++;
+                }
+            });
+            if (qcGreen || qcYellow || qcRed) {
+                document.getElementById('bkv-qc-summary').style.display = 'flex';
+                if (qcGreen) { const el = document.getElementById('bkv-qc-green'); el.style.display = ''; el.querySelector('span').textContent = qcGreen; }
+                if (qcYellow) { const el = document.getElementById('bkv-qc-yellow'); el.style.display = ''; el.querySelector('span').textContent = qcYellow; }
+                if (qcRed) { const el = document.getElementById('bkv-qc-red'); el.style.display = ''; el.querySelector('span').textContent = qcRed; }
+            }
         }
 
         document.getElementById('bkv-loading').style.display = 'none';
