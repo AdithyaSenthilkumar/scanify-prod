@@ -40,8 +40,7 @@
                         onclick="toggleDivisionMenu(event)">
                         <div class="division-info">
                             <span class="division-name">{{ division or "Prima" }}</span>
-                            <span class="division-label">Division</span>
-                            
+                           
                         </div>
                         <i class="fa fa-chevron-down ml-2 opacity-50"></i>
                     </button>
@@ -106,158 +105,189 @@
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <nav class="sidebar-nav">
-                <!-- Main Menu -->
-                <div class="nav-section">
-                    <div class="nav-section-title">Main Menu</div>
-                    <a href="/portal" class="nav-link">
-                        <i class="fa fa-home"></i>
-                        <span>Dashboard</span>
-                    </a>
-                </div>
+                <!-- Dashboard — always visible, no collapse -->
+                <a href="/portal" class="nav-link nav-link-solo">
+                    <i class="fa fa-th-large"></i>
+                    <span>Dashboard</span>
+                </a>
 
-                <!-- Masters -->
-                <div class="nav-section">
-                    <div class="nav-section-title">Masters Management</div>
-                    <a href="/portal/masters" class="nav-link">
-                        <i class="fa fa-database"></i> <span>All Masters</span>
-                    </a>
-                    <a href="/portal/division-master" class="nav-link">
-                        <i class="fa fa-sitemap"></i> <span>Division Master</span>
-                    </a>
-                    <a href="/portal/export-masters" class="nav-link">
-                        <i class="fa fa-download"></i> <span>Export Masters</span>
-                    </a>
+                <div class="nav-divider"></div>
+
+                <!-- Masters Management -->
+                <div class="nav-group">
+                    <button class="nav-group-toggle" type="button" data-target="grp-masters">
+                        <span class="nav-group-icon"><i class="fa fa-database"></i></span>
+                        <span class="nav-group-label">Masters</span>
+                        <span class="nav-group-count">3</span>
+                        <i class="fa fa-chevron-right nav-group-chevron"></i>
+                    </button>
+                    <div class="nav-group-links" id="grp-masters">
+                        <a href="/portal/masters" class="nav-link">
+                            <i class="fa fa-database"></i> <span>All Masters</span>
+                        </a>
+                        <a href="/portal/division-master" class="nav-link">
+                            <i class="fa fa-sitemap"></i> <span>Division Master</span>
+                        </a>
+                        <a href="/portal/export-masters" class="nav-link">
+                            <i class="fa fa-download"></i> <span>Export Masters</span>
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Primary Sales -->
-                <div class="nav-section">
-                    <div class="nav-section-title">Primary Sales</div>
-                    <a href="/portal/upload-primary-sales" class="nav-link">
-                        <i class="fa fa-upload"></i>
-                        <span>Upload Primary Sales</span>
-                    </a>
-                    <a href="/portal/primary-sales-list" class="nav-link">
-                        <i class="fa fa-table"></i>
-                        <span>Primary Sales Data</span>
-                    </a>
-                    <a href="/portal/export-primary-sales" class="nav-link">
-                        <i class="fa fa-file-excel"></i>
-                        <span>Export Primary Data</span>
-                    </a>
+                <div class="nav-group">
+                    <button class="nav-group-toggle" type="button" data-target="grp-primary">
+                        <span class="nav-group-icon"><i class="fa fa-rupee-sign"></i></span>
+                        <span class="nav-group-label">Primary Sales</span>
+                        <span class="nav-group-count">3</span>
+                        <i class="fa fa-chevron-right nav-group-chevron"></i>
+                    </button>
+                    <div class="nav-group-links" id="grp-primary">
+                        <a href="/portal/upload-primary-sales" class="nav-link">
+                            <i class="fa fa-upload"></i> <span>Upload Primary Sales</span>
+                        </a>
+                        <a href="/portal/primary-sales-list" class="nav-link">
+                            <i class="fa fa-table"></i> <span>Primary Sales Data</span>
+                        </a>
+                        <a href="/portal/export-primary-sales" class="nav-link">
+                            <i class="fa fa-file-excel"></i> <span>Export Primary Data</span>
+                        </a>
+                    </div>
                 </div>
 
-                <!-- Statements -->
-                <div class="nav-section">
-                    <div class="nav-section-title">Stock Statements</div>
-                    <a href="/portal/stock-statements-list" class="nav-link">
-                        <i class="fa fa-file-invoice"></i>
-                        <span>Statements List</span>
-                    </a>
-                    <a href="/portal/stock-statements" class="nav-link">
-                        <i class="fa fa-plus-circle"></i>
-                        <span>New Statement (AI)</span>
-                    </a>
-                    <a href="/portal/manual-statement-entry" class="nav-link">
-                        <i class="fa fa-edit"></i>
-                        <span>Manual Entry</span>
-                    </a>
-                    <a href="/portal/bulk-ocr-list" class="nav-link">
-                        <i class="fa fa-layer-group"></i>
-                        <span>Bulk Processing Jobs</span>
-                    </a>
-                    <a href="/portal/bulk-ocr-new" class="nav-link">
-                        <i class="fa fa-upload"></i>
-                        <span>New Bulk Job</span>
-                    </a>
-                    <a href="/portal/delete-statement" class="nav-link">
-                        <i class="fa fa-trash-alt"></i>
-                        <span>Delete Statement</span>
-                    </a>
+                <!-- Stock Statements -->
+                <div class="nav-group">
+                    <button class="nav-group-toggle" type="button" data-target="grp-statements">
+                        <span class="nav-group-icon"><i class="fa fa-file-invoice"></i></span>
+                        <span class="nav-group-label">Statements</span>
+                        <span class="nav-group-count">6</span>
+                        <i class="fa fa-chevron-right nav-group-chevron"></i>
+                    </button>
+                    <div class="nav-group-links" id="grp-statements">
+                        <a href="/portal/stock-statements-list" class="nav-link">
+                            <i class="fa fa-file-invoice"></i> <span>Statements List</span>
+                        </a>
+                        <a href="/portal/stock-statements" class="nav-link">
+                            <i class="fa fa-plus-circle"></i> <span>New Statement (AI)</span>
+                        </a>
+                        <a href="/portal/manual-statement-entry" class="nav-link">
+                            <i class="fa fa-edit"></i> <span>Manual Entry</span>
+                        </a>
+                        <a href="/portal/bulk-ocr-list" class="nav-link">
+                            <i class="fa fa-layer-group"></i> <span>Bulk Processing Jobs</span>
+                        </a>
+                        <a href="/portal/bulk-ocr-new" class="nav-link">
+                            <i class="fa fa-upload"></i> <span>New Bulk Job</span>
+                        </a>
+                        <a href="/portal/delete-statement" class="nav-link">
+                            <i class="fa fa-trash-alt"></i> <span>Delete Statement</span>
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Scheme Management -->
-                <div class="nav-section">
-                    <div class="nav-section-title">Scheme Management</div>
-                    <a href="/portal/scheme-list" class="nav-link">
-                        <i class="fa fa-list"></i>
-                        <span>Scheme Requests</span>
-                    </a>
-                    <a href="/portal/scheme-new" class="nav-link">
-                        <i class="fa fa-plus-circle"></i>
-                        <span>New Scheme Request</span>
-                    </a>
-                    <a href="/portal/scheme-repeat" class="nav-link">
-                        <i class="fa fa-redo"></i>
-                        <span>Repeat Request</span>
-                    </a>
-                    <a href="/portal/scheme-deduction" class="nav-link">
-                        <i class="fa fa-minus-circle"></i>
-                        <span>New Deduction</span>
-                    </a>
-                    <a href="/portal/auto-deduction" class="nav-link">
-                        <i class="fa fa-layer-group"></i>
-                        <span>Auto Deduction</span>
-                    </a>
-                    <a href="/portal/scheme-deduction-list" class="nav-link">
-                        <i class="fa fa-clipboard-list"></i>
-                        <span>Deduction List</span>
-                    </a>
+                <div class="nav-group">
+                    <button class="nav-group-toggle" type="button" data-target="grp-schemes">
+                        <span class="nav-group-icon"><i class="fa fa-gift"></i></span>
+                        <span class="nav-group-label">Schemes</span>
+                        <span class="nav-group-count">6</span>
+                        <i class="fa fa-chevron-right nav-group-chevron"></i>
+                    </button>
+                    <div class="nav-group-links" id="grp-schemes">
+                        <a href="/portal/scheme-list" class="nav-link">
+                            <i class="fa fa-list"></i> <span>Scheme Requests</span>
+                        </a>
+                        <a href="/portal/scheme-new" class="nav-link">
+                            <i class="fa fa-plus-circle"></i> <span>New Scheme Request</span>
+                        </a>
+                        <a href="/portal/scheme-repeat" class="nav-link">
+                            <i class="fa fa-redo"></i> <span>Repeat Request</span>
+                        </a>
+                        <a href="/portal/scheme-deduction" class="nav-link">
+                            <i class="fa fa-minus-circle"></i> <span>New Deduction</span>
+                        </a>
+                        <a href="/portal/auto-deduction" class="nav-link">
+                            <i class="fa fa-layer-group"></i> <span>Auto Deduction</span>
+                        </a>
+                        <a href="/portal/scheme-deduction-list" class="nav-link">
+                            <i class="fa fa-clipboard-list"></i> <span>Deduction List</span>
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Sales Targets -->
-                <div class="nav-section">
-                    <div class="nav-section-title">Sales Targets</div>
-                    <a href="/portal/sales-targets-list" class="nav-link">
-                        <i class="fa fa-list-alt"></i>
-                        <span>Targets List</span>
-                    </a>
-                    <a href="/portal/sales-targets" class="nav-link">
-                        <i class="fa fa-plus-circle"></i>
-                        <span>New Sales Target</span>
-                    </a>
+                <div class="nav-group">
+                    <button class="nav-group-toggle" type="button" data-target="grp-targets">
+                        <span class="nav-group-icon"><i class="fa fa-crosshairs"></i></span>
+                        <span class="nav-group-label">Sales Targets</span>
+                        <span class="nav-group-count">2</span>
+                        <i class="fa fa-chevron-right nav-group-chevron"></i>
+                    </button>
+                    <div class="nav-group-links" id="grp-targets">
+                        <a href="/portal/sales-targets-list" class="nav-link">
+                            <i class="fa fa-list-alt"></i> <span>Targets List</span>
+                        </a>
+                        <a href="/portal/sales-targets" class="nav-link">
+                            <i class="fa fa-plus-circle"></i> <span>New Sales Target</span>
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Analytics -->
-                <div class="nav-section">
-                    <div class="nav-section-title">Analytics</div>
-                    <a href="/portal/insights" class="nav-link">
-                        <i class="fa fa-chart-bar"></i>
-                        <span>Insights</span>
-                    </a>
-                    <a href="/portal/stockist-reports" class="nav-link">
-                        <i class="fa fa-warehouse"></i>
-                        <span>Stockist Reports</span>
-                    </a>
-                    <a href="/portal/scheme-reports" class="nav-link">
-                        <i class="fa fa-gift"></i>
-                        <span>Scheme Reports</span>
-                    </a>
-                    <a href="/portal/ranking-reports" class="nav-link">
-                        <i class="fa fa-trophy"></i>
-                        <span>Ranking Reports</span>
-                    </a>
-                    <a href="/portal/year-wise-report" class="nav-link">
-                        <i class="fa fa-bullseye"></i>
-                        <span>Sales Target Report</span>
-                    </a>
+                <div class="nav-group">
+                    <button class="nav-group-toggle" type="button" data-target="grp-analytics">
+                        <span class="nav-group-icon"><i class="fa fa-chart-bar"></i></span>
+                        <span class="nav-group-label">Analytics</span>
+                        <span class="nav-group-count">5</span>
+                        <i class="fa fa-chevron-right nav-group-chevron"></i>
+                    </button>
+                    <div class="nav-group-links" id="grp-analytics">
+                        <a href="/portal/insights" class="nav-link">
+                            <i class="fa fa-chart-bar"></i> <span>Insights</span>
+                        </a>
+                        <a href="/portal/stockist-reports" class="nav-link">
+                            <i class="fa fa-warehouse"></i> <span>Stockist Reports</span>
+                        </a>
+                        <a href="/portal/scheme-reports" class="nav-link">
+                            <i class="fa fa-gift"></i> <span>Scheme Reports</span>
+                        </a>
+                        <a href="/portal/ranking-reports" class="nav-link">
+                            <i class="fa fa-trophy"></i> <span>Ranking Reports</span>
+                        </a>
+                        <a href="/portal/year-wise-report" class="nav-link">
+                            <i class="fa fa-bullseye"></i> <span>Sales Target Report</span>
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Audit Trail -->
-                <div class="nav-section">
-                    <div class="nav-section-title">Audit Trail</div>
-                    <a href="/portal/audit-trail" class="nav-link">
-                        <i class="fa fa-history"></i>
-                        <span>Change History</span>
-                    </a>
+                <div class="nav-group">
+                    <button class="nav-group-toggle" type="button" data-target="grp-audit">
+                        <span class="nav-group-icon"><i class="fa fa-history"></i></span>
+                        <span class="nav-group-label">Audit Trail</span>
+                        <span class="nav-group-count">1</span>
+                        <i class="fa fa-chevron-right nav-group-chevron"></i>
+                    </button>
+                    <div class="nav-group-links" id="grp-audit">
+                        <a href="/portal/audit-trail" class="nav-link">
+                            <i class="fa fa-history"></i> <span>Change History</span>
+                        </a>
+                    </div>
                 </div>
 
                 <!-- User Management -->
-                <div class="nav-section">
-                    <div class="nav-section-title">User Management</div>
-                    <a href="/portal/users" class="nav-link">
-                        <i class="fa fa-users"></i>
-                        <span>Users</span>
-                    </a>
+                <div class="nav-group">
+                    <button class="nav-group-toggle" type="button" data-target="grp-users">
+                        <span class="nav-group-icon"><i class="fa fa-users-cog"></i></span>
+                        <span class="nav-group-label">Users</span>
+                        <span class="nav-group-count">1</span>
+                        <i class="fa fa-chevron-right nav-group-chevron"></i>
+                    </button>
+                    <div class="nav-group-links" id="grp-users">
+                        <a href="/portal/users" class="nav-link">
+                            <i class="fa fa-users"></i> <span>Users</span>
+                        </a>
+                    </div>
                 </div>
 
             </nav>
@@ -292,28 +322,66 @@
         window.csrf_token = frappe.csrf_token; // make it globally available if needed
         frappe.datetime = frappe.datetime || {};
 
-        // Active link highlighting
+        // Active link highlighting + Collapsible sidebar groups
         $(document).ready(function () {
             let currentPath = window.location.pathname;
             if (currentPath.endsWith('/')) currentPath = currentPath.slice(0, -1);
 
-            $('.nav-link').each(function () {
+            let activeGroupId = null;
+
+            // Mark the active nav-link
+            $('.sidebar-nav .nav-link').each(function () {
                 let href = $(this).attr('href');
                 if (!href) return;
-
                 let cleanHref = href.endsWith('/') ? href.slice(0, -1) : href;
-
-                // Exact match or matches as a directory segment
                 let isActive = (currentPath === cleanHref);
-
-                // For sub-pages (like details), check if the current path starts with the href followed by a slash
                 if (!isActive && cleanHref !== '/portal') {
                     isActive = currentPath.startsWith(cleanHref + '/');
                 }
-
                 if (isActive) {
                     $(this).addClass('active');
-                    // If it's a sub-link, we might want to keep parent section active
+                    // Find the parent group to auto-expand
+                    let parentLinks = $(this).closest('.nav-group-links');
+                    if (parentLinks.length) {
+                        activeGroupId = parentLinks.attr('id');
+                    }
+                }
+            });
+
+            // Collapse all groups initially, then expand the active one
+            $('.nav-group-links').each(function () {
+                if (this.id === activeGroupId) {
+                    $(this).addClass('open');
+                    $(this).css('max-height', this.scrollHeight + 'px');
+                    $(this).closest('.nav-group').find('.nav-group-toggle').addClass('open');
+                }
+            });
+
+            // Toggle handler
+            $('.nav-group-toggle').on('click', function () {
+                let targetId = $(this).data('target');
+                let $links = $('#' + targetId);
+                let isOpen = $links.hasClass('open');
+
+                if (isOpen) {
+                    // Collapse
+                    $links.css('max-height', $links[0].scrollHeight + 'px');
+                    // Force reflow
+                    $links[0].offsetHeight;
+                    $links.css('max-height', '0');
+                    $links.removeClass('open');
+                    $(this).removeClass('open');
+                } else {
+                    // Expand
+                    $links.addClass('open');
+                    $links.css('max-height', $links[0].scrollHeight + 'px');
+                    $(this).addClass('open');
+                    // After transition, set auto so nested content can grow
+                    $links.one('transitionend', function () {
+                        if ($links.hasClass('open')) {
+                            $links.css('max-height', 'none');
+                        }
+                    });
                 }
             });
         });

@@ -212,8 +212,8 @@
 
     <div class="me-action-bar">
       <button type="button" class="btn me-submit-btn" id="me-submit-btn" onclick="me_submit_statement(this)">
-        <i class="fa fa-paper-plane btn-icon"></i>
-        <span class="btn-text">Submit &amp; Finalise</span>
+        <i class="fa fa-save btn-icon"></i>
+        <span class="btn-text">Save as Draft</span>
       </button>
     </div>
   </div>
@@ -885,9 +885,9 @@
       return;
     }
 
-    if (!confirm('Submit this statement with ' + items.length + ' products? This action cannot be undone.')) return;
+    if (!confirm('Save this statement as Draft with ' + items.length + ' products?')) return;
 
-    $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Submitting…');
+    $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Saving…');
 
     try {
       // Upload file if attached
@@ -921,17 +921,17 @@
       });
 
       if (result && result.success) {
-        $btn.html('<i class="fa fa-check"></i> Submitted');
-        showAlert('Statement submitted successfully with ' + items.length + ' products!', 'success');
+        $btn.html('<i class="fa fa-check"></i> Saved as Draft');
+        showAlert('Statement saved as Draft with ' + items.length + ' products!', 'success');
         setTimeout(function () {
           window.location.href = '/portal/stock-statements-list';
         }, 1500);
       } else {
-        $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit & Finalise');
-        showAlert('Submission failed: ' + ((result && result.message) || 'Unknown error'), 'danger');
+        $btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save as Draft');
+        showAlert('Save failed: ' + ((result && result.message) || 'Unknown error'), 'danger');
       }
     } catch (e) {
-      $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit & Finalise');
+      $btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save as Draft');
       showAlert('Error: ' + e.message, 'danger');
     }
   };

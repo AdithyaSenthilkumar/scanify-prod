@@ -9069,7 +9069,7 @@ def create_manual_statement(stockist_code, statement_month, items, uploaded_file
         doc = frappe.new_doc("Stockist Statement")
         doc.stockist_code = stockist_code
         doc.statement_month = statement_month
-        doc.extracted_data_status = "Completed"
+        doc.extracted_data_status = "Draft"
         if uploaded_file:
             doc.uploaded_file = uploaded_file
         if remarks:
@@ -9098,12 +9098,10 @@ def create_manual_statement(stockist_code, statement_month, items, uploaded_file
         doc.calculate_closing_and_totals()
         doc.save(ignore_permissions=True)
         frappe.db.commit()
-        doc.submit()
-        frappe.db.commit()
 
         return {
             "success": True,
-            "message": f"Statement submitted with {len(doc.items)} items.",
+            "message": f"Statement saved as Draft with {len(doc.items)} items.",
             "doc_name": doc.name,
         }
 
