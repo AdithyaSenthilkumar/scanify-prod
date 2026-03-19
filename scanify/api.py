@@ -233,9 +233,6 @@ def _do_extract(doc_name, file_url):
         frappe.db.commit()
         return
 
-    # Load per-stockist correction map (raw_product_name → product_code)
-    correction_map = _build_correction_map(doc.stockist_code)
-
     # Build set of product codes that belong to this statement's division
     statement_division = doc.division
     division_product_codes = set()
@@ -253,7 +250,6 @@ def _do_extract(doc_name, file_url):
     doc.items = []
     items_added = 0
     unmapped_count = 0
-    auto_mapped_count = 0
     skipped_division_count = 0
 
     for item_data in extracted_data:
@@ -262,14 +258,7 @@ def _do_extract(doc_name, file_url):
         product_code = item_data.get("product_code") if not is_unmapped else None
         mapping_status = "matched"
 
-        # Apply correction map — overrides BOTH unmapped items AND incorrect Gemini matches
-        if raw_name and raw_name in correction_map:
-            corrected_code = correction_map[raw_name]
-            if is_unmapped or corrected_code != product_code:
-                product_code = corrected_code
-                mapping_status = "auto_mapped"
-                auto_mapped_count += 1
-        elif is_unmapped:
+        if is_unmapped:
             mapping_status = "unmapped"
             unmapped_count += 1
 
@@ -305,8 +294,6 @@ def _do_extract(doc_name, file_url):
 
     doc.extracted_data_status = "Completed"
     notes_parts = [f"Successfully extracted {items_added} items using AI with product catalog"]
-    if auto_mapped_count:
-        notes_parts.append(f"{auto_mapped_count} auto-mapped from corrections")
     if unmapped_count:
         notes_parts.append(f"{unmapped_count} unmapped items need QC")
     if skipped_division_count:
@@ -1329,10 +1316,7 @@ def process_bulk_extraction(docname, month, zip_file_url):
                     )
                     
                     if extracted_data and len(extracted_data) > 0:
-                        # Load per-stockist correction map
-                        correction_map = _build_correction_map(stockist_code)
                         unmapped_count = 0
-                        auto_mapped_count = 0
                         skipped_div_count = 0
 
                         # Build division filter for bulk job
@@ -1349,14 +1333,7 @@ def process_bulk_extraction(docname, month, zip_file_url):
                             product_code = item_data.get("product_code") if not is_unmapped else None
                             mapping_status = "matched"
 
-                            # Apply correction map — overrides BOTH unmapped items AND incorrect Gemini matches
-                            if raw_name and raw_name in correction_map:
-                                corrected_code = correction_map[raw_name]
-                                if is_unmapped or corrected_code != product_code:
-                                    product_code = corrected_code
-                                    mapping_status = "auto_mapped"
-                                    auto_mapped_count += 1
-                            elif is_unmapped:
+                            if is_unmapped:
                                 mapping_status = "unmapped"
                                 unmapped_count += 1
 
@@ -1382,8 +1359,6 @@ def process_bulk_extraction(docname, month, zip_file_url):
                             statement.append("items", row)
                         
                         notes_parts = [f"Extracted {len(extracted_data)} products successfully"]
-                        if auto_mapped_count:
-                            notes_parts.append(f"{auto_mapped_count} auto-mapped")
                         if unmapped_count:
                             notes_parts.append(f"{unmapped_count} unmapped")
                         if skipped_div_count:
@@ -6701,20 +6676,20 @@ def get_stockist_report_filter_options(division=None):
         division = get_user_division()
 
     regions = frappe.db.sql(
-        "SELECT DISTINCT name FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
-        (division,), as_list=1,
+        "SELECT DISTINCT name, region_name FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        (division,), as_dict=True,
     )
     teams = frappe.db.sql(
-        "SELECT DISTINCT name FROM `tabTeam Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
-        (division,), as_list=1,
+        "SELECT DISTINCT name, team_name FROM `tabTeam Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        (division,), as_dict=True,
     )
     hqs = frappe.db.sql(
-        "SELECT DISTINCT name FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
-        (division,), as_list=1,
+        "SELECT DISTINCT name, hq_name FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
+        (division,), as_dict=True,
     )
     zones = frappe.db.sql(
-        "SELECT DISTINCT name FROM `tabZone Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
-        (division,), as_list=1,
+        "SELECT DISTINCT name, zone_name FROM `tabZone Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        (division,), as_dict=True,
     )
     stockists = frappe.db.sql(
         "SELECT name, stockist_name FROM `tabStockist Master` WHERE division=%s AND status='Active' ORDER BY stockist_name",
@@ -6730,11 +6705,12 @@ def get_stockist_report_filter_options(division=None):
     )
 
     return {
-        "regions": [r[0] for r in regions],
-        "teams": [t[0] for t in teams],
-        "hqs": [h[0] for h in hqs],
-        "zones": [z[0] for z in zones],
-        "stockists": [{"code": s.name, "name": s.stockist_name} for s in stockists],
+        "regions": [{"code": r.name, "name": r.region_name} for r in regions],
+        "teams": [{"code": t.name, "name": t.team_name} for t in teams],
+        "hqs": [{"code": h.name, "name": h.hq_name} for h in hqs],
+        "zones": [{"code": z.name, "name": z.zone_name} for z in zones],
+        "stockists": [{
+            "code": s.name, "name": s.stockist_name} for s in stockists],
         "months": [m[0] for m in months],
         "statement_months": [m[0] for m in statement_months],
     }
@@ -7253,7 +7229,7 @@ def get_scheme_report_filter_options(division=None):
         (division,), as_list=1,
     )
     regions = frappe.db.sql(
-        "SELECT name, zone FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        "SELECT name, region_name, zone FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_dict=True,
     )
     teams = frappe.db.sql(
@@ -7274,7 +7250,7 @@ def get_scheme_report_filter_options(division=None):
 
     return {
         "zones": [z[0] for z in zones],
-        "regions": [{"name": r.name, "zone": r.zone or ""} for r in regions],
+        "regions": [{"name": r.name, "region_name": r.region_name or r.name, "zone": r.zone or ""} for r in regions],
         "teams": [{"name": t.name, "region": t.region or ""} for t in teams],
         "hqs": [{"name": h.name, "hq_name": h.hq_name or "", "team": h.team or ""} for h in hqs],
         "products": [{"code": p.product_code, "name": p.product_name,
@@ -7886,7 +7862,7 @@ def get_ranking_report_filter_options(division=None):
         "SELECT name FROM `tabZone Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_list=1)
     regions = frappe.db.sql(
-        "SELECT name, zone FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        "SELECT name, region_name, zone FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_dict=True)
     teams = frappe.db.sql(
         "SELECT name, region FROM `tabTeam Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
@@ -7908,7 +7884,7 @@ def get_ranking_report_filter_options(division=None):
 
     return {
         "zones": [z[0] for z in zones],
-        "regions": [{"name": r.name, "zone": r.zone or ""} for r in regions],
+        "regions": [{"name": r.name, "region_name": r.region_name or r.name, "zone": r.zone or ""} for r in regions],
         "teams": [{"name": t.name, "region": t.region or ""} for t in teams],
         "hqs": [{"name": h.name, "hq_name": h.hq_name or "", "team": h.team or ""} for h in hqs],
         "stockists": [{"code": s.name, "name": s.stockist_name, "hq": s.hq or ""} for s in stockists],
@@ -9226,15 +9202,6 @@ def apply_mapping_and_save_correction(doc_name, row_idx, mapped_product_code):
         # Update the item
         item.product_code = mapped_product_code
         item.mapping_status = "matched"
-
-        # Save correction for future use
-        if raw_name:
-            save_product_correction(
-                stockist_code=doc.stockist_code,
-                raw_product_name=raw_name,
-                mapped_product_code=mapped_product_code,
-                statement_name=doc.name,
-            )
 
         # Recalculate
         doc.calculate_closing_and_totals()

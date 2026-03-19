@@ -5,21 +5,25 @@
 {% block portal_content %}
 <div class="portal-page stockist-reports-page">
     <!-- Page Header -->
-    <div class="page-header d-flex justify-content-between align-items-center mb-4 flex-wrap d-print-none" style="gap:10px;">
-        <div>
-            <h1 class="page-title"><i class="fa fa-warehouse"></i> Stockist Reports</h1>
-            <p class="page-subtitle text-muted mb-0">{{ division }} Division</p>
+    <div class="sr-page-header d-print-none">
+        <div class="sr-header-content">
+            <div class="sr-header-icon">
+                <i class="fa fa-chart-bar"></i>
+            </div>
+            <div>
+                <h1 class="sr-title">Stockist Reports</h1>
+                <p class="sr-subtitle">{{ division }} Division &middot; Stedman Pharmaceuticals</p>
+            </div>
         </div>
     </div>
 
-    <!-- Report Type & Filters Card -->
-    <div class="card shadow-sm border-0 mb-3 d-print-none" id="filters-card">
-        <div class="card-body py-3 px-3">
-            <!-- Row 1: Report Type Selector -->
-            <div class="row mb-3">
-                <div class="col-md-6">
-                    <label class="filter-label">Report Type</label>
-                    <select class="form-control" id="report-type" onchange="onReportTypeChange()">
+    <!-- Report Type Selector (prominent card) -->
+    <div class="sr-selector-card d-print-none">
+        <div class="sr-selector-inner">
+            <div class="row align-items-end">
+                <div class="col-md-7 col-lg-6">
+                    <label class="sr-filter-label"><i class="fa fa-list-alt mr-1"></i> Choose Report</label>
+                    <select class="form-control sr-select-main" id="report-type" onchange="onReportTypeChange()">
                         <option value="">-- Select Report --</option>
                         <option value="primary_sales">1. Stockist Wise Primary Sales Report</option>
                         <option value="secondary_sales">2. Stockist Wise Secondary Sales Report</option>
@@ -30,105 +34,102 @@
                         <option value="sec_moving_trend">7. Secondary Sales Moving Trend</option>
                     </select>
                 </div>
+                <div class="col-md-5 col-lg-6 mt-3 mt-md-0 d-flex align-items-end" style="gap:8px;">
+                    <button class="btn sr-btn-generate" id="btn-generate" onclick="generateReport()" style="display:none;">
+                        <i class="fa fa-bolt mr-1"></i> Generate
+                    </button>
+                    <button class="btn sr-btn-excel" id="btn-excel" onclick="downloadExcel()" style="display:none;">
+                        <i class="fa fa-file-excel mr-1"></i> Excel
+                    </button>
+                    <button class="btn sr-btn-pdf" id="btn-pdf" onclick="downloadPDF()" style="display:none;">
+                        <i class="fa fa-file-pdf mr-1"></i> PDF
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dynamic Filters Panel -->
+    <div id="dynamic-filters" class="sr-filters-panel d-print-none" style="display:none;">
+        <div class="sr-filters-grid">
+            <!-- Sales Type (Reports 1 & 3) -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales">
+                <label class="sr-filter-label">Sales Type</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-sales-type">
+                    <option value="primary">Primary</option>
+                    <option value="creditnote">Credit Note</option>
+                </select>
+            </div>
+            <div class="sr-filter-item filter-field" data-reports="moving_trend">
+                <label class="sr-filter-label">Sales Type</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-sales-type-trend">
+                    <option value="secondary">Secondary</option>
+                    <option value="primary">Primary</option>
+                </select>
             </div>
 
-            <!-- Dynamic Filters -->
-            <div id="dynamic-filters" style="display:none;">
-                <hr class="my-2">
-                <div class="row" style="row-gap:12px;">
-                    <!-- Sales Type (Reports 1 & 3) -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="primary_sales">
-                        <label class="filter-label">Sales Type</label>
-                        <select class="form-control form-control-sm" id="f-sales-type">
-                            <option value="primary">Primary</option>
-                            <option value="creditnote">Credit Note</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3 col-6 filter-field" data-reports="moving_trend">
-                        <label class="filter-label">Sales Type</label>
-                        <select class="form-control form-control-sm" id="f-sales-type-trend">
-                            <option value="secondary">Secondary</option>
-                            <option value="primary">Primary</option>
-                        </select>
-                    </div>
+            <!-- Region -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,secondary_sales,closing_stock,hq_wise,address">
+                <label class="sr-filter-label">Region</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-region">
+                    <option value="">All Regions</option>
+                    {% for r in regions %}
+                    <option value="{{ r.code }}">{{ r.code }} – {{ r.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
-                    <!-- Region (Reports 1,2,4,5,6) -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="primary_sales,secondary_sales,closing_stock,hq_wise,address">
-                        <label class="filter-label">Region</label>
-                        <select class="form-control form-control-sm" id="f-region">
-                            <option value="">All Regions</option>
-                            {% for r in regions %}
-                            <option value="{{ r }}">{{ r }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
+            <!-- From Date -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,secondary_sales,closing_stock">
+                <label class="sr-filter-label">From Date</label>
+                <input type="date" class="form-control form-control-sm sr-filter-select" id="f-from-date">
+            </div>
 
-                    <!-- From Date (Reports 1,2,4) -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="primary_sales,secondary_sales,closing_stock">
-                        <label class="filter-label">From Date</label>
-                        <input type="date" class="form-control form-control-sm" id="f-from-date">
-                    </div>
+            <!-- To Date -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,secondary_sales,closing_stock">
+                <label class="sr-filter-label">To Date</label>
+                <input type="date" class="form-control form-control-sm sr-filter-select" id="f-to-date">
+            </div>
 
-                    <!-- To Date (Reports 1,2,4) -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="primary_sales,secondary_sales,closing_stock">
-                        <label class="filter-label">To Date</label>
-                        <input type="date" class="form-control form-control-sm" id="f-to-date">
-                    </div>
+            <!-- Stockist (Report 3) -->
+            <div class="sr-filter-item filter-field" data-reports="moving_trend">
+                <label class="sr-filter-label">Stockist</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-stockist">
+                    <option value="">-- Select Stockist --</option>
+                    {% for s in stockists %}
+                    <option value="{{ s.code }}">{{ s.code }} – {{ s.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
-                    <!-- Stockist Code (Report 3) -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="moving_trend">
-                        <label class="filter-label">Stockist</label>
-                        <select class="form-control form-control-sm" id="f-stockist">
-                            <option value="">-- Select Stockist --</option>
-                            {% for s in stockists %}
-                            <option value="{{ s.code }}">{{ s.code }} – {{ s.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
+            <!-- Criteria (Report 6) -->
+            <div class="sr-filter-item filter-field" data-reports="address">
+                <label class="sr-filter-label">Criteria</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-criteria">
+                    <option value="ALL">All</option>
+                    <option value="HQ WISE">HQ Wise</option>
+                    <option value="TEAM WISE">Team Wise</option>
+                    <option value="CITY WISE">City Wise</option>
+                    <option value="STOCKIST NAME">Stockist Name</option>
+                </select>
+            </div>
 
-                    <!-- Criteria (Report 6) -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="address">
-                        <label class="filter-label">Criteria</label>
-                        <select class="form-control form-control-sm" id="f-criteria">
-                            <option value="ALL">All</option>
-                            <option value="HQ WISE">HQ Wise</option>
-                            <option value="TEAM WISE">Team Wise</option>
-                            <option value="CITY WISE">City Wise</option>
-                            <option value="STOCKIST NAME">Stockist Name</option>
-                        </select>
-                    </div>
-
-                    <!-- Entity Type (Report 7) -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="sec_moving_trend">
-                        <label class="filter-label">View By</label>
-                        <select class="form-control form-control-sm" id="f-entity-type" onchange="onEntityTypeChange()">
-                            <option value="Team">Team</option>
-                            <option value="HQ">HQ</option>
-                            <option value="Region">Region</option>
-                            <option value="Zone">Zone</option>
-                        </select>
-                    </div>
-                    <!-- Entity Name (Report 7) -->
-                    <div class="col-md-4 col-6 filter-field" data-reports="sec_moving_trend">
-                        <label class="filter-label">Select <span id="entity-type-label">Team</span></label>
-                        <select class="form-control form-control-sm" id="f-entity-name">
-                            <option value="">-- Select --</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- Action Buttons -->
-                <div class="d-flex mt-3" style="gap:10px;">
-                    <button class="btn btn-primary btn-sm" id="btn-generate" onclick="generateReport()">
-                        <i class="fa fa-search mr-1"></i> Generate Report
-                    </button>
-                    <button class="btn btn-outline-success btn-sm" id="btn-excel" onclick="downloadExcel()" style="display:none;">
-                        <i class="fa fa-file-excel mr-1"></i> Download Excel
-                    </button>
-                    <button class="btn btn-outline-danger btn-sm" id="btn-pdf" onclick="downloadPDF()" style="display:none;">
-                        <i class="fa fa-file-pdf mr-1"></i> Download PDF
-                    </button>
-                </div>
+            <!-- Entity Type (Report 7) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend">
+                <label class="sr-filter-label">View By</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-entity-type" onchange="onEntityTypeChange()">
+                    <option value="Team">Team</option>
+                    <option value="HQ">HQ</option>
+                    <option value="Region">Region</option>
+                    <option value="Zone">Zone</option>
+                </select>
+            </div>
+            <!-- Entity Name (Report 7) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend" style="min-width:220px;">
+                <label class="sr-filter-label">Select <span id="entity-type-label">Team</span></label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-entity-name">
+                    <option value="">-- Select --</option>
+                </select>
             </div>
         </div>
     </div>
@@ -142,15 +143,18 @@
             <hr>
         </div>
 
-        <div class="card shadow-sm border-0 report-card">
-            <div class="card-header bg-white d-flex justify-content-between align-items-center d-print-none">
-                <div>
-                    <strong id="report-title"></strong>
-                    <span class="text-muted ml-2" id="report-subtitle"></span>
+        <div class="sr-report-card">
+            <div class="sr-report-header d-print-none">
+                <div class="sr-report-header-left">
+                    <span class="sr-report-icon"><i class="fa fa-table"></i></span>
+                    <div>
+                        <strong id="report-title" class="sr-report-title-text"></strong>
+                        <span class="sr-report-subtitle-text" id="report-subtitle"></span>
+                    </div>
                 </div>
-                <span class="badge badge-secondary" id="report-count"></span>
+                <span class="sr-badge" id="report-count"></span>
             </div>
-            <div class="card-body p-0">
+            <div class="sr-report-body">
                 <div class="table-responsive">
                     <table class="table table-bordered table-sm report-table mb-0" id="report-table">
                         <thead id="report-thead"></thead>
@@ -163,19 +167,132 @@
 
     <!-- Loading Spinner -->
     <div id="report-loading" style="display:none;" class="text-center py-5">
-        <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;"></div>
-        <p class="text-muted mt-3">Generating report…</p>
+        <div class="sr-loading-spinner">
+            <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;"></div>
+            <p class="text-muted mt-3 mb-0">Generating report&hellip;</p>
+        </div>
     </div>
 
     <!-- Empty State -->
-    <div id="report-empty" style="display:none;" class="text-center py-5">
-        <i class="fa fa-inbox fa-3x text-muted mb-3"></i>
-        <p class="text-muted">No data found for the selected criteria.</p>
+    <div id="report-empty" style="display:none;" class="sr-empty-state">
+        <div class="sr-empty-icon"><i class="fa fa-search"></i></div>
+        <h5 class="mt-3 mb-1">No Data Found</h5>
+        <p class="text-muted mb-0">No records match the selected criteria. Try adjusting your filters.</p>
     </div>
 </div>
 
 <style>
-    .filter-label {
+    /* ─── Page Header ─── */
+    .sr-page-header {
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        border-radius: 12px;
+        padding: 24px 28px;
+        margin-bottom: 20px;
+        color: #fff;
+    }
+    .sr-header-content {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+    .sr-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+    }
+    .sr-title {
+        font-size: 22px;
+        font-weight: 700;
+        margin: 0;
+        color: #fff;
+    }
+    .sr-subtitle {
+        font-size: 13px;
+        color: rgba(255,255,255,0.65);
+        margin: 2px 0 0;
+    }
+
+    /* ─── Report Selector Card ─── */
+    .sr-selector-card {
+        background: #fff;
+        border: 1px solid var(--color-border, #e2e8f0);
+        border-radius: 10px;
+        padding: 18px 22px;
+        margin-bottom: 14px;
+        box-shadow: var(--shadow-sm);
+    }
+    .sr-select-main {
+        font-size: 14px;
+        font-weight: 600;
+        border-radius: 8px;
+        border: 2px solid var(--color-border, #e2e8f0);
+        padding: 8px 12px;
+        transition: border-color 0.2s;
+    }
+    .sr-select-main:focus {
+        border-color: var(--color-accent, #4f46e5);
+        box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
+    }
+
+    /* Action Buttons */
+    .sr-btn-generate {
+        background: var(--color-accent, #4f46e5);
+        color: #fff;
+        font-weight: 600;
+        font-size: 13px;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 20px;
+        transition: all 0.2s;
+    }
+    .sr-btn-generate:hover { background: var(--color-accent-hover, #4338ca); color: #fff; }
+    .sr-btn-excel {
+        background: #ecfdf5;
+        color: #059669;
+        font-weight: 600;
+        font-size: 13px;
+        border: 1px solid #a7f3d0;
+        border-radius: 8px;
+        padding: 8px 16px;
+        transition: all 0.2s;
+    }
+    .sr-btn-excel:hover { background: #059669; color: #fff; }
+    .sr-btn-pdf {
+        background: #fef2f2;
+        color: #dc2626;
+        font-weight: 600;
+        font-size: 13px;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        padding: 8px 16px;
+        transition: all 0.2s;
+    }
+    .sr-btn-pdf:hover { background: #dc2626; color: #fff; }
+
+    /* ─── Filters Panel ─── */
+    .sr-filters-panel {
+        background: #f8fafc;
+        border: 1px solid var(--color-border, #e2e8f0);
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin-bottom: 16px;
+    }
+    .sr-filters-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+    }
+    .sr-filter-item {
+        min-width: 170px;
+        flex: 1 1 170px;
+        max-width: 250px;
+    }
+    .sr-filter-label {
         font-size: 11px;
         font-weight: 600;
         text-transform: uppercase;
@@ -184,6 +301,72 @@
         margin-bottom: 4px;
         display: block;
     }
+    .sr-filter-select {
+        border-radius: 6px;
+        border: 1px solid var(--color-border, #e2e8f0);
+        font-size: 13px;
+        transition: border-color 0.2s;
+    }
+    .sr-filter-select:focus {
+        border-color: var(--color-accent, #4f46e5);
+        box-shadow: 0 0 0 2px rgba(79,70,229,0.08);
+    }
+
+    /* ─── Report Card ─── */
+    .sr-report-card {
+        background: #fff;
+        border: 1px solid var(--color-border, #e2e8f0);
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: var(--shadow-sm);
+    }
+    .sr-report-header {
+        padding: 12px 18px;
+        background: #f8fafc;
+        border-bottom: 1px solid var(--color-border, #e2e8f0);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .sr-report-header-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .sr-report-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: var(--color-accent, #4f46e5);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+    }
+    .sr-report-title-text {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--color-text, #0f172a);
+    }
+    .sr-report-subtitle-text {
+        font-size: 12px;
+        color: var(--color-text-muted, #64748b);
+        display: block;
+    }
+    .sr-badge {
+        background: var(--color-accent, #4f46e5);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 4px 12px;
+        border-radius: 9999px;
+    }
+    .sr-report-body {
+        padding: 0;
+    }
+
+    /* ─── Table Styles ─── */
     .report-table th,
     .report-table td {
         font-size: 12px;
@@ -197,6 +380,17 @@
         position: sticky;
         top: 0;
         z-index: 2;
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        padding: 10px 8px;
+    }
+    .report-table td {
+        padding: 6px 8px;
+    }
+    .report-table tbody tr:hover {
+        background: #f8fafc;
     }
     .report-table .group-row td {
         background: #e8edf3;
@@ -204,26 +398,61 @@
         font-size: 12px;
         color: var(--color-primary, #1e293b);
     }
+    .report-table .subtotal-row td {
+        background: #f1f5f9;
+        font-weight: 600;
+        font-size: 12px;
+        border-top: 1px solid #cbd5e1;
+    }
+    .report-table .grand-total-row td {
+        background: #1e293b;
+        color: #fff;
+        font-weight: 700;
+        font-size: 12px;
+        border-top: 2px solid #1e293b;
+    }
     .report-table .text-right { text-align: right !important; }
 
-    .badge-secondary {
-        background: var(--color-accent, #4f46e5);
-        color: #fff;
-        font-size: 12px;
-        padding: 4px 10px;
-        border-radius: var(--radius-full, 9999px);
+    /* ─── Empty / Loading States ─── */
+    .sr-empty-state {
+        text-align: center;
+        padding: 60px 20px;
+    }
+    .sr-empty-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: #f1f5f9;
+        color: #94a3b8;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 26px;
+    }
+    .sr-loading-spinner {
+        padding: 20px 0;
     }
 
+    /* ─── Print Styles ─── */
     @media print {
         @page { size: landscape; margin: 1cm; }
         body { font-size: 9pt; background: #fff; }
         .d-print-none { display: none !important; }
         .portal-sidebar, .portal-navbar { display: none !important; }
         .portal-main { margin-left: 0 !important; width: 100% !important; padding: 0 !important; }
-        .report-card { box-shadow: none !important; border: none !important; }
+        .sr-report-card { box-shadow: none !important; border: none !important; }
         .report-table th { background: #1e293b !important; color: #fff !important; }
         .report-table .group-row td { background: #e8edf3 !important; }
         * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 768px) {
+        .sr-page-header { padding: 16px 18px; }
+        .sr-title { font-size: 18px; }
+        .sr-header-icon { width: 40px; height: 40px; font-size: 18px; }
+        .sr-selector-card { padding: 14px 16px; }
+        .sr-filter-item { min-width: 140px; max-width: 100%; }
     }
 </style>
 {% endblock %}
@@ -232,6 +461,7 @@
 <!-- jsPDF for client-side PDF -->
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 <script>
 const DIVISION = "{{ division }}";
@@ -240,10 +470,14 @@ let currentReportData = null;
 let currentReportMeta = {};
 
 // Pre-loaded context data for Report 7 cascading
-var CTX_ZONES = {{ zones | tojson }};
-var CTX_REGIONS = {{ regions | tojson }};
-var CTX_TEAMS = {{ teams | tojson }};
-var CTX_HQS = {{ hqs | tojson }};
+var CTX_ZONES_RAW = {{ zones | tojson }};
+var CTX_ZONES = CTX_ZONES_RAW.map(function(z) { return z.code; });
+var CTX_REGIONS_RAW = {{ regions | tojson }};
+var CTX_REGIONS = CTX_REGIONS_RAW.map(function(r) { return r.code; });
+var CTX_TEAMS_RAW = {{ teams | tojson }};
+var CTX_TEAMS = CTX_TEAMS_RAW.map(function(t) { return t.code; });
+var CTX_HQS_RAW = {{ hqs | tojson }};
+var CTX_HQS = CTX_HQS_RAW.map(function(h) { return h.code; });
 
 // ─────────────────────────────────────────────────────────────
 // Filter visibility logic
@@ -251,13 +485,16 @@ var CTX_HQS = {{ hqs | tojson }};
 function onReportTypeChange() {
     currentReportType = document.getElementById("report-type").value;
     const filtersDiv = document.getElementById("dynamic-filters");
+    const btnGenerate = document.getElementById("btn-generate");
     if (!currentReportType) {
         filtersDiv.style.display = "none";
+        btnGenerate.style.display = "none";
         document.getElementById("report-output").style.display = "none";
         document.getElementById("report-empty").style.display = "none";
         return;
     }
     filtersDiv.style.display = "block";
+    btnGenerate.style.display = "";
 
     // Show/hide filter fields based on data-reports attribute
     document.querySelectorAll(".filter-field").forEach(el => {
@@ -288,10 +525,16 @@ function onEntityTypeChange() {
     else if (et === "Region") list = CTX_REGIONS;
     else if (et === "Team") list = CTX_TEAMS;
     else if (et === "HQ") list = CTX_HQS;
-    list.forEach(function(item) {
+    var rawList = [];
+    if (et === "Zone") rawList = CTX_ZONES_RAW;
+    else if (et === "Region") rawList = CTX_REGIONS_RAW;
+    else if (et === "Team") rawList = CTX_TEAMS_RAW;
+    else if (et === "HQ") rawList = CTX_HQS_RAW;
+    list.forEach(function(item, idx) {
         var opt = document.createElement("option");
         opt.value = item;
-        opt.textContent = item;
+        var raw = rawList[idx];
+        opt.textContent = (raw && raw.name) ? item + " \u2013 " + raw.name : item;
         sel.appendChild(opt);
     });
 }
@@ -464,31 +707,70 @@ function th(text) { return `<th>${text}</th>`; }
 function td(text, cls) { return `<td class="${cls || ''}">${text ?? ''}</td>`; }
 function fmt(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : "0.00"; }
 function fmtQty(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumFractionDigits: 0, maximumFractionDigits: 2}) : "0"; }
+function fmtLakhs(n) { return (n != null ? (Number(n) / 100000) : 0).toFixed(2); }
 
 // ---------- Report 1: Primary Sales ----------
 function renderPrimarySales(result, thead, tbody) {
-    thead.innerHTML = `<tr>${th("Stockist Code")}${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Quantity")}${th("Value (PTS)")}</tr>`;
+    thead.innerHTML = `<tr>${th("Stockist Code")}${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Quantity")}${th("Value (PTS)")}${th("Value (₹ Lakhs)")}</tr>`;
     let currentStk = null;
-    (result.data || []).forEach(r => {
-        if (r.stockist_code !== currentStk) {
-            currentStk = r.stockist_code;
-            tbody.innerHTML += `<tr class="group-row"><td colspan="7">${esc(r.stockist_name)} (${esc(r.stockist_code)})</td></tr>`;
+    let stkQty = 0, stkVal = 0, grandQty = 0, grandVal = 0;
+    const data = result.data || [];
+
+    function flushStockistSubtotal() {
+        if (currentStk !== null) {
+            tbody.innerHTML += `<tr class="subtotal-row"><td colspan="5" class="text-right font-weight-bold">Stockist Total</td><td class="text-right font-weight-bold">${fmtQty(stkQty)}</td><td class="text-right font-weight-bold">${fmt(stkVal)}</td><td class="text-right font-weight-bold">${fmtLakhs(stkVal)}</td></tr>`;
         }
-        tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQty(r.total_qty), "text-right")}${td(fmt(r.total_value), "text-right")}</tr>`;
+    }
+
+    data.forEach(r => {
+        if (r.stockist_code !== currentStk) {
+            flushStockistSubtotal();
+            currentStk = r.stockist_code;
+            stkQty = 0; stkVal = 0;
+            tbody.innerHTML += `<tr class="group-row"><td colspan="8">${esc(r.stockist_name)} (${esc(r.stockist_code)})</td></tr>`;
+        }
+        stkQty += Number(r.total_qty) || 0;
+        stkVal += Number(r.total_value) || 0;
+        grandQty += Number(r.total_qty) || 0;
+        grandVal += Number(r.total_value) || 0;
+        tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQty(r.total_qty), "text-right")}${td(fmt(r.total_value), "text-right")}${td(fmtLakhs(r.total_value), "text-right")}</tr>`;
     });
+    flushStockistSubtotal();
+    if (data.length > 0) {
+        tbody.innerHTML += `<tr class="grand-total-row"><td colspan="5" class="text-right font-weight-bold">Grand Total</td><td class="text-right font-weight-bold">${fmtQty(grandQty)}</td><td class="text-right font-weight-bold">${fmt(grandVal)}</td><td class="text-right font-weight-bold">${fmtLakhs(grandVal)}</td></tr>`;
+    }
 }
 
 // ---------- Report 2: Secondary Sales ----------
 function renderSecondarySales(result, thead, tbody) {
-    thead.innerHTML = `<tr>${th("Stockist Code")}${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Quantity")}${th("Value (PTS)")}</tr>`;
+    thead.innerHTML = `<tr>${th("Stockist Code")}${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Quantity")}${th("Value (PTS)")}${th("Value (₹ Lakhs)")}</tr>`;
     let currentStk = null;
-    (result.data || []).forEach(r => {
-        if (r.stockist_code !== currentStk) {
-            currentStk = r.stockist_code;
-            tbody.innerHTML += `<tr class="group-row"><td colspan="7">${esc(r.stockist_name)} (${esc(r.stockist_code)})</td></tr>`;
+    let stkQty = 0, stkVal = 0, grandQty = 0, grandVal = 0;
+    const data = result.data || [];
+
+    function flushStockistSubtotal() {
+        if (currentStk !== null) {
+            tbody.innerHTML += `<tr class="subtotal-row"><td colspan="5" class="text-right font-weight-bold">Stockist Total</td><td class="text-right font-weight-bold">${fmtQty(stkQty)}</td><td class="text-right font-weight-bold">${fmt(stkVal)}</td><td class="text-right font-weight-bold">${fmtLakhs(stkVal)}</td></tr>`;
         }
-        tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQty(r.total_qty), "text-right")}${td(fmt(r.total_value), "text-right")}</tr>`;
+    }
+
+    data.forEach(r => {
+        if (r.stockist_code !== currentStk) {
+            flushStockistSubtotal();
+            currentStk = r.stockist_code;
+            stkQty = 0; stkVal = 0;
+            tbody.innerHTML += `<tr class="group-row"><td colspan="8">${esc(r.stockist_name)} (${esc(r.stockist_code)})</td></tr>`;
+        }
+        stkQty += Number(r.total_qty) || 0;
+        stkVal += Number(r.total_value) || 0;
+        grandQty += Number(r.total_qty) || 0;
+        grandVal += Number(r.total_value) || 0;
+        tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQty(r.total_qty), "text-right")}${td(fmt(r.total_value), "text-right")}${td(fmtLakhs(r.total_value), "text-right")}</tr>`;
     });
+    flushStockistSubtotal();
+    if (data.length > 0) {
+        tbody.innerHTML += `<tr class="grand-total-row"><td colspan="5" class="text-right font-weight-bold">Grand Total</td><td class="text-right font-weight-bold">${fmtQty(grandQty)}</td><td class="text-right font-weight-bold">${fmt(grandVal)}</td><td class="text-right font-weight-bold">${fmtLakhs(grandVal)}</td></tr>`;
+    }
 }
 
 // ---------- Report 3: Moving Trend ----------
@@ -610,55 +892,645 @@ function downloadExcel() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Download PDF (client-side jsPDF)
+// Download PDF (client-side jsPDF) – Consolidated with Summary & Charts
 // ─────────────────────────────────────────────────────────────
-function downloadPDF() {
-    if (!currentReportData) return;
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
-    // Title
+// Helper: render a Chart.js chart off-screen and return a data URL
+function renderChartToImage(chartConfig, width, height) {
+    return new Promise(function(resolve) {
+        var cvs = document.createElement("canvas");
+        cvs.width = width || 800;
+        cvs.height = height || 400;
+        cvs.style.position = "fixed";
+        cvs.style.left = "-9999px";
+        document.body.appendChild(cvs);
+        var ctx = cvs.getContext("2d");
+        var chart = new Chart(ctx, chartConfig);
+        // Give chart a moment to render
+        setTimeout(function() {
+            var img = cvs.toDataURL("image/png", 1.0);
+            chart.destroy();
+            document.body.removeChild(cvs);
+            resolve(img);
+        }, 300);
+    });
+}
+
+function addPDFHeader(doc, title, subtitle) {
+    // Dark header bar
+    doc.setFillColor(30, 41, 59);
+    doc.rect(0, 0, 297, 20, "F");
+    doc.setTextColor(255, 255, 255);
     doc.setFontSize(14);
-    doc.text(currentReportMeta.title || "Stockist Report", 14, 15);
-    doc.setFontSize(10);
+    doc.text(title || "Stockist Report", 14, 13);
+    doc.setFontSize(9);
+    doc.setTextColor(200, 200, 200);
+    doc.text(subtitle || "", 14, 18);
+    doc.setTextColor(0, 0, 0);
+    // Date/division line
+    doc.setFontSize(8);
     doc.setTextColor(100);
-    doc.text(currentReportMeta.subtitle || "", 14, 22);
+    doc.text("Generated: " + new Date().toLocaleDateString("en-IN") + "  |  Division: " + DIVISION, 297 - 14, 18, { align: "right" });
     doc.setTextColor(0);
+    return 26; // startY after header
+}
 
-    // Extract table data from the rendered HTML table
-    const table = document.getElementById("report-table");
-    const head = [];
-    const body = [];
+function addPageFooter(doc) {
+    var pageCount = doc.internal.getNumberOfPages();
+    for (var i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(150);
+        doc.text("Stedman Pharmaceuticals – Scanify Portal  |  Page " + i + " of " + pageCount, 148.5, 205, { align: "center" });
+    }
+}
 
-    table.querySelectorAll("thead tr").forEach(tr => {
-        const row = [];
-        tr.querySelectorAll("th").forEach(c => row.push(c.textContent.trim()));
+// Build consolidated summary for Reports 1 & 2 (Stockist-wise sales)
+function buildSalesSummary(data) {
+    var stockists = {};
+    (data || []).forEach(function(r) {
+        var key = r.stockist_code;
+        if (!stockists[key]) {
+            stockists[key] = { code: key, name: r.stockist_name, totalQty: 0, totalVal: 0, products: 0 };
+        }
+        stockists[key].totalQty += Number(r.total_qty) || 0;
+        stockists[key].totalVal += Number(r.total_value) || 0;
+        stockists[key].products += 1;
+    });
+    var arr = Object.values(stockists);
+    arr.sort(function(a, b) { return b.totalVal - a.totalVal; });
+    return arr;
+}
+
+// Build summary for Report 5 (HQ Wise)
+function buildHQSummary(data) {
+    return (data || []).map(function(g) {
+        return { hq: g.hq_code, name: g.hq_name, team: g.team, region: g.region, count: g.stockists.length };
+    });
+}
+
+// Build summary for Report 7 (Sec Moving Trend)
+function buildSecTrendSummary(result) {
+    return (result.sections || []).map(function(sec) {
+        var vl = sec.value_in_lakhs || {};
+        return { category: sec.label, products: (sec.products || []).length, totalLakhs: vl.total || 0, target: vl.target || 0, pct: vl.pct || 0 };
+    });
+}
+
+// Build summary for Report 3 (Moving Trend - Stockist Wise)
+function buildMovingTrendSummary(data) {
+    var rows = data || [];
+    var grandTotal = 0;
+    var monthTotals = [0,0,0,0,0,0,0,0,0,0,0,0];
+    rows.forEach(function(r) {
+        grandTotal += Number(r.total) || 0;
+        (r.months || []).forEach(function(v, i) { monthTotals[i] += Number(v) || 0; });
+    });
+    return { products: rows.length, grandTotal: grandTotal, monthTotals: monthTotals };
+}
+
+// Build summary for Report 4 (Closing Stock)
+function buildClosingStockSummary(data) {
+    var stockists = {};
+    (data || []).forEach(function(r) {
+        var key = r.stockist_code;
+        if (!stockists[key]) {
+            stockists[key] = { code: key, name: r.stockist_name, products: 0, totalOpening: 0, totalPurchase: 0, totalSales: 0, totalClosing: 0 };
+        }
+        stockists[key].products += 1;
+        stockists[key].totalOpening += Number(r.opening_qty) || 0;
+        stockists[key].totalPurchase += Number(r.purchase_qty) || 0;
+        stockists[key].totalSales += Number(r.sales_qty) || 0;
+        stockists[key].totalClosing += Number(r.closing_qty) || 0;
+    });
+    var arr = Object.values(stockists);
+    arr.sort(function(a, b) { return b.totalSales - a.totalSales; });
+    return arr;
+}
+
+// Build summary for Report 6 (Address)
+function buildAddressSummary(result) {
+    var groups = result.groups;
+    var summary = [];
+    if (groups && typeof groups === "object") {
+        Object.keys(groups).forEach(function(grpName) {
+            summary.push({ group: grpName, count: groups[grpName].length });
+        });
+    } else {
+        summary.push({ group: "All", count: (result.data || []).length });
+    }
+    return summary;
+}
+
+async function downloadPDF() {
+    if (!currentReportData) return;
+    var { jsPDF } = window.jspdf;
+    var doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    var data = currentReportData;
+    var startY;
+
+    // ═══════════════════════════════════════════════
+    // PAGE 1: Consolidated Summary
+    // ═══════════════════════════════════════════════
+    startY = addPDFHeader(doc, currentReportMeta.title, currentReportMeta.subtitle);
+
+    if (currentReportType === "primary_sales" || currentReportType === "secondary_sales") {
+        var summary = buildSalesSummary(data.data);
+        var grandQty = 0, grandVal = 0;
+        summary.forEach(function(s) { grandQty += s.totalQty; grandVal += s.totalVal; });
+
+        // Summary stats boxes
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Total Stockists", 18, startY + 6);
+        doc.text("Total Value (₹ Lakhs)", 86, startY + 6);
+        doc.text("Total Qty", 154, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(summary.length), 18, startY + 14);
+        doc.text((grandVal / 100000).toFixed(2), 86, startY + 14);
+        doc.text(fmtQty(grandQty), 154, startY + 14);
+        doc.setTextColor(0);
+
+        // Consolidated Table: Stockist-wise totals
+        doc.setFontSize(10);
+        doc.text("Consolidated Stockist-wise Summary", 14, startY + 26);
+
+        var summaryHead = [["#", "Stockist Code", "Stockist Name", "Products", "Total Qty", "Value (PTS)", "Value (₹ Lakhs)", "% Share"]];
+        var summaryBody = summary.map(function(s, i) {
+            return [i + 1, s.code, s.name, s.products, fmtQty(s.totalQty), fmt(s.totalVal), (s.totalVal / 100000).toFixed(2), grandVal > 0 ? ((s.totalVal / grandVal) * 100).toFixed(1) + "%" : "0%"];
+        });
+        // Grand total row
+        summaryBody.push(["", "", "GRAND TOTAL", "", fmtQty(grandQty), fmt(grandVal), (grandVal / 100000).toFixed(2), "100%"]);
+
+        doc.autoTable({
+            head: summaryHead,
+            body: summaryBody,
+            startY: startY + 30,
+            styles: { fontSize: 7, cellPadding: 1.5 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === summaryBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59];
+                    d.cell.styles.textColor = [255, 255, 255];
+                    d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // ═══════════════════════════════════════════════
+        // PAGE 2: Charts
+        // ═══════════════════════════════════════════════
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+
+        // Top 10 Stockists Bar Chart
+        var top10 = summary.slice(0, 10);
+        var barImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: top10.map(function(s) { return s.name.length > 18 ? s.name.substring(0, 18) + "…" : s.name; }),
+                datasets: [{
+                    label: "Value (₹ Lakhs)",
+                    data: top10.map(function(s) { return (s.totalVal / 100000).toFixed(2); }),
+                    backgroundColor: ["#4f46e5", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"],
+                }]
+            },
+            options: {
+                indexAxis: "y",
+                responsive: false,
+                animation: false,
+                plugins: { legend: { display: false }, title: { display: true, text: "Top 10 Stockists by Value (₹ Lakhs)", font: { size: 16 } } },
+                scales: { x: { beginAtZero: true, title: { display: true, text: "₹ Lakhs" } } }
+            }
+        }, 900, 450);
+        doc.addImage(barImg, "PNG", 14, startY, 170, 85);
+
+        // Pie chart: top 5 + others
+        var top5 = summary.slice(0, 5);
+        var othersVal = summary.slice(5).reduce(function(sum, s) { return sum + s.totalVal; }, 0);
+        var pieLabels = top5.map(function(s) { return s.name.length > 20 ? s.name.substring(0, 20) + "…" : s.name; });
+        var pieData = top5.map(function(s) { return (s.totalVal / 100000).toFixed(2); });
+        if (othersVal > 0) { pieLabels.push("Others"); pieData.push((othersVal / 100000).toFixed(2)); }
+
+        var pieImg = await renderChartToImage({
+            type: "doughnut",
+            data: {
+                labels: pieLabels,
+                datasets: [{
+                    data: pieData,
+                    backgroundColor: ["#4f46e5", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#94a3b8"],
+                }]
+            },
+            options: {
+                responsive: false,
+                animation: false,
+                plugins: {
+                    title: { display: true, text: "Value Distribution – Top Stockists", font: { size: 16 } },
+                    legend: { position: "right", labels: { font: { size: 11 } } }
+                }
+            }
+        }, 600, 400);
+        doc.addImage(pieImg, "PNG", 190, startY, 95, 63);
+
+    } else if (currentReportType === "hq_wise") {
+        var hqSummary = buildHQSummary(data.data);
+        doc.setFontSize(10);
+        doc.text("Consolidated HQ-wise Stockist Summary", 14, startY + 4);
+        var hqHead = [["#", "HQ Code", "HQ Name", "Team", "Region", "No. of Stockists"]];
+        var hqBody = hqSummary.map(function(h, i) { return [i + 1, h.hq, h.name, h.team, h.region, h.count]; });
+        var totalStockists = hqSummary.reduce(function(s, h) { return s + h.count; }, 0);
+        hqBody.push(["", "", "TOTAL", "", "", totalStockists]);
+        doc.autoTable({
+            head: hqHead, body: hqBody, startY: startY + 8,
+            styles: { fontSize: 8, cellPadding: 1.5 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === hqBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // Bar chart for HQ stockist counts
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Stockist Distribution by HQ");
+        var top15 = hqSummary.sort(function(a, b) { return b.count - a.count; }).slice(0, 15);
+        var hqBarImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: top15.map(function(h) { return h.name ? (h.name.length > 15 ? h.name.substring(0, 15) + "…" : h.name) : h.hq; }),
+                datasets: [{ label: "Stockists", data: top15.map(function(h) { return h.count; }), backgroundColor: "#4f46e5" }]
+            },
+            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Stockist Count by HQ", font: { size: 16 } }, legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        }, 900, 400);
+        doc.addImage(hqBarImg, "PNG", 14, startY, 268, 120);
+
+    } else if (currentReportType === "sec_moving_trend") {
+        var trendSummary = buildSecTrendSummary(data);
+        var grandLakhs = trendSummary.reduce(function(s, t) { return s + t.totalLakhs; }, 0);
+
+        // Summary stats
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(150, startY, 82, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Sanctioned Strength", 18, startY + 6);
+        doc.text("Total Value (₹ Lakhs)", 86, startY + 6);
+        doc.text("Categories", 154, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(data.sanctioned_strength || 0), 18, startY + 14);
+        doc.text(grandLakhs.toFixed(2), 86, startY + 14);
+        doc.text(String(trendSummary.length), 154, startY + 14);
+        doc.setTextColor(0);
+
+        doc.setFontSize(10);
+        doc.text("Category-wise Summary", 14, startY + 26);
+        var tHead = [["Category", "Products", "Value (₹ Lakhs)", "Target (₹ Lakhs)", "Achievement %"]];
+        var tBody = trendSummary.map(function(t) { return [t.category, t.products, t.totalLakhs.toFixed(2), t.target.toFixed(2), t.pct.toFixed(1) + "%"]; });
+        tBody.push(["TOTAL", "", grandLakhs.toFixed(2), "", ""]);
+        doc.autoTable({
+            head: tHead, body: tBody, startY: startY + 30,
+            styles: { fontSize: 8, cellPadding: 2 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === tBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // Charts page
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+
+        // Category-wise value pie chart
+        var catPieImg = await renderChartToImage({
+            type: "doughnut",
+            data: {
+                labels: trendSummary.map(function(t) { return t.category; }),
+                datasets: [{ data: trendSummary.map(function(t) { return t.totalLakhs.toFixed(2); }), backgroundColor: ["#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#3b82f6"] }]
+            },
+            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Value Distribution by Category (₹ Lakhs)", font: { size: 16 } }, legend: { position: "right" } } }
+        }, 600, 400);
+        doc.addImage(catPieImg, "PNG", 14, startY, 120, 80);
+
+        // Monthly trend line chart (aggregate across all sections)
+        var mlabels = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+        var datasets = (data.sections || []).map(function(sec, idx) {
+            var colors = ["#4f46e5", "#10b981", "#f59e0b", "#ef4444"];
+            var vl = sec.value_in_lakhs || {};
+            return { label: sec.label, data: (vl.months || []), borderColor: colors[idx % 4], backgroundColor: colors[idx % 4] + "33", fill: true, tension: 0.3 };
+        });
+        var lineImg = await renderChartToImage({
+            type: "line",
+            data: { labels: mlabels, datasets: datasets },
+            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Monthly Sales Trend (₹ Lakhs)", font: { size: 16 } } }, scales: { y: { beginAtZero: true, title: { display: true, text: "₹ Lakhs" } } } }
+        }, 900, 400);
+        doc.addImage(lineImg, "PNG", 145, startY, 140, 80);
+
+    } else if (currentReportType === "moving_trend") {
+        // ── Report 3: Moving Trend – Stockist Wise ──
+        var mtSummary = buildMovingTrendSummary(data.data);
+        var ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+
+        // Summary stats
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Total Products", 18, startY + 6);
+        doc.text("Grand Total Qty", 86, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(mtSummary.products), 18, startY + 14);
+        doc.text(fmtQty(mtSummary.grandTotal), 86, startY + 14);
+        doc.setTextColor(0);
+
+        // Consolidated table
+        doc.setFontSize(10);
+        doc.text("Product-wise Monthly Quantity Summary", 14, startY + 26);
+        var mtHead = [["Product Code", "Product Name", "Pack"].concat(ml).concat(["Total"])];
+        var mtBody = (data.data || []).map(function(r) {
+            var row = [r.product_code, r.product_name || "", r.pack || ""];
+            (r.months || []).forEach(function(v) { row.push(fmtQty(v)); });
+            row.push(fmtQty(r.total));
+            return row;
+        });
+        // Grand total row
+        var gtRow = ["", "", "GRAND TOTAL"];
+        mtSummary.monthTotals.forEach(function(v) { gtRow.push(fmtQty(v)); });
+        gtRow.push(fmtQty(mtSummary.grandTotal));
+        mtBody.push(gtRow);
+
+        doc.autoTable({
+            head: mtHead, body: mtBody, startY: startY + 30,
+            styles: { fontSize: 6, cellPadding: 1.2 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === mtBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 10, right: 10 },
+        });
+
+        // Charts page
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+
+        // Monthly trend bar chart
+        var mtBarImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: ml,
+                datasets: [{ label: "Quantity", data: mtSummary.monthTotals, backgroundColor: "#4f46e5" }]
+            },
+            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Monthly Quantity Trend", font: { size: 16 } }, legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: "Quantity" } } } }
+        }, 900, 400);
+        doc.addImage(mtBarImg, "PNG", 14, startY, 170, 85);
+
+        // Top 10 products pie
+        var top10Prods = (data.data || []).slice().sort(function(a, b) { return (b.total || 0) - (a.total || 0); }).slice(0, 10);
+        var mtPieImg = await renderChartToImage({
+            type: "doughnut",
+            data: {
+                labels: top10Prods.map(function(p) { var nm = p.product_name || p.product_code; return nm.length > 20 ? nm.substring(0, 20) + "…" : nm; }),
+                datasets: [{ data: top10Prods.map(function(p) { return p.total || 0; }), backgroundColor: ["#4f46e5", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"] }]
+            },
+            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Top 10 Products by Quantity", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 10 } } } } }
+        }, 600, 400);
+        doc.addImage(mtPieImg, "PNG", 190, startY, 95, 63);
+
+    } else if (currentReportType === "closing_stock") {
+        // ── Report 4: Closing Stock ──
+        var csSummary = buildClosingStockSummary(data.data);
+        var grandOpening = 0, grandPurchase = 0, grandSales = 0, grandClosing = 0;
+        csSummary.forEach(function(s) {
+            grandOpening += s.totalOpening;
+            grandPurchase += s.totalPurchase;
+            grandSales += s.totalSales;
+            grandClosing += s.totalClosing;
+        });
+
+        // Summary stats
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(218, startY, 62, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Total Stockists", 18, startY + 6);
+        doc.text("Total Opening", 86, startY + 6);
+        doc.text("Total Sales", 154, startY + 6);
+        doc.text("Total Closing", 222, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(csSummary.length), 18, startY + 14);
+        doc.text(fmtQty(grandOpening), 86, startY + 14);
+        doc.text(fmtQty(grandSales), 154, startY + 14);
+        doc.text(fmtQty(grandClosing), 222, startY + 14);
+        doc.setTextColor(0);
+
+        // Consolidated table
+        doc.setFontSize(10);
+        doc.text("Stockist-wise Closing Stock Summary", 14, startY + 26);
+        var csHead = [["#", "Stockist Code", "Stockist Name", "Products", "Opening", "Purchase", "Sales", "Closing"]];
+        var csBody = csSummary.map(function(s, i) {
+            return [i + 1, s.code, s.name, s.products, fmtQty(s.totalOpening), fmtQty(s.totalPurchase), fmtQty(s.totalSales), fmtQty(s.totalClosing)];
+        });
+        csBody.push(["", "", "GRAND TOTAL", "", fmtQty(grandOpening), fmtQty(grandPurchase), fmtQty(grandSales), fmtQty(grandClosing)]);
+
+        doc.autoTable({
+            head: csHead, body: csBody, startY: startY + 30,
+            styles: { fontSize: 7, cellPadding: 1.5 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === csBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // Charts page
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+
+        // Top 10 stockists by sales - horizontal bar
+        var csTop10 = csSummary.slice(0, 10);
+        var csBarImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: csTop10.map(function(s) { return s.name.length > 18 ? s.name.substring(0, 18) + "…" : s.name; }),
+                datasets: [
+                    { label: "Opening", data: csTop10.map(function(s) { return s.totalOpening; }), backgroundColor: "#3b82f6" },
+                    { label: "Sales", data: csTop10.map(function(s) { return s.totalSales; }), backgroundColor: "#10b981" },
+                    { label: "Closing", data: csTop10.map(function(s) { return s.totalClosing; }), backgroundColor: "#f59e0b" }
+                ]
+            },
+            options: { indexAxis: "y", responsive: false, animation: false, plugins: { title: { display: true, text: "Top 10 Stockists – Stock Movement", font: { size: 16 } }, legend: { position: "top" } }, scales: { x: { beginAtZero: true } } }
+        }, 900, 450);
+        doc.addImage(csBarImg, "PNG", 14, startY, 170, 85);
+
+        // Pie chart: stock composition
+        var csPieImg = await renderChartToImage({
+            type: "doughnut",
+            data: {
+                labels: ["Opening", "Purchase", "Sales", "Closing"],
+                datasets: [{ data: [grandOpening, grandPurchase, grandSales, grandClosing], backgroundColor: ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b"] }]
+            },
+            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Overall Stock Composition", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
+        }, 600, 400);
+        doc.addImage(csPieImg, "PNG", 190, startY, 95, 63);
+
+    } else if (currentReportType === "address") {
+        // ── Report 6: Stockist Address ──
+        var addrSummary = buildAddressSummary(data);
+        var totalStockists = addrSummary.reduce(function(s, g) { return s + g.count; }, 0);
+
+        // Summary stats
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Total Stockists", 18, startY + 6);
+        doc.text("Groups", 86, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(totalStockists), 18, startY + 14);
+        doc.text(String(addrSummary.length), 86, startY + 14);
+        doc.setTextColor(0);
+
+        // Consolidated table
+        doc.setFontSize(10);
+        doc.text("Stockist Address – Group-wise Summary", 14, startY + 26);
+        var addrHead = [["#", "Group", "No. of Stockists", "% Share"]];
+        var addrBody = addrSummary.map(function(g, i) {
+            return [i + 1, g.group, g.count, totalStockists > 0 ? ((g.count / totalStockists) * 100).toFixed(1) + "%" : "0%"];
+        });
+        addrBody.push(["", "TOTAL", totalStockists, "100%"]);
+
+        doc.autoTable({
+            head: addrHead, body: addrBody, startY: startY + 30,
+            styles: { fontSize: 8, cellPadding: 2 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === addrBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // Charts page
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+
+        // Bar chart: stockists per group
+        var addrBarImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: addrSummary.map(function(g) { return g.group.length > 20 ? g.group.substring(0, 20) + "…" : g.group; }),
+                datasets: [{ label: "Stockists", data: addrSummary.map(function(g) { return g.count; }), backgroundColor: "#4f46e5" }]
+            },
+            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Stockists per Group", font: { size: 16 } }, legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: "Count" } } } }
+        }, 900, 400);
+        doc.addImage(addrBarImg, "PNG", 14, startY, 170, 85);
+
+        // Pie chart: distribution
+        var addrPieColors = ["#4f46e5", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
+        var addrPieImg = await renderChartToImage({
+            type: "doughnut",
+            data: {
+                labels: addrSummary.map(function(g) { return g.group.length > 20 ? g.group.substring(0, 20) + "…" : g.group; }),
+                datasets: [{ data: addrSummary.map(function(g) { return g.count; }), backgroundColor: addrPieColors.slice(0, addrSummary.length) }]
+            },
+            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Stockist Distribution by Group", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
+        }, 600, 400);
+        doc.addImage(addrPieImg, "PNG", 190, startY, 95, 63);
+
+    } else {
+        // Generic fallback for any future reports
+        doc.setFontSize(10);
+        doc.text("Consolidated Report Summary", 14, startY + 4);
+        var rowCount = getDataLength(data);
+        doc.setFontSize(9);
+        doc.setTextColor(80);
+        doc.text("Total records: " + rowCount, 14, startY + 12);
+        doc.setTextColor(0);
+    }
+
+    // ═══════════════════════════════════════════════
+    // DETAIL PAGE: Full detailed report table
+    // ═══════════════════════════════════════════════
+    doc.addPage();
+    startY = addPDFHeader(doc, currentReportMeta.title, "Detailed Report Data");
+
+    // Extract table from rendered HTML
+    var table = document.getElementById("report-table");
+    var head = [];
+    var body = [];
+
+    table.querySelectorAll("thead tr").forEach(function(tr) {
+        var row = [];
+        tr.querySelectorAll("th").forEach(function(c) { row.push(c.textContent.trim()); });
         head.push(row);
     });
 
-    table.querySelectorAll("tbody tr").forEach(tr => {
-        const row = [];
-        const isGroup = tr.classList.contains("group-row");
-        tr.querySelectorAll("td").forEach(c => row.push(c.textContent.trim()));
-        body.push({ cells: row, isGroup: isGroup });
+    table.querySelectorAll("tbody tr").forEach(function(tr) {
+        var row = [];
+        var isGroup = tr.classList.contains("group-row");
+        var isSubtotal = tr.classList.contains("subtotal-row");
+        var isGrandTotal = tr.classList.contains("grand-total-row");
+        var isSectionHeader = tr.classList.contains("section-header-row");
+        var isValueLakhs = tr.classList.contains("value-lakhs-row");
+        tr.querySelectorAll("td").forEach(function(c) { row.push(c.textContent.trim()); });
+        body.push({ cells: row, isGroup: isGroup, isSubtotal: isSubtotal, isGrandTotal: isGrandTotal, isSectionHeader: isSectionHeader, isValueLakhs: isValueLakhs });
     });
 
     doc.autoTable({
         head: head,
-        body: body.map(r => r.cells),
-        startY: 28,
-        styles: { fontSize: 8, cellPadding: 1.5 },
-        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold" },
-        didParseCell: function(data) {
-            if (data.section === "body" && body[data.row] && body[data.row].isGroup) {
-                data.cell.styles.fillColor = [232, 237, 243];
-                data.cell.styles.fontStyle = "bold";
+        body: body.map(function(r) { return r.cells; }),
+        startY: startY,
+        styles: { fontSize: 7, cellPadding: 1.2 },
+        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold", fontSize: 7 },
+        didParseCell: function(d) {
+            if (d.section === "body" && body[d.row]) {
+                var r = body[d.row];
+                if (r.isGrandTotal) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                } else if (r.isSectionHeader) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                } else if (r.isGroup) {
+                    d.cell.styles.fillColor = [232, 237, 243]; d.cell.styles.fontStyle = "bold";
+                } else if (r.isSubtotal) {
+                    d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = "bold";
+                } else if (r.isValueLakhs) {
+                    d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = "bold";
+                }
             }
         },
-        margin: { left: 14, right: 14 },
+        margin: { left: 10, right: 10 },
+        didDrawPage: function(d) {
+            // Re-add header on each new page of the detail table
+            if (d.pageNumber > 1) {
+                doc.setFillColor(30, 41, 59);
+                doc.rect(0, 0, 297, 12, "F");
+                doc.setTextColor(255); doc.setFontSize(9);
+                doc.text(currentReportMeta.title + " – Detail (contd.)", 14, 8);
+                doc.setTextColor(0);
+            }
+        }
     });
 
-    const filename = `${currentReportType}_${DIVISION}_${new Date().toISOString().slice(0,10)}.pdf`;
+    // Add page footers
+    addPageFooter(doc);
+
+    var filename = currentReportType + "_" + DIVISION + "_" + new Date().toISOString().slice(0, 10) + ".pdf";
     doc.save(filename);
 }
 </script>

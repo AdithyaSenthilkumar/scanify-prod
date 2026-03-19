@@ -5,158 +5,147 @@
 {% block portal_content %}
 <div class="portal-page scheme-reports-page">
     <!-- Page Header -->
-    <div class="page-header d-flex justify-content-between align-items-center mb-4 flex-wrap d-print-none" style="gap:10px;">
-        <div>
-            <h1 class="page-title"><i class="fa fa-gift"></i> Scheme Reports</h1>
-            <p class="page-subtitle text-muted mb-0">{{ division }} Division</p>
+    <div class="sr-page-header d-print-none">
+        <div class="sr-header-content">
+            <div class="sr-header-icon"><i class="fa fa-gift"></i></div>
+            <div>
+                <h1 class="sr-title">Scheme Reports</h1>
+                <p class="sr-subtitle">{{ division }} Division &middot; Stedman Pharmaceuticals</p>
+            </div>
         </div>
     </div>
 
-    <!-- Report Type & Filters Card -->
-    <div class="card shadow-sm border-0 mb-3 d-print-none" id="filters-card">
-        <div class="card-body py-3 px-3">
-            <!-- Row 1: Report Type Selector -->
-            <div class="row mb-3">
-                <div class="col-md-6">
-                    <label class="filter-label">Report Type</label>
-                    <select class="form-control" id="report-type" onchange="onReportTypeChange()">
-                        <option value="">-- Select Report --</option>
-                        <option value="activity_trend">1. Activity Trend Report</option>
-                        <option value="activity_track">2. Activity Track Report</option>
-                        <option value="new_approval_doctors">3. New Approval Doctors</option>
-                        <option value="periodic">4. Periodic Report</option>
-                    </select>
-                </div>
+    <!-- Report Type Selector -->
+    <div class="sr-selector-card d-print-none">
+        <div class="row align-items-end">
+            <div class="col-md-7 col-lg-6">
+                <label class="sr-filter-label"><i class="fa fa-list-alt mr-1"></i> Choose Report</label>
+                <select class="form-control sr-select-main" id="report-type" onchange="onReportTypeChange()">
+                    <option value="">-- Select Report --</option>
+                    <option value="activity_trend">1. Activity Trend Report</option>
+                    <option value="activity_track">2. Activity Track Report</option>
+                    <option value="new_approval_doctors">3. New Approval Doctors</option>
+                    <option value="periodic">4. Periodic Report</option>
+                </select>
             </div>
+            <div class="col-md-5 col-lg-6 mt-3 mt-md-0 d-flex align-items-end" style="gap:8px;">
+                <button class="btn sr-btn-generate" id="btn-generate" onclick="generateReport()" style="display:none;">
+                    <i class="fa fa-bolt mr-1"></i> Generate
+                </button>
+                <button class="btn sr-btn-excel" id="btn-excel" onclick="downloadExcel()" style="display:none;">
+                    <i class="fa fa-file-excel mr-1"></i> Excel
+                </button>
+                <button class="btn sr-btn-pdf" id="btn-pdf" onclick="downloadPDF()" style="display:none;">
+                    <i class="fa fa-file-pdf mr-1"></i> PDF
+                </button>
+            </div>
+        </div>
+    </div>
 
-            <!-- Dynamic Filters -->
-            <div id="dynamic-filters" style="display:none;">
-                <hr class="my-2">
-                <div class="row" style="row-gap:12px;">
-                    <!-- From Date -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
-                        <label class="filter-label">From Date</label>
-                        <input type="date" class="form-control form-control-sm" id="f-from-date">
-                    </div>
+    <!-- Dynamic Filters Panel -->
+    <div id="dynamic-filters" class="sr-filters-panel d-print-none" style="display:none;">
+        <div class="sr-filters-grid">
+            <!-- From Date -->
+            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
+                <label class="sr-filter-label">From Date</label>
+                <input type="date" class="form-control form-control-sm sr-filter-select" id="f-from-date">
+            </div>
+            <!-- To Date -->
+            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
+                <label class="sr-filter-label">To Date</label>
+                <input type="date" class="form-control form-control-sm sr-filter-select" id="f-to-date">
+            </div>
+            <!-- Activity Status -->
+            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track">
+                <label class="sr-filter-label">Activity Status</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-doctor-status">
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="All">All</option>
+                </select>
+            </div>
+            <!-- Product Type -->
+            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track">
+                <label class="sr-filter-label">Product Filter</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-product-type" onchange="filterProductsByType()">
+                    <option value="All">All Products</option>
+                    <option value="Other Products">Other Products</option>
+                    <option value="Hospital Products">Hospital Products</option>
+                </select>
+            </div>
+            <!-- Zone -->
+            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
+                <label class="sr-filter-label">Zone</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-zone" onchange="cascadeFromZone()">
+                    <option value="">All Zones</option>
+                    {% for z in zones %}
+                    <option value="{{ z }}">{{ z }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <!-- Region -->
+            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
+                <label class="sr-filter-label">Region</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-region" onchange="cascadeFromRegion()">
+                    <option value="">All Regions</option>
+                    {% for r in regions %}
+                    <option value="{{ r.name }}" data-zone="{{ r.zone }}">{{ r.name }} – {{ r.region_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <!-- Criteria -->
+            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track,new_approval_doctors">
+                <label class="sr-filter-label">Criteria</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-criteria" onchange="onCriteriaChange()">
+                    <option value="Region">Region</option>
+                    <option value="Team">Team</option>
+                    <option value="HQ">HQ</option>
+                    <option value="Doctor">Doctor</option>
+                </select>
+            </div>
+            <!-- Team / HQ (dynamic) -->
+            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track,new_approval_doctors" id="team-hq-wrapper" style="display:none;">
+                <label class="sr-filter-label" id="team-hq-label">Team / HQ</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-team-or-hq">
+                    <option value="">-- Select --</option>
+                </select>
+            </div>
+            <!-- Group By (Periodic) -->
+            <div class="sr-filter-item filter-field" data-reports="periodic">
+                <label class="sr-filter-label">Group By</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-group-by">
+                    <option value="HQ">HQ</option>
+                    <option value="Team">Team</option>
+                    <option value="Region">Region</option>
+                    <option value="Doctor">Doctor</option>
+                    <option value="Stockist">Stockist</option>
+                    <option value="Month">Month</option>
+                    <option value="Value">Value</option>
+                </select>
+            </div>
+        </div>
 
-                    <!-- To Date -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
-                        <label class="filter-label">To Date</label>
-                        <input type="date" class="form-control form-control-sm" id="f-to-date">
-                    </div>
-
-                    <!-- Activity Status -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track">
-                        <label class="filter-label">Activity Status</label>
-                        <select class="form-control form-control-sm" id="f-doctor-status">
-                            <option value="Active">Active</option>
-                            <option value="Inactive">Inactive</option>
-                            <option value="All">All</option>
-                        </select>
-                    </div>
-
-                    <!-- Product Type -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track">
-                        <label class="filter-label">Product Filter</label>
-                        <select class="form-control form-control-sm" id="f-product-type" onchange="filterProductsByType()">
-                            <option value="All">All Products</option>
-                            <option value="Other Products">Other Products</option>
-                            <option value="Hospital Products">Hospital Products</option>
-                        </select>
-                    </div>
-
-                    <!-- Zone -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
-                        <label class="filter-label">Zone</label>
-                        <select class="form-control form-control-sm" id="f-zone" onchange="cascadeFromZone()">
-                            <option value="">All Zones</option>
-                            {% for z in zones %}
-                            <option value="{{ z }}">{{ z }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                    <!-- Region -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
-                        <label class="filter-label">Region</label>
-                        <select class="form-control form-control-sm" id="f-region" onchange="cascadeFromRegion()">
-                            <option value="">All Regions</option>
-                            {% for r in regions %}
-                            <option value="{{ r.name }}" data-zone="{{ r.zone }}">{{ r.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                    <!-- Criteria -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors">
-                        <label class="filter-label">Criteria</label>
-                        <select class="form-control form-control-sm" id="f-criteria" onchange="onCriteriaChange()">
-                            <option value="Region">Region</option>
-                            <option value="Team">Team</option>
-                            <option value="HQ">HQ</option>
-                            <option value="Doctor">Doctor</option>
-                        </select>
-                    </div>
-
-                    <!-- Team / HQ  (dynamic based on criteria) -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="activity_trend,activity_track,new_approval_doctors" id="team-hq-wrapper" style="display:none;">
-                        <label class="filter-label" id="team-hq-label">Team / HQ</label>
-                        <select class="form-control form-control-sm" id="f-team-or-hq">
-                            <option value="">-- Select --</option>
-                        </select>
-                    </div>
-
-                    <!-- Group By (Periodic only) -->
-                    <div class="col-md-3 col-6 filter-field" data-reports="periodic">
-                        <label class="filter-label">Group By</label>
-                        <select class="form-control form-control-sm" id="f-group-by">
-                            <option value="HQ">HQ</option>
-                            <option value="Team">Team</option>
-                            <option value="Region">Region</option>
-                            <option value="Doctor">Doctor</option>
-                            <option value="Stockist">Stockist</option>
-                            <option value="Month">Month</option>
-                            <option value="Value">Value</option>
-                        </select>
-                    </div>
+        <!-- Product Multi-Select Checkbox List -->
+        <div class="filter-field mt-3" data-reports="activity_trend,activity_track,new_approval_doctors,periodic" id="product-list-wrapper">
+            <label class="sr-filter-label">Product List</label>
+            <div class="product-list-container">
+                <div class="product-search-bar">
+                    <input type="text" class="form-control form-control-sm" id="product-search"
+                           placeholder="Search products..." oninput="filterProductSearch()">
                 </div>
-
-                <!-- Product Multi-Select Checkbox List -->
-                <div class="filter-field mt-3" data-reports="activity_trend,activity_track,new_approval_doctors,periodic" id="product-list-wrapper">
-                    <label class="filter-label">Product List</label>
-                    <div class="product-list-container">
-                        <div class="product-search-bar">
-                            <input type="text" class="form-control form-control-sm" id="product-search"
-                                   placeholder="Search products..." oninput="filterProductSearch()">
-                        </div>
-                        <div class="product-select-all-row">
-                            <label class="product-check-label">
-                                <input type="checkbox" id="product-select-all" onchange="toggleSelectAll()" checked>
-                                <span>Select All</span>
-                            </label>
-                        </div>
-                        <div class="product-checkbox-list" id="product-checkbox-list">
-                            {% for p in products %}
-                            <label class="product-check-label" data-category="{{ p.category }}" data-group="{{ p.group }}">
-                                <input type="checkbox" value="{{ p.code }}" class="product-cb" checked>
-                                <span>{{ p.code }} – {{ p.name }}</span>
-                            </label>
-                            {% endfor %}
-                        </div>
-                    </div>
+                <div class="product-select-all-row">
+                    <label class="product-check-label">
+                        <input type="checkbox" id="product-select-all" onchange="toggleSelectAll()" checked>
+                        <span>Select All</span>
+                    </label>
                 </div>
-
-                <!-- Action Buttons -->
-                <div class="d-flex mt-3" style="gap:10px;">
-                    <button class="btn btn-primary btn-sm" id="btn-generate" onclick="generateReport()">
-                        <i class="fa fa-search mr-1"></i> Generate Report
-                    </button>
-                    <button class="btn btn-outline-success btn-sm" id="btn-excel" onclick="downloadExcel()" style="display:none;">
-                        <i class="fa fa-file-excel mr-1"></i> Download Excel
-                    </button>
-                    <button class="btn btn-outline-danger btn-sm" id="btn-pdf" onclick="downloadPDF()" style="display:none;">
-                        <i class="fa fa-file-pdf mr-1"></i> Download PDF
-                    </button>
+                <div class="product-checkbox-list" id="product-checkbox-list">
+                    {% for p in products %}
+                    <label class="product-check-label" data-category="{{ p.category }}" data-group="{{ p.group }}">
+                        <input type="checkbox" value="{{ p.code }}" class="product-cb" checked>
+                        <span>{{ p.code }} – {{ p.name }}</span>
+                    </label>
+                    {% endfor %}
                 </div>
             </div>
         </div>
@@ -164,22 +153,23 @@
 
     <!-- Report Output Area -->
     <div id="report-output" style="display:none;">
-        <!-- Print Header -->
         <div class="d-none d-print-block mb-3 text-center">
             <h2 id="print-title"></h2>
             <h5 id="print-subtitle" class="text-muted"></h5>
             <hr>
         </div>
-
-        <div class="card shadow-sm border-0 report-card">
-            <div class="card-header bg-white d-flex justify-content-between align-items-center d-print-none">
-                <div>
-                    <strong id="report-title"></strong>
-                    <span class="text-muted ml-2" id="report-subtitle"></span>
+        <div class="sr-report-card">
+            <div class="sr-report-header d-print-none">
+                <div class="sr-report-header-left">
+                    <span class="sr-report-icon"><i class="fa fa-table"></i></span>
+                    <div>
+                        <strong id="report-title" class="sr-report-title-text"></strong>
+                        <span class="sr-report-subtitle-text" id="report-subtitle"></span>
+                    </div>
                 </div>
-                <span class="badge badge-secondary" id="report-count"></span>
+                <span class="sr-badge" id="report-count"></span>
             </div>
-            <div class="card-body p-0">
+            <div class="sr-report-body">
                 <div class="table-responsive">
                     <table class="table table-bordered table-sm report-table mb-0" id="report-table">
                         <thead id="report-thead"></thead>
@@ -192,132 +182,163 @@
 
     <!-- Loading Spinner -->
     <div id="report-loading" style="display:none;" class="text-center py-5">
-        <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;"></div>
-        <p class="text-muted mt-3">Generating report&hellip;</p>
+        <div class="sr-loading-spinner">
+            <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;"></div>
+            <p class="text-muted mt-3 mb-0">Generating report&hellip;</p>
+        </div>
     </div>
 
     <!-- Empty State -->
-    <div id="report-empty" style="display:none;" class="text-center py-5">
-        <i class="fa fa-inbox fa-3x text-muted mb-3"></i>
-        <p class="text-muted">No data found for the selected criteria.</p>
+    <div id="report-empty" style="display:none;" class="sr-empty-state">
+        <div class="sr-empty-icon"><i class="fa fa-search"></i></div>
+        <h5 class="mt-3 mb-1">No Data Found</h5>
+        <p class="text-muted mb-0">No records match the selected criteria. Try adjusting your filters.</p>
     </div>
 </div>
 
 <style>
-    .filter-label {
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        color: var(--color-text-muted, #64748b);
-        letter-spacing: 0.5px;
-        margin-bottom: 4px;
-        display: block;
+    /* ─── Page Header ─── */
+    .sr-page-header {
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        border-radius: 12px;
+        padding: 24px 28px;
+        margin-bottom: 20px;
+        color: #fff;
     }
-    .report-table th,
-    .report-table td {
-        font-size: 12px;
-        vertical-align: middle;
-        white-space: nowrap;
+    .sr-header-content { display: flex; align-items: center; gap: 16px; }
+    .sr-header-icon {
+        width: 48px; height: 48px; border-radius: 12px;
+        background: rgba(255,255,255,0.15);
+        display: flex; align-items: center; justify-content: center; font-size: 22px;
     }
+    .sr-title { font-size: 22px; font-weight: 700; margin: 0; color: #fff; }
+    .sr-subtitle { font-size: 13px; color: rgba(255,255,255,0.65); margin: 2px 0 0; }
+
+    /* ─── Selector Card ─── */
+    .sr-selector-card {
+        background: #fff; border: 1px solid var(--color-border, #e2e8f0);
+        border-radius: 10px; padding: 18px 22px; margin-bottom: 14px;
+        box-shadow: var(--shadow-sm);
+    }
+    .sr-select-main {
+        font-size: 14px; font-weight: 600; border-radius: 8px;
+        border: 2px solid var(--color-border, #e2e8f0); padding: 8px 12px;
+    }
+    .sr-select-main:focus { border-color: var(--color-accent, #4f46e5); box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+
+    /* Action Buttons */
+    .sr-btn-generate { background: var(--color-accent, #4f46e5); color: #fff; font-weight: 600; font-size: 13px; border: none; border-radius: 8px; padding: 8px 20px; }
+    .sr-btn-generate:hover { background: var(--color-accent-hover, #4338ca); color: #fff; }
+    .sr-btn-excel { background: #ecfdf5; color: #059669; font-weight: 600; font-size: 13px; border: 1px solid #a7f3d0; border-radius: 8px; padding: 8px 16px; }
+    .sr-btn-excel:hover { background: #059669; color: #fff; }
+    .sr-btn-pdf { background: #fef2f2; color: #dc2626; font-weight: 600; font-size: 13px; border: 1px solid #fecaca; border-radius: 8px; padding: 8px 16px; }
+    .sr-btn-pdf:hover { background: #dc2626; color: #fff; }
+
+    /* ─── Filters Panel ─── */
+    .sr-filters-panel {
+        background: #f8fafc; border: 1px solid var(--color-border, #e2e8f0);
+        border-radius: 10px; padding: 16px 20px; margin-bottom: 16px;
+    }
+    .sr-filters-grid { display: flex; flex-wrap: wrap; gap: 14px; }
+    .sr-filter-item { min-width: 170px; flex: 1 1 170px; max-width: 250px; }
+    .sr-filter-label {
+        font-size: 11px; font-weight: 600; text-transform: uppercase;
+        color: var(--color-text-muted, #64748b); letter-spacing: 0.5px; margin-bottom: 4px; display: block;
+    }
+    .sr-filter-select {
+        border-radius: 6px; border: 1px solid var(--color-border, #e2e8f0); font-size: 13px;
+    }
+    .sr-filter-select:focus { border-color: var(--color-accent, #4f46e5); box-shadow: 0 0 0 2px rgba(79,70,229,0.08); }
+
+    /* ─── Report Card ─── */
+    .sr-report-card {
+        background: #fff; border: 1px solid var(--color-border, #e2e8f0);
+        border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-sm);
+    }
+    .sr-report-header {
+        padding: 12px 18px; background: #f8fafc;
+        border-bottom: 1px solid var(--color-border, #e2e8f0);
+        display: flex; align-items: center; justify-content: space-between;
+    }
+    .sr-report-header-left { display: flex; align-items: center; gap: 10px; }
+    .sr-report-icon {
+        width: 32px; height: 32px; border-radius: 8px;
+        background: var(--color-accent, #4f46e5); color: #fff;
+        display: flex; align-items: center; justify-content: center; font-size: 14px;
+    }
+    .sr-report-title-text { font-size: 14px; font-weight: 600; color: var(--color-text, #0f172a); }
+    .sr-report-subtitle-text { font-size: 12px; color: var(--color-text-muted, #64748b); display: block; }
+    .sr-badge {
+        background: var(--color-accent, #4f46e5); color: #fff;
+        font-size: 11px; font-weight: 600; padding: 4px 12px; border-radius: 9999px;
+    }
+    .sr-report-body { padding: 0; }
+
+    /* ─── Table ─── */
+    .report-table th, .report-table td { font-size: 12px; vertical-align: middle; white-space: nowrap; }
     .report-table th {
-        text-align: center;
-        background: var(--color-primary, #1e293b);
-        color: #fff;
-        position: sticky;
-        top: 0;
-        z-index: 2;
+        text-align: center; background: var(--color-primary, #1e293b); color: #fff;
+        position: sticky; top: 0; z-index: 2; font-weight: 600; font-size: 11px;
+        text-transform: uppercase; letter-spacing: 0.3px; padding: 10px 8px;
     }
-    .report-table .group-row td {
-        background: #e8edf3;
-        font-weight: 700;
-        font-size: 12px;
-        color: var(--color-primary, #1e293b);
-    }
-    .report-table .total-row td {
-        background: #d1dbe8;
-        font-weight: 700;
-        font-size: 12px;
-        color: var(--color-primary, #1e293b);
-    }
+    .report-table td { padding: 6px 8px; }
+    .report-table tbody tr:hover { background: #f8fafc; }
+    .report-table .group-row td { background: #e8edf3; font-weight: 700; font-size: 12px; color: var(--color-primary, #1e293b); }
+    .report-table .total-row td { background: #d1dbe8; font-weight: 700; font-size: 12px; color: var(--color-primary, #1e293b); }
+    .report-table .grand-total-row td { background: #1e293b; color: #fff; font-weight: 700; font-size: 12px; border-top: 2px solid #1e293b; }
     .report-table .text-right { text-align: right !important; }
-    .report-table .trend-cell {
-        white-space: pre-line;
-        font-size: 10px;
-        min-width: 80px;
-        max-width: 140px;
-        line-height: 1.4;
-    }
+    .report-table .trend-cell { white-space: pre-line; font-size: 10px; min-width: 80px; max-width: 140px; line-height: 1.4; }
 
-    .badge-secondary {
-        background: var(--color-accent, #4f46e5);
-        color: #fff;
-        font-size: 12px;
-        padding: 4px 10px;
-        border-radius: var(--radius-full, 9999px);
+    /* ─── Empty / Loading ─── */
+    .sr-empty-state { text-align: center; padding: 60px 20px; }
+    .sr-empty-icon {
+        width: 64px; height: 64px; border-radius: 50%; background: #f1f5f9; color: #94a3b8;
+        display: inline-flex; align-items: center; justify-content: center; font-size: 26px;
     }
+    .sr-loading-spinner { padding: 20px 0; }
 
-    /* Product checkbox list */
-    .product-list-container {
-        border: 1px solid var(--color-border, #e2e8f0);
-        border-radius: 8px;
-        background: #fff;
-        overflow: hidden;
-    }
-    .product-search-bar {
-        padding: 8px 10px;
-        border-bottom: 1px solid var(--color-border, #e2e8f0);
-        background: #f8fafc;
-    }
-    .product-select-all-row {
-        padding: 6px 12px;
-        border-bottom: 1px solid var(--color-border, #e2e8f0);
-        background: #f1f5f9;
-    }
-    .product-checkbox-list {
-        max-height: 180px;
-        overflow-y: auto;
-        padding: 4px 0;
-    }
+    /* ─── Product checkbox list ─── */
+    .product-list-container { border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; background: #fff; overflow: hidden; }
+    .product-search-bar { padding: 8px 10px; border-bottom: 1px solid var(--color-border, #e2e8f0); background: #f8fafc; }
+    .product-select-all-row { padding: 6px 12px; border-bottom: 1px solid var(--color-border, #e2e8f0); background: #f1f5f9; }
+    .product-checkbox-list { max-height: 180px; overflow-y: auto; padding: 4px 0; }
     .product-check-label {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 4px 12px;
-        margin: 0;
-        cursor: pointer;
-        font-size: 12px;
-        color: var(--color-text, #0f172a);
-        transition: background 0.15s;
+        display: flex; align-items: center; gap: 8px; padding: 4px 12px; margin: 0;
+        cursor: pointer; font-size: 12px; color: var(--color-text, #0f172a); transition: background 0.15s;
     }
-    .product-check-label:hover {
-        background: #f1f5f9;
-    }
-    .product-check-label input[type="checkbox"] {
-        accent-color: var(--color-accent, #4f46e5);
-        width: 14px;
-        height: 14px;
-        flex-shrink: 0;
-    }
+    .product-check-label:hover { background: #f1f5f9; }
+    .product-check-label input[type="checkbox"] { accent-color: var(--color-accent, #4f46e5); width: 14px; height: 14px; flex-shrink: 0; }
 
+    /* ─── Print ─── */
     @media print {
         @page { size: landscape; margin: 1cm; }
         body { font-size: 9pt; background: #fff; }
         .d-print-none { display: none !important; }
         .portal-sidebar, .portal-navbar { display: none !important; }
         .portal-main { margin-left: 0 !important; width: 100% !important; padding: 0 !important; }
-        .report-card { box-shadow: none !important; border: none !important; }
+        .sr-report-card { box-shadow: none !important; border: none !important; }
         .report-table th { background: #1e293b !important; color: #fff !important; }
         .report-table .group-row td { background: #e8edf3 !important; }
         .report-table .total-row td { background: #d1dbe8 !important; }
         * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 768px) {
+        .sr-page-header { padding: 16px 18px; }
+        .sr-title { font-size: 18px; }
+        .sr-header-icon { width: 40px; height: 40px; font-size: 18px; }
+        .sr-selector-card { padding: 14px 16px; }
+        .sr-filter-item { min-width: 140px; max-width: 100%; }
+    }
 </style>
 {% endblock %}
 
 {% block scripts %}
-<!-- jsPDF for client-side PDF -->
+<!-- jsPDF + Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 <script>
 const DIVISION = "{{ division }}";
@@ -325,18 +346,17 @@ let currentReportType = "";
 let currentReportData = null;
 let currentReportMeta = {};
 
-// Pre-loaded context data for cascade filtering
 const ALL_REGIONS = {{ regions | tojson }};
 const ALL_TEAMS   = {{ teams | tojson }};
 const ALL_HQS     = {{ hqs | tojson }};
 
 // ─────────────────────────────────────────────────────────────
-// Set default dates to current financial year
+// Default dates (current FY)
 // ─────────────────────────────────────────────────────────────
 (function setDefaultDates() {
     const today = new Date();
     let fyStart, fyEnd;
-    if (today.getMonth() >= 3) { // Apr onwards
+    if (today.getMonth() >= 3) {
         fyStart = new Date(today.getFullYear(), 3, 1);
         fyEnd   = new Date(today.getFullYear() + 1, 2, 31);
     } else {
@@ -351,28 +371,29 @@ const ALL_HQS     = {{ hqs | tojson }};
 })();
 
 // ─────────────────────────────────────────────────────────────
-// Filter visibility logic
+// Filter visibility
 // ─────────────────────────────────────────────────────────────
 function onReportTypeChange() {
     currentReportType = document.getElementById("report-type").value;
     const filtersDiv = document.getElementById("dynamic-filters");
+    const btnGenerate = document.getElementById("btn-generate");
     if (!currentReportType) {
         filtersDiv.style.display = "none";
+        btnGenerate.style.display = "none";
         document.getElementById("report-output").style.display = "none";
         document.getElementById("report-empty").style.display = "none";
         return;
     }
     filtersDiv.style.display = "block";
+    btnGenerate.style.display = "";
 
     document.querySelectorAll(".filter-field").forEach(el => {
         const reports = el.getAttribute("data-reports").split(",");
         el.style.display = reports.includes(currentReportType) ? "" : "none";
     });
 
-    // Show/hide team-hq wrapper based on criteria value
     onCriteriaChange();
 
-    // Hide previous results
     document.getElementById("report-output").style.display = "none";
     document.getElementById("report-empty").style.display = "none";
     document.getElementById("btn-excel").style.display = "none";
@@ -380,7 +401,7 @@ function onReportTypeChange() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Cascade Filters (client-side from pre-loaded context)
+// Cascade Filters
 // ─────────────────────────────────────────────────────────────
 function cascadeFromZone() {
     const zone = document.getElementById("f-zone").value;
@@ -391,18 +412,16 @@ function cascadeFromZone() {
         if (!zone || r.zone === zone) {
             const opt = document.createElement("option");
             opt.value = r.name;
-            opt.textContent = r.name;
+            opt.textContent = r.name + " \u2013 " + (r.region_name || r.name);
             opt.setAttribute("data-zone", r.zone || "");
             regionSelect.appendChild(opt);
         }
     });
-    // Restore selection if still valid
     if (currentRegion) regionSelect.value = currentRegion;
     cascadeFromRegion();
 }
 
 function cascadeFromRegion() {
-    const region = document.getElementById("f-region").value;
     populateTeamHQ();
 }
 
@@ -410,7 +429,6 @@ function onCriteriaChange() {
     const criteria = document.getElementById("f-criteria").value;
     const wrapper = document.getElementById("team-hq-wrapper");
     const label = document.getElementById("team-hq-label");
-
     if (criteria === "Team" || criteria === "HQ") {
         wrapper.style.display = "";
         label.textContent = criteria === "Team" ? "Select Team" : "Select HQ";
@@ -425,27 +443,22 @@ function populateTeamHQ() {
     const region = document.getElementById("f-region").value;
     const sel = document.getElementById("f-team-or-hq");
     sel.innerHTML = '<option value="">-- All --</option>';
-
     if (criteria === "Team") {
         ALL_TEAMS.forEach(t => {
             if (!region || t.region === region) {
                 const opt = document.createElement("option");
-                opt.value = t.name;
-                opt.textContent = t.name;
+                opt.value = t.name; opt.textContent = t.name;
                 sel.appendChild(opt);
             }
         });
     } else if (criteria === "HQ") {
-        // Filter HQs: if region selected, filter via team→region
         const regionTeams = new Set();
-        if (region) {
-            ALL_TEAMS.forEach(t => { if (t.region === region) regionTeams.add(t.name); });
-        }
+        if (region) ALL_TEAMS.forEach(t => { if (t.region === region) regionTeams.add(t.name); });
         ALL_HQS.forEach(h => {
             if (!region || regionTeams.has(h.team)) {
                 const opt = document.createElement("option");
                 opt.value = h.name;
-                opt.textContent = h.hq_name ? (h.name + " – " + h.hq_name) : h.name;
+                opt.textContent = h.hq_name ? (h.name + " \u2013 " + h.hq_name) : h.name;
                 sel.appendChild(opt);
             }
         });
@@ -459,44 +472,30 @@ function filterProductsByType() {
     const type = document.getElementById("f-product-type").value;
     const catMap = {"Hospital Products": "Hospital Product", "Other Products": "Main Product"};
     document.querySelectorAll("#product-checkbox-list .product-check-label").forEach(el => {
-        if (type === "All") {
-            el.style.display = "";
-        } else {
-            el.style.display = el.getAttribute("data-category") === catMap[type] ? "" : "none";
-        }
+        el.style.display = (type === "All" || el.getAttribute("data-category") === catMap[type]) ? "" : "none";
     });
     updateSelectAllState();
 }
-
 function filterProductSearch() {
     const term = document.getElementById("product-search").value.toLowerCase();
     document.querySelectorAll("#product-checkbox-list .product-check-label").forEach(el => {
-        // Only filter among visible (not hidden by type filter)
         if (el.style.display === "none") return;
-        const text = el.textContent.toLowerCase();
-        el.style.display = text.includes(term) ? "" : "none";
+        el.style.display = el.textContent.toLowerCase().includes(term) ? "" : "none";
     });
 }
-
 function toggleSelectAll() {
     const checked = document.getElementById("product-select-all").checked;
     document.querySelectorAll("#product-checkbox-list .product-check-label").forEach(el => {
-        if (el.style.display !== "none") {
-            el.querySelector("input").checked = checked;
-        }
+        if (el.style.display !== "none") el.querySelector("input").checked = checked;
     });
 }
-
 function updateSelectAllState() {
     const visible = document.querySelectorAll("#product-checkbox-list .product-check-label:not([style*='display: none']) input");
-    const allChecked = Array.from(visible).every(cb => cb.checked);
-    document.getElementById("product-select-all").checked = allChecked;
+    document.getElementById("product-select-all").checked = Array.from(visible).every(cb => cb.checked);
 }
-
 function getSelectedProducts() {
     const cbs = document.querySelectorAll("#product-checkbox-list input.product-cb:checked");
     const allCbs = document.querySelectorAll("#product-checkbox-list input.product-cb");
-    // If all selected, return empty (no filter)
     if (cbs.length === allCbs.length) return [];
     return Array.from(cbs).map(cb => cb.value);
 }
@@ -506,7 +505,6 @@ function getSelectedProducts() {
 // ─────────────────────────────────────────────────────────────
 function generateReport() {
     if (!currentReportType) return showAlert("Please select a report type", "warning");
-
     const params = buildParams();
     const endpointMap = {
         activity_trend: "scanify.api.get_scheme_activity_trend_report",
@@ -514,7 +512,6 @@ function generateReport() {
         new_approval_doctors: "scanify.api.get_new_approval_doctors_report",
         periodic: "scanify.api.get_scheme_periodic_report",
     };
-
     document.getElementById("report-loading").style.display = "block";
     document.getElementById("report-output").style.display = "none";
     document.getElementById("report-empty").style.display = "none";
@@ -531,8 +528,7 @@ function generateReport() {
                 currentReportData = r.message;
                 renderReport(r.message);
             } else {
-                const msg = (r && r.message && r.message.message) || "Failed to fetch report data";
-                showAlert(msg, "danger");
+                showAlert((r && r.message && r.message.message) || "Failed to fetch report data", "danger");
             }
         },
         error: function(xhr) {
@@ -591,7 +587,6 @@ function renderReport(result) {
         new_approval_doctors: renderNewApprovalDoctors,
         periodic: renderPeriodicReport,
     };
-
     const renderer = renderers[currentReportType];
     if (renderer) renderer(result, thead, tbody);
 
@@ -610,7 +605,6 @@ function renderReport(result) {
     document.getElementById("btn-pdf").style.display = "";
     document.getElementById("report-count").textContent = dataLen + " rows";
 
-    // Header text
     const titles = {
         activity_trend: "Activity Trend Report",
         activity_track: "Activity Track Report",
@@ -619,20 +613,14 @@ function renderReport(result) {
     };
     const fromDate = document.getElementById("f-from-date").value;
     const toDate = document.getElementById("f-to-date").value;
-    const regionVal = document.getElementById("f-region").value || "All Regions";
+    const regionSel = document.getElementById("f-region");
+    const regionVal = regionSel.value ? regionSel.options[regionSel.selectedIndex].text : "All Regions";
     let subtitle = "Region: " + regionVal;
     if (fromDate && toDate) subtitle += " | Period: " + fromDate + " to " + toDate;
-    if (currentReportType === "activity_trend" && result.fy_label) {
-        subtitle = regionVal + " Region | " + result.fy_label;
-    }
-    if (currentReportType === "periodic") {
-        subtitle += " | Group By: " + (result.group_by || "HQ");
-    }
+    if (currentReportType === "activity_trend" && result.fy_label) subtitle = regionVal + " | " + result.fy_label;
+    if (currentReportType === "periodic") subtitle += " | Group By: " + (result.group_by || "HQ");
 
-    currentReportMeta = {
-        title: titles[currentReportType] + " – " + DIVISION,
-        subtitle: subtitle,
-    };
+    currentReportMeta = { title: titles[currentReportType] + " \u2013 " + DIVISION, subtitle: subtitle };
     document.getElementById("report-title").textContent = currentReportMeta.title;
     document.getElementById("report-subtitle").textContent = subtitle;
     document.getElementById("print-title").textContent = currentReportMeta.title;
@@ -643,6 +631,7 @@ function th(text) { return '<th>' + text + '</th>'; }
 function td(text, cls) { return '<td class="' + (cls || '') + '">' + (text != null ? text : '') + '</td>'; }
 function fmt(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : "0.00"; }
 function fmtQty(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumFractionDigits: 0, maximumFractionDigits: 2}) : "0"; }
+function fmtLakhs(n) { return (n != null ? (Number(n) / 100000) : 0).toFixed(2); }
 
 function esc(s) {
     if (s == null) return "";
@@ -680,29 +669,47 @@ function renderActivityTrend(result, thead, tbody) {
 function renderActivityTrack(result, thead, tbody) {
     thead.innerHTML = '<tr>' + th("S.No") + th("Date") + th("Region") + th("HQ") +
         th("Doctor Name") + th("Product") + th("Qty") + th("Free Qty") +
-        th("Rate") + th("Value") + th("Stockist") + '</tr>';
+        th("Rate") + th("Value") + th("Value (\u20b9 Lakhs)") + th("Stockist") + '</tr>';
 
     var currentTeam = null;
+    var teamQty = 0, teamFree = 0, teamVal = 0;
+
+    function flushTeamSubtotal() {
+        if (currentTeam !== null) {
+            tbody.innerHTML += '<tr class="total-row"><td colspan="6" class="text-right"><strong>Team Total</strong></td>' +
+                td(fmtQty(teamQty), "text-right") + td(fmtQty(teamFree), "text-right") +
+                '<td></td>' + td(fmt(teamVal), "text-right") + td(fmtLakhs(teamVal), "text-right") + '<td></td></tr>';
+        }
+    }
+
     (result.data || []).forEach(function(r) {
         if (r.team !== currentTeam) {
+            flushTeamSubtotal();
             currentTeam = r.team;
-            tbody.innerHTML += '<tr class="group-row"><td colspan="11">' +
+            teamQty = 0; teamFree = 0; teamVal = 0;
+            tbody.innerHTML += '<tr class="group-row"><td colspan="12">' +
                 esc(currentTeam) + ' Team</td></tr>';
         }
+        teamQty += Number(r.qty) || 0;
+        teamFree += Number(r.free_qty) || 0;
+        teamVal += Number(r.value) || 0;
         tbody.innerHTML += '<tr>' +
             td(r.sno) + td(r.date) + td(esc(r.region)) + td(esc(r.hq)) +
             td(esc(r.doctor_name)) + td(esc(r.product_code)) +
             td(fmtQty(r.qty), "text-right") + td(fmtQty(r.free_qty), "text-right") +
             td(fmt(r.rate), "text-right") + td(fmt(r.value), "text-right") +
+            td(fmtLakhs(r.value), "text-right") +
             td(esc(r.stockist_name)) + '</tr>';
     });
+    flushTeamSubtotal();
 
-    // Totals row
+    // Grand Totals
     var totals = result.totals || {};
-    tbody.innerHTML += '<tr class="total-row">' +
-        '<td colspan="6" class="text-right">Total</td>' +
+    tbody.innerHTML += '<tr class="grand-total-row">' +
+        '<td colspan="6" class="text-right"><strong>Grand Total</strong></td>' +
         td(fmtQty(totals.qty), "text-right") + td(fmtQty(totals.free_qty), "text-right") +
-        '<td></td>' + td(fmt(totals.value), "text-right") + '<td></td></tr>';
+        '<td></td>' + td(fmt(totals.value), "text-right") +
+        td(fmtLakhs(totals.value), "text-right") + '<td></td></tr>';
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -725,7 +732,8 @@ function renderNewApprovalDoctors(result, thead, tbody) {
 // ─────────────────────────────────────────────────────────────
 function renderPeriodicReport(result, thead, tbody) {
     var gb = result.group_by || "HQ";
-    thead.innerHTML = '<tr>' + th(gb) + th("Total Qty") + th("Free Qty") + th("Total Value") + '</tr>';
+    thead.innerHTML = '<tr>' + th(gb) + th("Total Qty") + th("Free Qty") +
+        th("Total Value") + th("Value (\u20b9 Lakhs)") + '</tr>';
 
     var grandQty = 0, grandFree = 0, grandVal = 0;
     (result.data || []).forEach(function(r) {
@@ -733,28 +741,28 @@ function renderPeriodicReport(result, thead, tbody) {
             td(esc(r.group_label)) +
             td(fmtQty(r.total_qty), "text-right") +
             td(fmtQty(r.free_qty), "text-right") +
-            td(fmt(r.total_value), "text-right") + '</tr>';
+            td(fmt(r.total_value), "text-right") +
+            td(fmtLakhs(r.total_value), "text-right") + '</tr>';
         grandQty += r.total_qty || 0;
         grandFree += r.free_qty || 0;
         grandVal += r.total_value || 0;
     });
 
-    // Grand Total row
-    tbody.innerHTML += '<tr class="total-row">' +
+    tbody.innerHTML += '<tr class="grand-total-row">' +
         '<td class="text-right"><strong>Grand Total</strong></td>' +
         td(fmtQty(grandQty), "text-right") +
         td(fmtQty(grandFree), "text-right") +
-        td(fmt(grandVal), "text-right") + '</tr>';
+        td(fmt(grandVal), "text-right") +
+        td(fmtLakhs(grandVal), "text-right") + '</tr>';
 }
 
 // ─────────────────────────────────────────────────────────────
-// Download Excel (server-side)
+// Download Excel
 // ─────────────────────────────────────────────────────────────
 function downloadExcel() {
     if (!currentReportType) return;
     var params = buildParams();
     params.report_type = currentReportType;
-
     var qs = Object.entries(params).map(function(e) {
         return encodeURIComponent(e[0]) + "=" + encodeURIComponent(e[1]);
     }).join("&");
@@ -762,22 +770,443 @@ function downloadExcel() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Download PDF (client-side jsPDF)
+// Download PDF – Consolidated with Summary & Charts
 // ─────────────────────────────────────────────────────────────
-function downloadPDF() {
-    if (!currentReportData) return;
-    var jsPDF = window.jspdf.jsPDF;
-    var doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+function renderChartToImage(chartConfig, width, height) {
+    return new Promise(function(resolve) {
+        var cvs = document.createElement("canvas");
+        cvs.width = width || 800; cvs.height = height || 400;
+        cvs.style.position = "fixed"; cvs.style.left = "-9999px";
+        document.body.appendChild(cvs);
+        var ctx = cvs.getContext("2d");
+        var chart = new Chart(ctx, chartConfig);
+        setTimeout(function() {
+            var img = cvs.toDataURL("image/png", 1.0);
+            chart.destroy();
+            document.body.removeChild(cvs);
+            resolve(img);
+        }, 300);
+    });
+}
 
-    // Title
+function addPDFHeader(doc, title, subtitle) {
+    doc.setFillColor(30, 41, 59);
+    doc.rect(0, 0, 297, 20, "F");
+    doc.setTextColor(255, 255, 255);
     doc.setFontSize(14);
-    doc.text(currentReportMeta.title || "Scheme Report", 14, 15);
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(currentReportMeta.subtitle || "", 14, 22);
+    doc.text(title || "Scheme Report", 14, 13);
+    doc.setFontSize(9);
+    doc.setTextColor(200, 200, 200);
+    doc.text(subtitle || "", 14, 18);
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(8); doc.setTextColor(100);
+    doc.text("Generated: " + new Date().toLocaleDateString("en-IN") + "  |  Division: " + DIVISION, 297 - 14, 18, { align: "right" });
     doc.setTextColor(0);
+    return 26;
+}
 
-    // Extract table data from rendered HTML
+function addPageFooter(doc) {
+    var pageCount = doc.internal.getNumberOfPages();
+    for (var i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7); doc.setTextColor(150);
+        doc.text("Stedman Pharmaceuticals \u2013 Scanify Portal  |  Page " + i + " of " + pageCount, 148.5, 205, { align: "center" });
+    }
+}
+
+// ─── Summary builders ───
+function buildActivityTrackSummary(data) {
+    var teams = {};
+    (data || []).forEach(function(r) {
+        var key = r.team || "Unknown";
+        if (!teams[key]) teams[key] = { team: key, region: r.region || "", qty: 0, freeQty: 0, value: 0, txns: 0 };
+        teams[key].qty += Number(r.qty) || 0;
+        teams[key].freeQty += Number(r.free_qty) || 0;
+        teams[key].value += Number(r.value) || 0;
+        teams[key].txns += 1;
+    });
+    var arr = Object.values(teams);
+    arr.sort(function(a, b) { return b.value - a.value; });
+    return arr;
+}
+
+function buildPeriodicSummary(data) {
+    return (data || []).map(function(r) {
+        return { label: r.group_label, qty: r.total_qty || 0, freeQty: r.free_qty || 0, value: r.total_value || 0 };
+    });
+}
+
+function buildNewApprovalSummary(data) {
+    var regions = {};
+    (data || []).forEach(function(r) {
+        var key = r.region || "Unknown";
+        if (!regions[key]) regions[key] = { region: key, count: 0 };
+        regions[key].count += 1;
+    });
+    var arr = Object.values(regions);
+    arr.sort(function(a, b) { return b.count - a.count; });
+    return arr;
+}
+
+function buildActivityTrendSummary(data) {
+    var ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+    var regions = {};
+    var hqs = {};
+    var monthActivity = [0,0,0,0,0,0,0,0,0,0,0,0];
+    var totalDoctors = (data || []).length;
+
+    (data || []).forEach(function(r) {
+        var regKey = r.region || "Unknown";
+        if (!regions[regKey]) regions[regKey] = { region: regKey, doctors: 0, activeMonths: 0 };
+        regions[regKey].doctors += 1;
+
+        var hqKey = r.hq || "Unknown";
+        if (!hqs[hqKey]) hqs[hqKey] = { hq: hqKey, hq_name: r.hq_name || hqKey, region: r.region || "", doctors: 0, activeMonths: 0 };
+        hqs[hqKey].doctors += 1;
+
+        var docActive = 0;
+        (r.months || []).forEach(function(cell, idx) {
+            if (cell && cell.trim() !== "") {
+                monthActivity[idx] += 1;
+                docActive += 1;
+            }
+        });
+        regions[regKey].activeMonths += docActive;
+        hqs[hqKey].activeMonths += docActive;
+    });
+
+    var regionArr = Object.values(regions);
+    regionArr.sort(function(a, b) { return b.doctors - a.doctors; });
+    var hqArr = Object.values(hqs);
+    hqArr.sort(function(a, b) { return b.doctors - a.doctors; });
+
+    return {
+        regions: regionArr,
+        hqs: hqArr,
+        monthActivity: monthActivity,
+        monthLabels: ml,
+        totalDoctors: totalDoctors
+    };
+}
+
+async function downloadPDF() {
+    if (!currentReportData) return;
+    var { jsPDF } = window.jspdf;
+    var doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    var data = currentReportData;
+    var startY;
+
+    // ═══════════════════════════════════════════════
+    // PAGE 1: Consolidated Summary
+    // ═══════════════════════════════════════════════
+    startY = addPDFHeader(doc, currentReportMeta.title, currentReportMeta.subtitle);
+
+    if (currentReportType === "activity_track") {
+        var summary = buildActivityTrackSummary(data.data);
+        var grandQty = 0, grandVal = 0;
+        summary.forEach(function(s) { grandQty += s.qty; grandVal += s.value; });
+
+        // Stat boxes
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Total Teams", 18, startY + 6);
+        doc.text("Total Value (\u20b9 Lakhs)", 86, startY + 6);
+        doc.text("Total Qty", 154, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(summary.length), 18, startY + 14);
+        doc.text(fmtLakhs(grandVal), 86, startY + 14);
+        doc.text(fmtQty(grandQty), 154, startY + 14);
+        doc.setTextColor(0);
+
+        doc.setFontSize(10);
+        doc.text("Consolidated Team-wise Summary", 14, startY + 26);
+        var sHead = [["#", "Team", "Region", "Transactions", "Qty", "Free Qty", "Value", "Value (\u20b9 Lakhs)", "% Share"]];
+        var sBody = summary.map(function(s, i) {
+            return [i + 1, s.team, s.region, s.txns, fmtQty(s.qty), fmtQty(s.freeQty), fmt(s.value), fmtLakhs(s.value),
+                    grandVal > 0 ? ((s.value / grandVal) * 100).toFixed(1) + "%" : "0%"];
+        });
+        sBody.push(["", "", "GRAND TOTAL", "", fmtQty(grandQty), "", fmt(grandVal), fmtLakhs(grandVal), "100%"]);
+        doc.autoTable({
+            head: sHead, body: sBody, startY: startY + 30,
+            styles: { fontSize: 7, cellPadding: 1.5 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === sBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // Charts page
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+        var top10 = summary.slice(0, 10);
+        var barImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: top10.map(function(s) { return s.team.length > 18 ? s.team.substring(0, 18) + "\u2026" : s.team; }),
+                datasets: [{ label: "Value (\u20b9 Lakhs)", data: top10.map(function(s) { return fmtLakhs(s.value); }),
+                    backgroundColor: ["#4f46e5", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"] }]
+            },
+            options: { indexAxis: "y", responsive: false, animation: false,
+                plugins: { legend: { display: false }, title: { display: true, text: "Top Teams by Value (\u20b9 Lakhs)", font: { size: 16 } } },
+                scales: { x: { beginAtZero: true, title: { display: true, text: "\u20b9 Lakhs" } } } }
+        }, 900, 450);
+        doc.addImage(barImg, "PNG", 14, startY, 170, 85);
+
+        var pieLabels = top10.slice(0, 5).map(function(s) { return s.team; });
+        var pieData = top10.slice(0, 5).map(function(s) { return fmtLakhs(s.value); });
+        var othersVal = summary.slice(5).reduce(function(sum, s) { return sum + s.value; }, 0);
+        if (othersVal > 0) { pieLabels.push("Others"); pieData.push(fmtLakhs(othersVal)); }
+        var pieImg = await renderChartToImage({
+            type: "doughnut",
+            data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: ["#4f46e5", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#94a3b8"] }] },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Value Distribution \u2013 Top Teams", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
+        }, 600, 400);
+        doc.addImage(pieImg, "PNG", 190, startY, 95, 63);
+
+    } else if (currentReportType === "periodic") {
+        var pSummary = buildPeriodicSummary(data.data);
+        var pGrandVal = pSummary.reduce(function(s, r) { return s + r.value; }, 0);
+        var pGrandQty = pSummary.reduce(function(s, r) { return s + r.qty; }, 0);
+
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Groups", 18, startY + 6);
+        doc.text("Total Value (\u20b9 Lakhs)", 86, startY + 6);
+        doc.text("Total Qty", 154, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(pSummary.length), 18, startY + 14);
+        doc.text(fmtLakhs(pGrandVal), 86, startY + 14);
+        doc.text(fmtQty(pGrandQty), 154, startY + 14);
+        doc.setTextColor(0);
+
+        var gb = data.group_by || "HQ";
+        doc.setFontSize(10);
+        doc.text("Periodic Summary (Group By: " + gb + ")", 14, startY + 26);
+        var pHead = [["#", gb, "Total Qty", "Free Qty", "Total Value", "Value (\u20b9 Lakhs)", "% Share"]];
+        var pBody = pSummary.map(function(r, i) {
+            return [i + 1, r.label, fmtQty(r.qty), fmtQty(r.freeQty), fmt(r.value), fmtLakhs(r.value),
+                    pGrandVal > 0 ? ((r.value / pGrandVal) * 100).toFixed(1) + "%" : "0%"];
+        });
+        pBody.push(["", "GRAND TOTAL", fmtQty(pGrandQty), "", fmt(pGrandVal), fmtLakhs(pGrandVal), "100%"]);
+        doc.autoTable({
+            head: pHead, body: pBody, startY: startY + 30,
+            styles: { fontSize: 7, cellPadding: 1.5 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === pBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // Charts page
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+        var topItems = pSummary.slice(0, 10);
+        var pBarImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: topItems.map(function(r) { return r.label && r.label.length > 18 ? r.label.substring(0, 18) + "\u2026" : r.label; }),
+                datasets: [{ label: "Value (\u20b9 Lakhs)", data: topItems.map(function(r) { return fmtLakhs(r.value); }),
+                    backgroundColor: ["#4f46e5", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"] }]
+            },
+            options: { indexAxis: "y", responsive: false, animation: false,
+                plugins: { legend: { display: false }, title: { display: true, text: "Top 10 " + gb + " by Value (\u20b9 Lakhs)", font: { size: 16 } } },
+                scales: { x: { beginAtZero: true, title: { display: true, text: "\u20b9 Lakhs" } } } }
+        }, 900, 450);
+        doc.addImage(pBarImg, "PNG", 14, startY, 170, 85);
+
+        var dpLabels = pSummary.slice(0, 5).map(function(r) { return r.label; });
+        var dpData = pSummary.slice(0, 5).map(function(r) { return fmtLakhs(r.value); });
+        var dpOthers = pSummary.slice(5).reduce(function(s, r) { return s + r.value; }, 0);
+        if (dpOthers > 0) { dpLabels.push("Others"); dpData.push(fmtLakhs(dpOthers)); }
+        var dpPieImg = await renderChartToImage({
+            type: "doughnut",
+            data: { labels: dpLabels, datasets: [{ data: dpData, backgroundColor: ["#4f46e5", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#94a3b8"] }] },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Value Distribution by " + gb, font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
+        }, 600, 400);
+        doc.addImage(dpPieImg, "PNG", 190, startY, 95, 63);
+
+    } else if (currentReportType === "new_approval_doctors") {
+        var naSummary = buildNewApprovalSummary(data.data);
+        var totalDoctors = naSummary.reduce(function(s, r) { return s + r.count; }, 0);
+
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Total New Approvals", 18, startY + 6);
+        doc.text("Regions Covered", 86, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(totalDoctors), 18, startY + 14);
+        doc.text(String(naSummary.length), 86, startY + 14);
+        doc.setTextColor(0);
+
+        doc.setFontSize(10);
+        doc.text("Region-wise New Approval Summary", 14, startY + 26);
+        var naHead = [["#", "Region", "New Approvals", "% Share"]];
+        var naBody = naSummary.map(function(r, i) {
+            return [i + 1, r.region, r.count, totalDoctors > 0 ? ((r.count / totalDoctors) * 100).toFixed(1) + "%" : "0%"];
+        });
+        naBody.push(["", "TOTAL", totalDoctors, "100%"]);
+        doc.autoTable({
+            head: naHead, body: naBody, startY: startY + 30,
+            styles: { fontSize: 8, cellPadding: 2 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === naBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // Chart page
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+        var naBarImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: naSummary.map(function(r) { return r.region; }),
+                datasets: [{ label: "New Approvals", data: naSummary.map(function(r) { return r.count; }),
+                    backgroundColor: "#4f46e5" }]
+            },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "New Approval Doctors by Region", font: { size: 16 } }, legend: { display: false } },
+                scales: { y: { beginAtZero: true } } }
+        }, 900, 400);
+        doc.addImage(naBarImg, "PNG", 14, startY, 268, 120);
+
+    } else if (currentReportType === "activity_trend") {
+        // ── Report 1: Activity Trend – Consolidated Summary ──
+        var atSummary = buildActivityTrendSummary(data.data);
+        var totalActiveEntries = atSummary.monthActivity.reduce(function(s, v) { return s + v; }, 0);
+
+        // Stat boxes
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(218, startY, 62, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Total Doctors", 18, startY + 6);
+        doc.text("Regions", 86, startY + 6);
+        doc.text("HQs", 154, startY + 6);
+        doc.text("Total Activity Entries", 222, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(atSummary.totalDoctors), 18, startY + 14);
+        doc.text(String(atSummary.regions.length), 86, startY + 14);
+        doc.text(String(atSummary.hqs.length), 154, startY + 14);
+        doc.text(String(totalActiveEntries), 222, startY + 14);
+        doc.setTextColor(0);
+
+        // Region-wise summary table
+        doc.setFontSize(10);
+        doc.text("Consolidated Region-wise Activity Summary", 14, startY + 26);
+        var atHead = [["#", "Region", "Doctors", "Active Doctor-Months", "Avg Months/Doctor", "% Share"]];
+        var atBody = atSummary.regions.map(function(r, i) {
+            var avgMonths = r.doctors > 0 ? (r.activeMonths / r.doctors).toFixed(1) : "0";
+            return [i + 1, r.region, r.doctors, r.activeMonths, avgMonths,
+                    atSummary.totalDoctors > 0 ? ((r.doctors / atSummary.totalDoctors) * 100).toFixed(1) + "%" : "0%"];
+        });
+        atBody.push(["", "TOTAL", atSummary.totalDoctors, totalActiveEntries, "", "100%"]);
+        doc.autoTable({
+            head: atHead, body: atBody, startY: startY + 30,
+            styles: { fontSize: 7, cellPadding: 1.5 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === atBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // HQ-wise summary table on same or next area
+        var hqStartY = doc.lastAutoTable.finalY + 8;
+        if (hqStartY > 160) {
+            doc.addPage();
+            hqStartY = addPDFHeader(doc, currentReportMeta.title, "HQ-wise Summary");
+        }
+        doc.setFontSize(10);
+        doc.text("HQ-wise Activity Summary", 14, hqStartY);
+        var hqHead = [["#", "HQ Code", "HQ Name", "Region", "Doctors", "Active Doctor-Months"]];
+        var hqBody = atSummary.hqs.map(function(h, i) {
+            return [i + 1, h.hq, h.hq_name, h.region, h.doctors, h.activeMonths];
+        });
+        hqBody.push(["", "", "TOTAL", "", atSummary.totalDoctors, totalActiveEntries]);
+        doc.autoTable({
+            head: hqHead, body: hqBody, startY: hqStartY + 4,
+            styles: { fontSize: 7, cellPadding: 1.5 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === hqBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // Charts page
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+
+        // Monthly activity bar chart
+        var atBarImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: atSummary.monthLabels,
+                datasets: [{ label: "Active Doctors", data: atSummary.monthActivity, backgroundColor: "#4f46e5" }]
+            },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Monthly Doctor Activity Count", font: { size: 16 } }, legend: { display: false } },
+                scales: { y: { beginAtZero: true, title: { display: true, text: "Doctors with Activity" } } } }
+        }, 900, 400);
+        doc.addImage(atBarImg, "PNG", 14, startY, 170, 85);
+
+        // Region-wise doctors doughnut
+        var topRegions = atSummary.regions.slice(0, 8);
+        var othersDoctors = atSummary.regions.slice(8).reduce(function(s, r) { return s + r.doctors; }, 0);
+        var regPieLabels = topRegions.map(function(r) { return r.region.length > 18 ? r.region.substring(0, 18) + "\u2026" : r.region; });
+        var regPieData = topRegions.map(function(r) { return r.doctors; });
+        if (othersDoctors > 0) { regPieLabels.push("Others"); regPieData.push(othersDoctors); }
+        var atPieImg = await renderChartToImage({
+            type: "doughnut",
+            data: { labels: regPieLabels, datasets: [{ data: regPieData,
+                backgroundColor: ["#4f46e5", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#94a3b8"] }] },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Doctor Distribution by Region", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
+        }, 600, 400);
+        doc.addImage(atPieImg, "PNG", 190, startY, 95, 63);
+
+    } else {
+        // Generic fallback
+        doc.setFontSize(10);
+        doc.text("Consolidated Report Summary", 14, startY + 4);
+        var rowCount = (data.data || []).length;
+        doc.setFontSize(9); doc.setTextColor(80);
+        doc.text("Total records: " + rowCount, 14, startY + 12);
+        doc.setTextColor(0);
+    }
+
+    // ═══════════════════════════════════════════════
+    // DETAIL PAGE: Full table from rendered HTML
+    // ═══════════════════════════════════════════════
+    doc.addPage();
+    startY = addPDFHeader(doc, currentReportMeta.title, "Detailed Report Data");
+
     var table = document.getElementById("report-table");
     var head = [];
     var body = [];
@@ -792,32 +1221,42 @@ function downloadPDF() {
         var row = [];
         var isGroup = tr.classList.contains("group-row");
         var isTotal = tr.classList.contains("total-row");
+        var isGrandTotal = tr.classList.contains("grand-total-row");
         tr.querySelectorAll("td").forEach(function(c) { row.push(c.textContent.trim()); });
-        body.push({ cells: row, isGroup: isGroup, isTotal: isTotal });
+        body.push({ cells: row, isGroup: isGroup, isTotal: isTotal, isGrandTotal: isGrandTotal });
     });
 
     doc.autoTable({
         head: head,
         body: body.map(function(r) { return r.cells; }),
-        startY: 28,
-        styles: { fontSize: 8, cellPadding: 1.5 },
-        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold" },
-        didParseCell: function(data) {
-            if (data.section === "body") {
-                var r = body[data.row];
-                if (r && r.isGroup) {
-                    data.cell.styles.fillColor = [232, 237, 243];
-                    data.cell.styles.fontStyle = "bold";
-                }
-                if (r && r.isTotal) {
-                    data.cell.styles.fillColor = [209, 219, 232];
-                    data.cell.styles.fontStyle = "bold";
+        startY: startY,
+        styles: { fontSize: 7, cellPadding: 1.2 },
+        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold", fontSize: 7 },
+        didParseCell: function(d) {
+            if (d.section === "body" && body[d.row]) {
+                var r = body[d.row];
+                if (r.isGrandTotal) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                } else if (r.isGroup) {
+                    d.cell.styles.fillColor = [232, 237, 243]; d.cell.styles.fontStyle = "bold";
+                } else if (r.isTotal) {
+                    d.cell.styles.fillColor = [209, 219, 232]; d.cell.styles.fontStyle = "bold";
                 }
             }
         },
-        margin: { left: 14, right: 14 },
+        margin: { left: 10, right: 10 },
+        didDrawPage: function(d) {
+            if (d.pageNumber > 1) {
+                doc.setFillColor(30, 41, 59);
+                doc.rect(0, 0, 297, 12, "F");
+                doc.setTextColor(255); doc.setFontSize(9);
+                doc.text(currentReportMeta.title + " \u2013 Detail (contd.)", 14, 8);
+                doc.setTextColor(0);
+            }
+        }
     });
 
+    addPageFooter(doc);
     var filename = currentReportType + "_" + DIVISION + "_" + new Date().toISOString().slice(0, 10) + ".pdf";
     doc.save(filename);
 }
