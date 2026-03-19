@@ -6,183 +6,279 @@
 <div class="portal-page sales-target-list-page">
     <div class="page-header d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1 class="page-title"><i class="fa fa-list-alt"></i> Sales Targets List</h1>
+            <h1 class="page-title"><i class="fa fa-list-alt"></i> Sales Targets</h1>
             <p class="page-subtitle text-muted">HQ-wise target rows for {{ division }} division</p>
         </div>
-        <div class="d-flex align-items-center" style="gap: 15px;">
-            <select class="form-control form-control-sm" id="region-filter">
-                <option value="">All Regions</option>
-                {% for r in regions %}
-                <option value="{{ r.name }}" {% if r.name==selected_region %}selected{% endif %}>{{ r.region_name }}
-                </option>
-                {% endfor %}
-            </select>
-            <select class="form-control form-control-sm" id="team-filter">
-                <option value="">All Teams</option>
-                {% for t in teams %}
-                <option value="{{ t.name }}" {% if t.name==selected_team %}selected{% endif %}>{{ t.team_name }}
-                </option>
-                {% endfor %}
-            </select>
-            <a href="/portal/sales-targets" class="btn btn-primary text-nowrap"><i class="fa fa-plus"></i> New
-                Target</a>
-        </div>
+        <a href="/portal/sales-targets" class="btn btn-primary"><i class="fa fa-plus"></i> New Target</a>
     </div>
 
-    <div class="card shadow-sm border-0">
-        <div class="card-body p-0 border">
-            <div class="table-responsive">
-                <table class="table table-hover mb-0">
-                    <thead>
-                        <tr>
-                            <th>Target ID</th>
-                            <th>HQ</th>
-                            <th>Team</th>
-                            <th>Financial Year</th>
-                            <th>Yearly Target (Lakhs)</th>
-                            <th>Start Date</th>
-                            <th>End Date</th>
-                            <th>Status</th>
-                            <th>Created On</th>
-                            <th class="text-center">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% if target_rows %}
-                        {% for row in target_rows %}
-                        <tr style="font-size:13px;">
-                            <td class="py-1"><strong>{{ row.target_id }}</strong></td>
-                            <td class="py-1">
-                                <div class="font-weight-600">{{ row.hq_name or row.hq }}</div>
-                                <small class="text-muted">{{ row.hq }}</small>
-                            </td>
-                            <td class="py-1">{{ row.team or '-' }}</td>
-                            <td class="py-1">{{ row.financial_year }}</td>
-                            <td class="py-1 font-weight-600">{{ "{:,.2f}".format(row.yearly_total or 0) }}</td>
-                            <td class="py-1">{{ frappe.utils.formatdate(row.start_date) }}</td>
-                            <td class="py-1">{{ frappe.utils.formatdate(row.end_date) }}</td>
-                            <td class="py-1">
-                                {% if row.docstatus == 1 %}
-                                <span class="badge badge-success">Approved</span>
-                                {% elif row.status == 'Draft' or not row.status %}
-                                <span class="badge badge-warning">Draft</span>
-                                {% else %}
-                                <span class="badge badge-secondary">{{ row.status }}</span>
-                                {% endif %}
-                            </td>
-                            <td class="py-1">{{ frappe.utils.formatdate(row.creation) }}</td>
-                            <td class="py-1 text-center">
-                                <a href="/portal/sales-targets?name={{ row.target_id }}"
-                                    class="btn btn-xs {% if row.docstatus == 1 %}btn-outline-secondary{% else %}btn-outline-primary{% endif %}" 
-                                    title="{% if row.docstatus == 1 %}View Target{% else %}Edit Target{% endif %}">
-                                    <i class="fa fa-{% if row.docstatus == 1 %}eye{% else %}edit{% endif %}"></i>
-                                    {% if row.docstatus == 1 %}View{% else %}Edit{% endif %}
-                                </a>
-                            </td>
-                        </tr>
+    <!-- Filters -->
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body py-3">
+            <div class="row align-items-end">
+                <div class="col-md-3">
+                    <label class="small text-muted font-weight-600 mb-1">Region</label>
+                    <select class="form-control form-control-sm" id="region-filter">
+                        <option value="">All Regions</option>
+                        {% for r in regions %}
+                        <option value="{{ r.name }}" {% if r.name==selected_region %}selected{% endif %}>{{ r.region_name }}</option>
                         {% endfor %}
-                        {% else %}
-                        <tr>
-                            <td colspan="10" class="text-center py-4 text-muted">No sales targets found. Click 'New
-                                Target' to create one.</td>
-                        </tr>
-                        {% endif %}
-                    </tbody>
-                </table>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="small text-muted font-weight-600 mb-1">Team</label>
+                    <select class="form-control form-control-sm" id="team-filter">
+                        <option value="">All Teams</option>
+                        {% for t in teams %}
+                        <option value="{{ t.name }}" {% if t.name==selected_team %}selected{% endif %}>{{ t.team_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="small text-muted font-weight-600 mb-1">Search</label>
+                    <input type="text" class="form-control form-control-sm" id="search-filter" placeholder="Search HQ, Target ID...">
+                </div>
+                <div class="col-md-3 text-right">
+                    <span class="text-muted small" id="result-count"></span>
+                </div>
             </div>
         </div>
     </div>
+
+    {% if target_rows %}
+    <!-- Card grid view -->
+    <div id="target-cards-container">
+        {% for row in target_rows %}
+        <div class="target-card-item" data-search="{{ (row.hq_name or row.hq)|lower }} {{ row.target_id|lower }} {{ (row.team or '')|lower }}">
+            <div class="target-card">
+                <div class="target-card-header">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="target-hq-name">{{ row.hq_name or row.hq }}</div>
+                            <div class="target-meta">
+                                <span class="mr-3"><i class="fa fa-users text-muted mr-1"></i>{{ row.team or '—' }}</span>
+                                <span><i class="fa fa-calendar text-muted mr-1"></i>{{ row.financial_year }}</span>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            {% if row.docstatus == 1 %}
+                            <span class="badge badge-success">Approved</span>
+                            {% elif row.status == 'Draft' or not row.status %}
+                            <span class="badge badge-warning">Draft</span>
+                            {% else %}
+                            <span class="badge badge-secondary">{{ row.status }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="target-card-body">
+                    <div class="target-amount">
+                        <span class="target-amount-value">{{ "{:,.2f}".format(row.yearly_total or 0) }}</span>
+                        <span class="target-amount-label">Lakhs (Yearly)</span>
+                    </div>
+                    <div class="target-card-details">
+                        <div class="detail-item">
+                            <span class="detail-label">ID</span>
+                            <span class="detail-value">{{ row.target_id }}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Period</span>
+                            <span class="detail-value">{{ frappe.utils.formatdate(row.start_date) }} — {{ frappe.utils.formatdate(row.end_date) }}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Created</span>
+                            <span class="detail-value">{{ frappe.utils.formatdate(row.creation) }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="target-card-footer">
+                    <a href="/portal/sales-targets?name={{ row.target_id }}"
+                        class="btn btn-sm {% if row.docstatus == 1 %}btn-outline-secondary{% else %}btn-outline-primary{% endif %}">
+                        <i class="fa fa-{% if row.docstatus == 1 %}eye{% else %}edit{% endif %} mr-1"></i>
+                        {% if row.docstatus == 1 %}View{% else %}Edit{% endif %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="card border-0 shadow-sm">
+        <div class="card-body text-center py-5 text-muted">
+            <i class="fa fa-inbox fa-3x mb-3"></i>
+            <p class="mb-2">No sales targets found.</p>
+            <a href="/portal/sales-targets" class="btn btn-primary btn-sm"><i class="fa fa-plus mr-1"></i> Create Target</a>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Pagination -->
     <div id="target-pagination" class="d-flex justify-content-between align-items-center mt-3"></div>
 </div>
 
 <style>
-    .sales-target-list-page {
-        animation: fadeIn 0.3s ease;
+    .sales-target-list-page { animation: fadeIn 0.3s ease; }
+
+    /* Card layout */
+    #target-cards-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+        gap: 16px;
+    }
+    @media (max-width: 768px) {
+        #target-cards-container { grid-template-columns: 1fr; }
     }
 
-    .sales-target-list-page .table thead th {
-        position: sticky;
-        top: 0;
-        z-index: 5;
-        background: var(--color-bg);
-        white-space: nowrap;
-    }
-
-    .sales-target-list-page .table tbody tr {
+    .target-card {
+        background: #fff;
+        border-radius: 14px;
+        border: 1px solid var(--color-border);
+        overflow: hidden;
         transition: all 0.2s ease;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+    .target-card:hover {
+        box-shadow: var(--shadow-md);
+        transform: translateY(-2px);
     }
 
-    .sales-target-list-page .table tbody tr:hover {
-        transform: translateX(2px);
+    .target-card-header {
+        padding: 16px 18px 10px;
+        border-bottom: 1px solid #f1f5f9;
+    }
+    .target-hq-name {
+        font-weight: 700;
+        font-size: 1rem;
+        color: var(--color-text);
+        margin-bottom: 4px;
+    }
+    .target-meta {
+        font-size: 0.78rem;
+        color: var(--color-text-muted);
     }
 
-    .sales-target-list-page .font-weight-600 {
-        font-weight: 600;
+    .target-card-body {
+        padding: 14px 18px;
+        flex: 1;
     }
+    .target-amount {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    .target-amount-value {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: var(--color-accent);
+        font-variant-numeric: tabular-nums;
+    }
+    .target-amount-label {
+        font-size: 0.75rem;
+        color: var(--color-text-muted);
+        text-transform: uppercase;
+    }
+    .target-card-details {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .detail-item {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.8rem;
+    }
+    .detail-label { color: var(--color-text-muted); }
+    .detail-value { font-weight: 500; color: var(--color-text); }
+
+    .target-card-footer {
+        padding: 10px 18px;
+        border-top: 1px solid #f1f5f9;
+        text-align: right;
+    }
+
+    .font-weight-600 { font-weight: 600; }
 </style>
 {% endblock %}
 
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        const PAGE_SIZE = 25;
-        let targetCurrentPage = 1;
-        const regionFilter = document.getElementById('region-filter');
-        const teamFilter = document.getElementById('team-filter');
-        const allRows = Array.from(document.querySelectorAll('table tbody tr')).filter(function(r) { return !r.querySelector('td[colspan]'); });
+        var PAGE_SIZE = 12;
+        var currentPage = 1;
+        var regionFilter = document.getElementById('region-filter');
+        var teamFilter = document.getElementById('team-filter');
+        var searchFilter = document.getElementById('search-filter');
+        var allCards = Array.from(document.querySelectorAll('.target-card-item'));
+        var visibleCards = allCards.slice();
 
-        function paginateTargets() {
-            const total = allRows.length;
-            const totalPages = Math.ceil(total / PAGE_SIZE) || 1;
-            if (targetCurrentPage > totalPages) targetCurrentPage = totalPages;
-            const start = (targetCurrentPage - 1) * PAGE_SIZE;
-            allRows.forEach(function(r, idx) {
-                r.style.display = (idx >= start && idx < start + PAGE_SIZE) ? '' : 'none';
+        function filterCards() {
+            var search = (searchFilter.value || '').toLowerCase().trim();
+            visibleCards = [];
+            allCards.forEach(function (card) {
+                var text = card.getAttribute('data-search') || '';
+                var show = !search || text.indexOf(search) >= 0;
+                card.style.display = show ? '' : 'none';
+                if (show) visibleCards.push(card);
             });
-            renderTargetPagination(total);
+            currentPage = 1;
+            paginate();
         }
 
-        function renderTargetPagination(total) {
-            const container = document.getElementById('target-pagination');
+        function paginate() {
+            var total = visibleCards.length;
+            var totalPages = Math.ceil(total / PAGE_SIZE) || 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+            var start = (currentPage - 1) * PAGE_SIZE;
+            visibleCards.forEach(function (card, idx) {
+                card.style.display = (idx >= start && idx < start + PAGE_SIZE) ? '' : 'none';
+            });
+            document.getElementById('result-count').textContent = total + ' target' + (total !== 1 ? 's' : '') + ' found';
+            renderPagination(total);
+        }
+
+        function renderPagination(total) {
+            var container = document.getElementById('target-pagination');
             if (total <= PAGE_SIZE) { container.innerHTML = ''; return; }
-            const totalPages = Math.ceil(total / PAGE_SIZE);
-            const s = (targetCurrentPage - 1) * PAGE_SIZE + 1;
-            const e = Math.min(targetCurrentPage * PAGE_SIZE, total);
-            let html = '<small class="text-muted">Showing ' + s + '-' + e + ' of ' + total + '</small>';
+            var totalPages = Math.ceil(total / PAGE_SIZE);
+            var s = (currentPage - 1) * PAGE_SIZE + 1;
+            var e = Math.min(currentPage * PAGE_SIZE, total);
+            var html = '<small class="text-muted">Showing ' + s + '-' + e + ' of ' + total + '</small>';
             html += '<nav><ul class="pagination pagination-sm mb-0">';
-            html += '<li class="page-item ' + (targetCurrentPage===1?'disabled':'') + '"><a class="page-link" href="#" data-page="' + (targetCurrentPage-1) + '">&laquo;</a></li>';
-            var sp = Math.max(1, targetCurrentPage-2), ep = Math.min(totalPages, sp+4);
-            if (ep-sp<4) sp = Math.max(1, ep-4);
-            for (var i=sp;i<=ep;i++) html += '<li class="page-item '+(i===targetCurrentPage?'active':'')+'"><a class="page-link" href="#" data-page="'+i+'">'+i+'</a></li>';
-            html += '<li class="page-item ' + (targetCurrentPage===totalPages?'disabled':'') + '"><a class="page-link" href="#" data-page="' + (targetCurrentPage+1) + '">&raquo;</a></li>';
+            html += '<li class="page-item ' + (currentPage === 1 ? 'disabled' : '') + '"><a class="page-link" href="#" data-page="' + (currentPage - 1) + '">&laquo;</a></li>';
+            var sp = Math.max(1, currentPage - 2), ep = Math.min(totalPages, sp + 4);
+            if (ep - sp < 4) sp = Math.max(1, ep - 4);
+            for (var i = sp; i <= ep; i++) html += '<li class="page-item ' + (i === currentPage ? 'active' : '') + '"><a class="page-link" href="#" data-page="' + i + '">' + i + '</a></li>';
+            html += '<li class="page-item ' + (currentPage === totalPages ? 'disabled' : '') + '"><a class="page-link" href="#" data-page="' + (currentPage + 1) + '">&raquo;</a></li>';
             html += '</ul></nav>';
             container.innerHTML = html;
-            container.querySelectorAll('.page-link').forEach(function(a) {
-                a.addEventListener('click', function(ev) {
+            container.querySelectorAll('.page-link').forEach(function (a) {
+                a.addEventListener('click', function (ev) {
                     ev.preventDefault();
                     var p = parseInt(this.getAttribute('data-page'));
-                    if (p >= 1 && p <= totalPages) { targetCurrentPage = p; paginateTargets(); }
+                    if (p >= 1 && p <= totalPages) { currentPage = p; paginate(); }
                 });
             });
         }
 
-        function applyFilters() {
-            const region = regionFilter.value;
-            const team = teamFilter.value;
-            let url = '/portal/sales-targets-list';
-            const params = [];
+        function applyServerFilters() {
+            var region = regionFilter.value;
+            var team = teamFilter.value;
+            var url = '/portal/sales-targets-list';
+            var params = [];
             if (region) params.push('region=' + encodeURIComponent(region));
             if (team) params.push('team=' + encodeURIComponent(team));
             if (params.length > 0) url += '?' + params.join('&');
             window.location.href = url;
         }
 
-        regionFilter.addEventListener('change', applyFilters);
-        teamFilter.addEventListener('change', applyFilters);
+        regionFilter.addEventListener('change', applyServerFilters);
+        teamFilter.addEventListener('change', applyServerFilters);
+        searchFilter.addEventListener('input', filterCards);
 
-        paginateTargets();
+        paginate();
     });
 </script>
 {% endblock %}

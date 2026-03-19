@@ -4641,6 +4641,7 @@ def get_scheme_list_portal(division=None, filters=None):
                 sr.doctor_name,
                 sr.doctor_code,
                 sr.hq,
+                hqm.hq_name as hq_name,
                 sr.stockist_name,
                 sr.stockist_code,
                 sr.approval_status,
@@ -4651,6 +4652,7 @@ def get_scheme_list_portal(division=None, filters=None):
                 COUNT(sri.name) as product_count
             FROM `tabScheme Request` sr
             LEFT JOIN `tabScheme Request Item` sri ON sr.name = sri.parent
+            LEFT JOIN `tabHQ Master` hqm ON sr.hq = hqm.name
             WHERE {where_sql}
             GROUP BY sr.name
             ORDER BY sr.application_date DESC, sr.creation DESC

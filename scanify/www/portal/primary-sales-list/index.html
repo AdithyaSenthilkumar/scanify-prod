@@ -4,6 +4,7 @@
 
 {% block portal_content %}
 <div class="portal-page primary-sales-list-page">
+    <!-- Page Header -->
     <div class="page-header d-flex justify-content-between align-items-center mb-4 flex-wrap" style="gap:10px;">
         <div>
             <h1 class="page-title"><i class="fa fa-table"></i> Primary Sales Data</h1>
@@ -12,19 +13,34 @@
         <div class="d-flex align-items-center" style="gap:10px;">
             <span class="text-muted" id="row-count-label" style="font-size:13px;"></span>
             <button class="btn btn-success btn-sm text-nowrap" onclick="showAddModal()">
-                <i class="fa fa-plus mr-1"></i> Add New
+                <i class="fa fa-plus mr-1"></i> Add New Record
             </button>
             <a href="/portal/upload-primary-sales" class="btn btn-primary btn-sm text-nowrap">
-                <i class="fa fa-upload mr-1"></i> Upload Data
+                <i class="fa fa-upload mr-1"></i> Bulk Upload
             </a>
         </div>
     </div>
 
     <!-- Filters -->
-    <div class="card shadow-sm border-0 mb-3">
+    <div class="card shadow-sm border-0 mb-3 filter-card">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center" style="padding: 0.6rem 1rem; border-bottom: 2px solid #e2e8f0;">
+            <h6 class="mb-0 text-muted font-weight-600" style="font-size: 13px; letter-spacing: 0.3px;">
+                <i class="fa fa-filter mr-1"></i> FILTERS
+            </h6>
+            <div class="d-flex" style="gap:6px;">
+                <button class="btn btn-sm btn-primary px-3" id="btn-search" onclick="loadData(1)">
+                    <i class="fa fa-search mr-1"></i> Search
+                </button>
+                <button class="btn btn-sm btn-outline-secondary px-3" onclick="clearFilters()">
+                    <i class="fa fa-times mr-1"></i> Clear
+                </button>
+            </div>
+        </div>
         <div class="card-body py-3 px-3">
-            <div class="row" style="row-gap:10px;">
-                <div class="col-md-2 col-6">
+            <!-- Row 1: Dropdowns (Geography + Product Group + Status) -->
+            <div class="filter-row d-flex flex-wrap" style="gap: 10px; margin-bottom: 10px;">
+                <div class="filter-item" style="flex: 1; min-width: 140px;">
+                    <label class="filter-label">Month</label>
                     <select class="form-control form-control-sm" id="f-month">
                         <option value="">All Months</option>
                         {% for m in available_months %}
@@ -32,7 +48,8 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-2 col-6">
+                <div class="filter-item" style="flex: 1; min-width: 140px;">
+                    <label class="filter-label">Zone</label>
                     <select class="form-control form-control-sm" id="f-zone">
                         <option value="">All Zones</option>
                         {% for z in zones %}
@@ -40,7 +57,8 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-2 col-6">
+                <div class="filter-item" style="flex: 1; min-width: 140px;">
+                    <label class="filter-label">Region</label>
                     <select class="form-control form-control-sm" id="f-region">
                         <option value="">All Regions</option>
                         {% for r in regions %}
@@ -48,7 +66,8 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-2 col-6">
+                <div class="filter-item" style="flex: 1; min-width: 140px;">
+                    <label class="filter-label">Team</label>
                     <select class="form-control form-control-sm" id="f-team">
                         <option value="">All Teams</option>
                         {% for t in teams %}
@@ -56,15 +75,17 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-2 col-6">
+                <div class="filter-item" style="flex: 1; min-width: 140px;">
+                    <label class="filter-label">Product Group</label>
                     <select class="form-control form-control-sm" id="f-product-head">
-                        <option value="">All Product Groups</option>
+                        <option value="">All Groups</option>
                         {% for pg in product_groups %}
                         <option value="{{ pg }}">{{ pg }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-2 col-6">
+                <div class="filter-item" style="flex: 1; min-width: 140px;">
+                    <label class="filter-label">Status</label>
                     <select class="form-control form-control-sm" id="f-cancelled">
                         <option value="">All Records</option>
                         <option value="0">Active Only</option>
@@ -72,26 +93,23 @@
                     </select>
                 </div>
             </div>
-            <div class="row mt-2" style="row-gap:10px;">
-                <div class="col-md-3 col-6">
-                    <input type="text" class="form-control form-control-sm" id="f-stockist" placeholder="Search Stockist Code/Name...">
+            <!-- Row 2: Text search inputs -->
+            <div class="filter-row d-flex flex-wrap" style="gap: 10px;">
+                <div class="filter-item" style="flex: 2; min-width: 180px;">
+                    <label class="filter-label">Stockist</label>
+                    <input type="text" class="form-control form-control-sm" id="f-stockist" placeholder="Code or Name...">
                 </div>
-                <div class="col-md-2 col-6">
-                    <input type="text" class="form-control form-control-sm" id="f-pcode" placeholder="Product Code...">
+                <div class="filter-item" style="flex: 1; min-width: 140px;">
+                    <label class="filter-label">Product Code</label>
+                    <input type="text" class="form-control form-control-sm" id="f-pcode" placeholder="e.g. PROD001">
                 </div>
-                <div class="col-md-2 col-6">
-                    <input type="text" class="form-control form-control-sm" id="f-product" placeholder="Product Name...">
+                <div class="filter-item" style="flex: 1.5; min-width: 160px;">
+                    <label class="filter-label">Product Name</label>
+                    <input type="text" class="form-control form-control-sm" id="f-product" placeholder="Search product...">
                 </div>
-                <div class="col-md-2 col-6">
-                    <input type="text" class="form-control form-control-sm" id="f-invoice" placeholder="Invoice No...">
-                </div>
-                <div class="col-md-3 col-6 d-flex align-items-center" style="gap:8px;">
-                    <button class="btn btn-sm btn-primary flex-grow-1" id="btn-search" onclick="loadData(1)">
-                        <i class="fa fa-search mr-1"></i> Search
-                    </button>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="clearFilters()">
-                        <i class="fa fa-times mr-1"></i> Clear
-                    </button>
+                <div class="filter-item" style="flex: 1; min-width: 140px;">
+                    <label class="filter-label">Invoice No</label>
+                    <input type="text" class="form-control form-control-sm" id="f-invoice" placeholder="e.g. INV001">
                 </div>
             </div>
         </div>
@@ -369,6 +387,33 @@
 .primary-sales-list-page .action-col .btn { font-size: 11px; margin: 0 1px; }
 #editModal .modal-body label { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
 #editModal .modal-body h6 { font-size: 13px; font-weight: 700; }
+
+/* Filter card styles */
+.filter-card { border: 1px solid #e2e8f0; }
+.filter-card .card-header { background: #f8fafc !important; }
+.filter-card .filter-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 4px;
+}
+.filter-card .form-control-sm {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 13px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.filter-card .form-control-sm:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+.filter-card select.form-control-sm {
+    background-color: #fff;
+    cursor: pointer;
+}
 </style>
 {% endblock %}
 

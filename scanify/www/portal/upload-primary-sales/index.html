@@ -16,7 +16,7 @@
         </div>
         <div class="card-body" style="padding: 1.5rem;">
             <form id="upload-form">
-                <div class="row">
+                <div class="row align-items-end">
                     <div class="col-md-4">
                         <div class="form-group">
                             <label class="font-weight-600">Month <span class="text-danger">*</span></label>
@@ -34,10 +34,15 @@
                             <small class="text-muted">Max 10MB. Must match the required column format.</small>
                         </div>
                     </div>
-                    <div class="col-md-3 d-flex align-items-end">
-                        <div class="form-group w-100">
+                    <div class="col-md-3 d-flex align-items-end" style="gap: 8px;">
+                        <div class="form-group mb-0 flex-grow-1">
                             <button type="submit" class="btn btn-primary btn-block" id="btn-upload">
                                 <i class="fa fa-upload mr-1"></i> Upload & Process
+                            </button>
+                        </div>
+                        <div class="form-group mb-0">
+                            <button type="button" class="btn btn-outline-info btn-block" onclick="showFormatModal()" title="View expected column format">
+                                <i class="fa fa-info-circle mr-1"></i> Expected Format
                             </button>
                         </div>
                     </div>
@@ -60,53 +65,71 @@
         </div>
     </div>
 
-    <!-- Expected Format Info -->
-    <div class="card shadow-sm border-0 mb-4">
-        <div class="card-header bg-white border-bottom" style="padding: 1rem 1.5rem;">
-            <h5 class="mb-0 font-weight-600"><i class="fa fa-info-circle mr-2 text-info"></i>Expected Column Format</h5>
-        </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-sm mb-0" style="font-size: 12px;">
-                    <thead>
-                        <tr>
-                            <th>Excel Column</th>
-                            <th>Description</th>
-                            <th>Links To</th>
-                            <th>Required</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td><code>stockistcode</code></td><td>Stockist Code</td><td>Stockist Master → stockist_code</td><td>Yes</td></tr>
-                        <tr><td><code>product_head</code></td><td>Product Group</td><td>-</td><td>No (empty when cancelled)</td></tr>
-                        <tr><td><code>stockistname</code></td><td>Stockist Name</td><td>-</td><td>Yes</td></tr>
-                        <tr><td><code>citypool</code></td><td>City / Pool</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>team</code></td><td>Team Name</td><td>Team Master → team_name</td><td>No</td></tr>
-                        <tr><td><code>region</code></td><td>Region Name</td><td>Region Master → region_name</td><td>No</td></tr>
-                        <tr><td><code>act_region</code></td><td>Actual Region</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>zonee</code></td><td>Zone Name</td><td>Zone Master → zone_name</td><td>No</td></tr>
-                        <tr><td><code>invoiceno</code></td><td>Invoice Number</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>invoicedate</code></td><td>Invoice Date</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>pcode</code></td><td>Product Code</td><td>Product Master → product_code</td><td>No (empty when cancelled)</td></tr>
-                        <tr><td><code>product</code></td><td>Product Name</td><td>-</td><td>No (empty when cancelled)</td></tr>
-                        <tr><td><code>pack</code></td><td>Pack</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>batchno</code></td><td>Batch Number</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>quantity</code></td><td>Quantity</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>freeqty</code></td><td>Free Quantity</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>expqty</code></td><td>Expiry Quantity</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>pts</code></td><td>Price to Stockist</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>ptsvalue</code></td><td>PTS × Qty</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>ptr</code></td><td>Price to Retailer</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>ptrvalue</code></td><td>PTR × Qty</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>mrp</code></td><td>MRP</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>mrpvalue</code></td><td>MRP × Qty</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>nrv</code></td><td>Net Realizable Value</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>nrvvalue</code></td><td>NRV × Qty</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>dsort</code></td><td>Division Sort Order</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>direct_party</code></td><td>Direct Party Flag</td><td>-</td><td>No</td></tr>
-                        <tr><td><code>iscancelled</code></td><td>Cancelled Invoice Flag</td><td>-</td><td>Yes</td></tr>
-                    </tbody>
-                </table>
+    <!-- Expected Format Modal -->
+    <div class="modal fade" id="formatModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fa fa-info-circle mr-2 text-info"></i>Expected Column Format</h5>
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="px-3 pt-3 pb-2 d-flex justify-content-between align-items-center">
+                        <p class="mb-0 text-muted" style="font-size:13px;">Your Excel file must have the following columns in this exact order.</p>
+                        <button type="button" class="btn btn-sm btn-success" onclick="downloadPrimarySalesTemplate()" style="white-space:nowrap;">
+                            <i class="fa fa-download mr-1"></i> Download Sample Template
+                        </button>
+                    </div>
+                    <div class="table-responsive" style="max-height: 65vh; overflow-y: auto;">
+                        <table class="table table-sm table-bordered mb-0" style="font-size: 12px;">
+                            <thead>
+                                <tr style="background:#217346;color:white;">
+                                    <th style="padding:8px 12px;white-space:nowrap;">#</th>
+                                    <th style="padding:8px 12px;white-space:nowrap;">Excel Column</th>
+                                    <th style="padding:8px 12px;white-space:nowrap;">Description</th>
+                                    <th style="padding:8px 12px;white-space:nowrap;">Links To</th>
+                                    <th style="padding:8px 12px;white-space:nowrap;">Required</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>1</td><td><code>stockistcode</code></td><td>Stockist Code</td><td>Stockist Master &rarr; stockist_code</td><td><span class="badge badge-danger">Yes</span></td></tr>
+                                <tr><td>2</td><td><code>product_head</code></td><td>Product Group</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>3</td><td><code>stockistname</code></td><td>Stockist Name</td><td>-</td><td><span class="badge badge-danger">Yes</span></td></tr>
+                                <tr><td>4</td><td><code>citypool</code></td><td>City / Pool</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>5</td><td><code>team</code></td><td>Team Name</td><td>Team Master &rarr; team_name</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>6</td><td><code>region</code></td><td>Region Name</td><td>Region Master &rarr; region_name</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>7</td><td><code>act_region</code></td><td>Actual Region</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>8</td><td><code>zonee</code></td><td>Zone Name</td><td>Zone Master &rarr; zone_name</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>9</td><td><code>invoiceno</code></td><td>Invoice Number</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>10</td><td><code>invoicedate</code></td><td>Invoice Date</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>11</td><td><code>pcode</code></td><td>Product Code</td><td>Product Master &rarr; product_code</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>12</td><td><code>product</code></td><td>Product Name</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>13</td><td><code>pack</code></td><td>Pack</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>14</td><td><code>batchno</code></td><td>Batch Number</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>15</td><td><code>quantity</code></td><td>Quantity</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>16</td><td><code>freeqty</code></td><td>Free Quantity</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>17</td><td><code>expqty</code></td><td>Expiry Quantity</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>18</td><td><code>pts</code></td><td>Price to Stockist</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>19</td><td><code>ptsvalue</code></td><td>PTS &times; Qty</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>20</td><td><code>ptr</code></td><td>Price to Retailer</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>21</td><td><code>ptrvalue</code></td><td>PTR &times; Qty</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>22</td><td><code>mrp</code></td><td>MRP</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>23</td><td><code>mrpvalue</code></td><td>MRP &times; Qty</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>24</td><td><code>nrv</code></td><td>Net Realizable Value</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>25</td><td><code>nrvvalue</code></td><td>NRV &times; Qty</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>26</td><td><code>dsort</code></td><td>Division Sort Order</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>27</td><td><code>direct_party</code></td><td>Direct Party Flag</td><td>-</td><td><span class="badge badge-secondary">No</span></td></tr>
+                                <tr><td>28</td><td><code>iscancelled</code></td><td>Cancelled Invoice Flag</td><td>-</td><td><span class="badge badge-danger">Yes</span></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-success" onclick="downloadPrimarySalesTemplate()">
+                        <i class="fa fa-download mr-1"></i> Download Sample Template
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                </div>
             </div>
         </div>
     </div>
@@ -316,5 +339,40 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+
+function showFormatModal() {
+    $('#formatModal').modal('show');
+}
+
+function downloadPrimarySalesTemplate() {
+    var columns = ['stockistcode','product_head','stockistname','citypool','team','region',
+        'act_region','zonee','invoiceno','invoicedate','pcode','product','pack','batchno',
+        'quantity','freeqty','expqty','pts','ptsvalue','ptr','ptrvalue','mrp','mrpvalue',
+        'nrv','nrvvalue','dsort','direct_party','iscancelled'];
+    var sampleRow = ['STK001','Derma','ABC Pharma','Chennai','Team A','South','South',
+        'Zone 1','INV001','2025-01-15','PROD001','Paracetamol 500mg','10x10','B001',
+        '100','5','0','10.00','1000.00','55.00','5500.00','60.00','6000.00',
+        '45.00','4500.00','1','0','0'];
+
+    var csvContent = columns.join(',') + '\n' + sampleRow.map(function(v) {
+        var str = String(v);
+        if (str.indexOf(',') > -1 || str.indexOf('"') > -1) {
+            return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+    }).join(',');
+
+    var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'Primary_Sales_Upload_Template.csv');
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showAlert('Downloaded Primary Sales template', 'success');
+}
 </script>
 {% endblock %}

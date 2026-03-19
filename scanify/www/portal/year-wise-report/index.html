@@ -3,13 +3,13 @@
 {% block title %}Year-wise Sales Target Report{% endblock %}
 
 {% block portal_content %}
-<div class="portal-page report-page">
-    <div class="page-header d-flex justify-content-between align-items-center mb-4 d-print-none">
+<div class="portal-page report-page year-wise-report-page">
+    <div class="page-header d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="page-title"><i class="fa fa-chart-bar"></i> Year-wise Sales Target Report</h1>
             <p class="page-subtitle text-muted">Approved targets for {{ division }} division</p>
         </div>
-        <div class="d-flex align-items-center" style="gap: 15px;">
+        <div class="d-flex align-items-center" style="gap: 10px;">
             <select class="form-control" id="fy-select" style="min-width: 150px;">
                 {% for year in available_years %}
                 <option value="{{ year }}" {% if year==financial_year %}selected{% endif %}>{{ year }}</option>
@@ -18,231 +18,330 @@
                 <option value="">No targets found</option>
                 {% endif %}
             </select>
-            <button class="btn btn-primary text-nowrap" onclick="window.print();" style="white-space:nowrap;"><i class="fa fa-print"></i> Print / PDF</button>
+            <button class="btn btn-primary text-nowrap" id="btn-download-pdf">
+                <i class="fa fa-file-pdf mr-1"></i> Download PDF
+            </button>
         </div>
     </div>
 
-    <!-- Print Header visible only in print -->
-    <div class="d-none d-print-block mb-4 text-center">
-        <h2>{{ division }} Division - Sales Targets</h2>
-        <h4>Financial Year: {{ financial_year }}</h4>
-        <hr>
+    {% if report_data %}
+    <!-- Summary Cards -->
+    <div class="report-summary-row mb-4">
+        {% set ns = namespace(total_hqs=0, grand_total=0, total_regions=0, total_teams=0) %}
+        {% for region_name, region_data in report_data.items() %}
+            {% set ns.total_regions = ns.total_regions + 1 %}
+            {% set ns.grand_total = ns.grand_total + region_data.totals.total %}
+            {% for team_name, team_data in region_data.teams.items() %}
+                {% set ns.total_teams = ns.total_teams + 1 %}
+                {% set ns.total_hqs = ns.total_hqs + team_data.hqs|length %}
+            {% endfor %}
+        {% endfor %}
+        <div class="report-stat-card">
+            <div class="stat-icon" style="background:#eef2ff;color:#4f46e5;"><i class="fa fa-calendar"></i></div>
+            <div class="stat-info">
+                <div class="stat-value">{{ financial_year }}</div>
+                <div class="stat-label">Financial Year</div>
+            </div>
+        </div>
+        <div class="report-stat-card">
+            <div class="stat-icon" style="background:#ecfdf5;color:#10b981;"><i class="fa fa-globe"></i></div>
+            <div class="stat-info">
+                <div class="stat-value">{{ ns.total_regions }}</div>
+                <div class="stat-label">Regions</div>
+            </div>
+        </div>
+        <div class="report-stat-card">
+            <div class="stat-icon" style="background:#fff7ed;color:#f59e0b;"><i class="fa fa-users"></i></div>
+            <div class="stat-info">
+                <div class="stat-value">{{ ns.total_teams }}</div>
+                <div class="stat-label">Teams</div>
+            </div>
+        </div>
+        <div class="report-stat-card">
+            <div class="stat-icon" style="background:#fef2f2;color:#ef4444;"><i class="fa fa-map-marker-alt"></i></div>
+            <div class="stat-info">
+                <div class="stat-value">{{ ns.total_hqs }}</div>
+                <div class="stat-label">HQs</div>
+            </div>
+        </div>
+        <div class="report-stat-card stat-card-highlight">
+            <div class="stat-icon" style="background:#eef2ff;color:#4f46e5;"><i class="fa fa-bullseye"></i></div>
+            <div class="stat-info">
+                <div class="stat-value">{{ "%.2f"|format(ns.grand_total) }}</div>
+                <div class="stat-label">Total Target (Lakhs)</div>
+            </div>
+        </div>
     </div>
 
-    <div class="card shadow-sm border-0 report-card">
+    <!-- Report Table -->
+    <div class="card shadow-sm border-0">
         <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table table-bordered table-sm report-table mb-0">
+                <table class="table table-bordered table-sm report-table mb-0" id="report-table">
                     <thead>
                         <tr>
-                            <th style="min-width: 250px;">Region / Team / HQ</th>
-                            <th>Apr</th>
-                            <th>May</th>
-                            <th>Jun</th>
-                            <th class="bg-light">Q1</th>
-                            <th>Jul</th>
-                            <th>Aug</th>
-                            <th>Sep</th>
-                            <th class="bg-light">Q2</th>
-                            <th>Oct</th>
-                            <th>Nov</th>
-                            <th>Dec</th>
-                            <th class="bg-light">Q3</th>
-                            <th>Jan</th>
-                            <th>Feb</th>
-                            <th>Mar</th>
-                            <th class="bg-light">Q4</th>
-                            <th class="bg-primary text-white">Total</th>
+                            <th class="col-entity">Region / Team / HQ</th>
+                            <th>Apr</th><th>May</th><th>Jun</th><th class="col-quarter">Q1</th>
+                            <th>Jul</th><th>Aug</th><th>Sep</th><th class="col-quarter">Q2</th>
+                            <th>Oct</th><th>Nov</th><th>Dec</th><th class="col-quarter">Q3</th>
+                            <th>Jan</th><th>Feb</th><th>Mar</th><th class="col-quarter">Q4</th>
+                            <th class="col-total">Total</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% if report_data %}
                         {% for region_name, region_data in report_data.items() %}
-                        <!-- Region Header -->
-                        <tr class="table-dark text-white font-weight-bold">
-                            <td colspan="18">{{ region_name }}</td>
+                        <tr class="region-row">
+                            <td colspan="18"><i class="fa fa-globe mr-2"></i>{{ region_name }}</td>
                         </tr>
 
                         {% for team_name, team_data in region_data.teams.items() %}
-                        <!-- Team Row -->
-                        <tr class="table-secondary font-weight-bold">
+                        <tr class="team-row">
                             <td><i class="fa fa-users ml-2 mr-2"></i> {{ team_name }}</td>
                             <td colspan="17"></td>
                         </tr>
 
-                        <!-- HQ Rows -->
                         {% for h in team_data.hqs %}
-                        <tr>
+                        <tr class="hq-row">
                             <td class="pl-4"><i class="fa fa-map-marker-alt text-muted mr-1"></i> {{ h.hq_name }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.apr) }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.may) }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.jun) }}</td>
-                            <td class="text-right bg-light font-weight-bold">{{ "%.2f"|format(h.q1) }}</td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(h.q1) }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.jul) }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.aug) }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.sep) }}</td>
-                            <td class="text-right bg-light font-weight-bold">{{ "%.2f"|format(h.q2) }}</td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(h.q2) }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.oct) }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.nov) }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.dec) }}</td>
-                            <td class="text-right bg-light font-weight-bold">{{ "%.2f"|format(h.q3) }}</td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(h.q3) }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.jan) }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.feb) }}</td>
                             <td class="text-right">{{ "%.2f"|format(h.mar) }}</td>
-                            <td class="text-right bg-light font-weight-bold">{{ "%.2f"|format(h.q4) }}</td>
-                            <td class="text-right bg-primary text-white font-weight-bold">{{ "%.2f"|format(h.total) }}
-                            </td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(h.q4) }}</td>
+                            <td class="text-right col-total">{{ "%.2f"|format(h.total) }}</td>
                         </tr>
                         {% endfor %}
 
-                        <!-- Team Total -->
-                        <tr class="table-warning font-weight-bold">
+                        <tr class="team-total-row">
                             <td class="text-right pr-3">Total ({{ team_name }})</td>
                             {% set t = team_data.totals %}
                             <td class="text-right">{{ "%.2f"|format(t.apr) }}</td>
                             <td class="text-right">{{ "%.2f"|format(t.may) }}</td>
                             <td class="text-right">{{ "%.2f"|format(t.jun) }}</td>
-                            <td class="text-right bg-light">{{ "%.2f"|format(t.q1) }}</td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(t.q1) }}</td>
                             <td class="text-right">{{ "%.2f"|format(t.jul) }}</td>
                             <td class="text-right">{{ "%.2f"|format(t.aug) }}</td>
                             <td class="text-right">{{ "%.2f"|format(t.sep) }}</td>
-                            <td class="text-right bg-light">{{ "%.2f"|format(t.q2) }}</td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(t.q2) }}</td>
                             <td class="text-right">{{ "%.2f"|format(t.oct) }}</td>
                             <td class="text-right">{{ "%.2f"|format(t.nov) }}</td>
                             <td class="text-right">{{ "%.2f"|format(t.dec) }}</td>
-                            <td class="text-right bg-light">{{ "%.2f"|format(t.q3) }}</td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(t.q3) }}</td>
                             <td class="text-right">{{ "%.2f"|format(t.jan) }}</td>
                             <td class="text-right">{{ "%.2f"|format(t.feb) }}</td>
                             <td class="text-right">{{ "%.2f"|format(t.mar) }}</td>
-                            <td class="text-right bg-light">{{ "%.2f"|format(t.q4) }}</td>
-                            <td class="text-right  text-primary">{{ "%.2f"|format(t.total) }}</td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(t.q4) }}</td>
+                            <td class="text-right col-total">{{ "%.2f"|format(t.total) }}</td>
                         </tr>
                         {% endfor %}
 
-                        <!-- Region Total -->
-                        <tr class="table-info font-weight-bold" style="border-bottom: 2px solid #333;">
-                            <td class="text-right pr-3">SUM ({{ region_name }})</td>
+                        <tr class="region-total-row">
+                            <td class="text-right pr-3">Total ({{ region_name }})</td>
                             {% set rt = region_data.totals %}
                             <td class="text-right">{{ "%.2f"|format(rt.apr) }}</td>
                             <td class="text-right">{{ "%.2f"|format(rt.may) }}</td>
                             <td class="text-right">{{ "%.2f"|format(rt.jun) }}</td>
-                            <td class="text-right bg-light">{{ "%.2f"|format(rt.q1) }}</td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(rt.q1) }}</td>
                             <td class="text-right">{{ "%.2f"|format(rt.jul) }}</td>
                             <td class="text-right">{{ "%.2f"|format(rt.aug) }}</td>
                             <td class="text-right">{{ "%.2f"|format(rt.sep) }}</td>
-                            <td class="text-right bg-light">{{ "%.2f"|format(rt.q2) }}</td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(rt.q2) }}</td>
                             <td class="text-right">{{ "%.2f"|format(rt.oct) }}</td>
                             <td class="text-right">{{ "%.2f"|format(rt.nov) }}</td>
                             <td class="text-right">{{ "%.2f"|format(rt.dec) }}</td>
-                            <td class="text-right bg-light">{{ "%.2f"|format(rt.q3) }}</td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(rt.q3) }}</td>
                             <td class="text-right">{{ "%.2f"|format(rt.jan) }}</td>
                             <td class="text-right">{{ "%.2f"|format(rt.feb) }}</td>
                             <td class="text-right">{{ "%.2f"|format(rt.mar) }}</td>
-                            <td class="text-right bg-light">{{ "%.2f"|format(rt.q4) }}</td>
-                            <td class="text-right text-primary">{{ "%.2f"|format(rt.total) }}</td>
+                            <td class="text-right col-quarter">{{ "%.2f"|format(rt.q4) }}</td>
+                            <td class="text-right col-total">{{ "%.2f"|format(rt.total) }}</td>
                         </tr>
                         {% endfor %}
-                        {% else %}
-                        <tr>
-                            <td colspan="18" class="text-center p-5 text-muted">No approved targets found for this
-                                financial year.</td>
-                        </tr>
-                        {% endif %}
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
+    {% else %}
+    <div class="card border-0 shadow-sm">
+        <div class="card-body text-center py-5 text-muted">
+            <i class="fa fa-chart-bar fa-3x mb-3"></i>
+            <p>No approved targets found for this financial year.</p>
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <style>
-    .report-table th,
-    .report-table td {
-        font-size: 11px;
-        vertical-align: middle;
+    .year-wise-report-page { animation: fadeIn 0.3s ease; }
+
+    /* Summary stat cards row */
+    .report-summary-row {
+        display: flex; gap: 12px; flex-wrap: wrap;
+    }
+    .report-stat-card {
+        flex: 1; min-width: 160px;
+        background: #fff; border: 1px solid var(--color-border);
+        border-radius: 12px; padding: 14px 16px;
+        display: flex; align-items: center; gap: 12px;
+        transition: all 0.2s ease;
+    }
+    .report-stat-card:hover { box-shadow: var(--shadow-sm); }
+    .stat-card-highlight { border-color: var(--color-accent); border-width: 2px; }
+    .stat-icon {
+        width: 40px; height: 40px; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 16px; flex-shrink: 0;
+    }
+    .stat-info { flex: 1; }
+    .stat-value { font-size: 1.1rem; font-weight: 700; color: var(--color-text); }
+    .stat-label { font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase; }
+
+    /* Report table */
+    .report-table { font-size: 11.5px; }
+    .report-table th, .report-table td { vertical-align: middle; padding: 6px 8px; }
+    .report-table th { text-align: center; white-space: nowrap; background: #f8fafc; font-size: 11px; text-transform: uppercase; color: #64748b; }
+    .col-entity { min-width: 220px; text-align: left !important; }
+    .col-quarter { background: #f1f5f9 !important; font-weight: 600; }
+    .col-total { background: #eef2ff !important; font-weight: 700; color: var(--color-accent) !important; }
+
+    .region-row td {
+        background: #1e293b !important; color: #fff !important;
+        font-weight: 700; font-size: 12px;
+    }
+    .team-row td {
+        background: #e2e8f0 !important; font-weight: 600; font-size: 11.5px;
+    }
+    .hq-row td { font-size: 11.5px; }
+    .hq-row:hover td { background: #f0f4ff !important; }
+
+    .team-total-row td {
+        background: #fffbeb !important; font-weight: 700; font-size: 11.5px;
+        border-bottom: 2px solid #fbbf24;
+    }
+    .region-total-row td {
+        background: #dbeafe !important; font-weight: 700; font-size: 12px;
+        border-bottom: 3px solid #3b82f6;
     }
 
-    .report-table th {
-        text-align: center;
-        white-space: nowrap;
-    }
-
-    @media print {
-        @page {
-            size: landscape;
-            margin: 1cm;
-        }
-
-        body {
-            font-size: 10pt;
-            background: #fff;
-        }
-
-        .d-print-none {
-            display: none !important;
-        }
-
-        .portal-sidebar,
-        .portal-navbar {
-            display: none !important;
-        }
-
-        .portal-main {
-            margin-left: 0 !important;
-            width: 100% !important;
-            padding: 0 !important;
-        }
-
-        .report-card {
-            box-shadow: none !important;
-            border: none !important;
-        }
-
-        .table-bordered th,
-        .table-bordered td {
-            border: 1px solid #dee2e6 !important;
-        }
-
-        .table-dark {
-            background-color: #343a40 !important;
-            color: #fff !important;
-        }
-
-        .table-secondary {
-            background-color: #e2e3e5 !important;
-        }
-
-        .table-warning {
-            background-color: #ffeeba !important;
-        }
-
-        .table-info {
-            background-color: #bee5eb !important;
-        }
-
-        .bg-light {
-            background-color: #f8f9fa !important;
-        }
-
-        .bg-primary {
-            background-color: #007bff !important;
-            color: #fff !important;
-        }
-
-        * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-        }
+    @media (max-width: 768px) {
+        .report-summary-row { flex-direction: column; }
+        .report-stat-card { min-width: auto; }
     }
 </style>
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        $('#fy-select').on('change', function () {
-            window.location.href = '/portal/year-wise-report?financial_year=' + encodeURIComponent($(this).val());
-        });
+document.addEventListener('DOMContentLoaded', function () {
+    $('#fy-select').on('change', function () {
+        window.location.href = '/portal/year-wise-report?financial_year=' + encodeURIComponent($(this).val());
     });
+
+    $('#btn-download-pdf').on('click', downloadPDF);
+});
+
+function downloadPDF() {
+    var table = document.getElementById('report-table');
+    if (!table) return;
+
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+    var division = '{{ division }}';
+    var fy = '{{ financial_year }}';
+
+    // Title block
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.text(division + ' Division - Sales Targets', 14, 14);
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(100);
+    doc.text('Financial Year: ' + fy + '  |  Generated: ' + new Date().toLocaleDateString('en-IN'), 14, 21);
+    doc.setTextColor(0);
+
+    // Extract table data
+    var head = [];
+    var body = [];
+    table.querySelectorAll('thead tr').forEach(function (tr) {
+        var row = [];
+        tr.querySelectorAll('th').forEach(function (c) { row.push(c.textContent.trim()); });
+        head.push(row);
+    });
+
+    var rowTypes = [];
+    table.querySelectorAll('tbody tr').forEach(function (tr) {
+        var row = [];
+        var type = 'hq';
+        if (tr.classList.contains('region-row')) type = 'region';
+        else if (tr.classList.contains('team-row')) type = 'team';
+        else if (tr.classList.contains('team-total-row')) type = 'team-total';
+        else if (tr.classList.contains('region-total-row')) type = 'region-total';
+
+        tr.querySelectorAll('td').forEach(function (c) { row.push(c.textContent.trim()); });
+        body.push(row);
+        rowTypes.push(type);
+    });
+
+    doc.autoTable({
+        head: head,
+        body: body,
+        startY: 26,
+        styles: { fontSize: 7, cellPadding: 1.5, lineWidth: 0.1 },
+        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+        columnStyles: {
+            0: { cellWidth: 52 },
+            4: { fillColor: [241, 245, 249], fontStyle: 'bold' },
+            8: { fillColor: [241, 245, 249], fontStyle: 'bold' },
+            12: { fillColor: [241, 245, 249], fontStyle: 'bold' },
+            16: { fillColor: [241, 245, 249], fontStyle: 'bold' },
+            17: { fillColor: [238, 242, 255], fontStyle: 'bold', textColor: [79, 70, 229] }
+        },
+        didParseCell: function (data) {
+            if (data.section !== 'body') return;
+            var type = rowTypes[data.row.index];
+            if (type === 'region') {
+                data.cell.styles.fillColor = [30, 41, 59];
+                data.cell.styles.textColor = 255;
+                data.cell.styles.fontStyle = 'bold';
+            } else if (type === 'team') {
+                data.cell.styles.fillColor = [226, 232, 240];
+                data.cell.styles.fontStyle = 'bold';
+            } else if (type === 'team-total') {
+                data.cell.styles.fillColor = [255, 251, 235];
+                data.cell.styles.fontStyle = 'bold';
+            } else if (type === 'region-total') {
+                data.cell.styles.fillColor = [219, 234, 254];
+                data.cell.styles.fontStyle = 'bold';
+            }
+        },
+        margin: { left: 8, right: 8 },
+        didDrawPage: function (data) {
+            // Footer
+            var pageCount = doc.internal.getNumberOfPages();
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            doc.text('Page ' + data.pageNumber + ' of ' + pageCount, data.settings.margin.left, doc.internal.pageSize.height - 6);
+            doc.text('Stedman Pharmaceuticals - ' + division + ' Division', doc.internal.pageSize.width - 8, doc.internal.pageSize.height - 6, { align: 'right' });
+        }
+    });
+
+    var filename = 'Sales_Target_' + division + '_' + fy + '.pdf';
+    doc.save(filename);
+}
 </script>
 {% endblock %}

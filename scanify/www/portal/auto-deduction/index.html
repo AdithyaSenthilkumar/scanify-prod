@@ -322,11 +322,21 @@
         });
         tb.innerHTML = html;
 
+        // Restore selected statement values after DOM rebuild
+        bulkRows.forEach(function (row, idx) {
+            if (row.statement) {
+                var stmtEl = document.getElementById('stmt-' + idx);
+                if (stmtEl) stmtEl.value = row.statement;
+            }
+        });
+
         // Re-bind statement change handlers
         bulkRows.forEach(function (row, idx) {
             $('#stmt-' + idx).off('change').on('change', function () {
-                row.statement = this.value;
-                if (this.value) {
+                var newVal = this.value;
+                if (newVal === row.statement) return;
+                row.statement = newVal;
+                if (newVal) {
                     fetchRowItems(idx);
                 } else {
                     row.items = [];
@@ -395,18 +405,25 @@
             data: JSON.stringify({ stockist_code: stockistCode, division: getActiveDivision() }),
             success: function (r) {
                 const stmts = (r.message && r.message.success) ? (r.message.data || []) : [];
-                let html = '<option value="">-- Select Statement --</option>';
-                stmts.forEach(function (s) {
-                    html += '<option value="' + s.name + '">' + s.name + ' | ' + (s.month_label || '-') + '</option>';
-                });
-                bulkRows[idx]._stmtHTML = html;
+                bulkRows[idx]._stmts = stmts;
+                bulkRows[idx]._stmtHTML = buildStmtOptionsHTML(stmts, bulkRows[idx].statement);
                 renderRows();
             },
             error: function () {
+                bulkRows[idx]._stmts = [];
                 bulkRows[idx]._stmtHTML = '<option value="">Error loading</option>';
                 renderRows();
             }
         });
+    }
+
+    function buildStmtOptionsHTML(stmts, selectedValue) {
+        let html = '<option value="">-- Select Statement --</option>';
+        (stmts || []).forEach(function (s) {
+            const sel = s.name === selectedValue ? ' selected' : '';
+            html += '<option value="' + s.name + '"' + sel + '>' + s.name + ' | ' + (s.month_label || '-') + '</option>';
+        });
+        return html;
     }
 
     function fetchRowItems(idx) {
@@ -440,6 +457,8 @@
                     row.status = 'error';
                     row.errorMsg = (r.message && r.message.message) || 'Failed to load items';
                 }
+                // Rebuild _stmtHTML with current statement selected
+                row._stmtHTML = buildStmtOptionsHTML(row._stmts, row.statement);
                 renderRows();
                 updateSubmitBtn();
             },
@@ -447,6 +466,7 @@
                 row.items = [];
                 row.status = 'error';
                 row.errorMsg = 'Network error loading items';
+                row._stmtHTML = buildStmtOptionsHTML(row._stmts, row.statement);
                 renderRows();
                 updateSubmitBtn();
             }

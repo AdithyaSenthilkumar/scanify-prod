@@ -4,15 +4,17 @@
 
 {% block portal_content %}
 <div class="portal-page sales-target-page">
-    <div class="page-header">
-        <h1 class="page-title"><i class="fa fa-chart-line"></i> Sales Target Entry</h1>
-        <p class="page-subtitle">Create HQ-wise yearly sales targets for {{ division }} division (figures in Lakhs)</p>
+    <div class="page-header d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="page-title"><i class="fa fa-chart-line"></i> Sales Target Entry</h1>
+            <p class="page-subtitle">Create HQ-wise yearly sales targets for {{ division }} division (figures in Lakhs)</p>
+        </div>
+        <a href="/portal/sales-targets-list" class="btn btn-secondary"><i class="fa fa-list"></i> Target List</a>
     </div>
 
     <div class="card mb-3">
         <div class="card-body">
             <div class="row">
-                <!-- Division is removed; backend depends on logged-in user or division is hidden since the user didn't want it -->
                 <input type="hidden" id="division" value="{{ division or 'Prima' }}">
                 <div class="col-md-3">
                     <label><strong>Financial Year <span class="text-danger">*</span></strong></label>
@@ -56,29 +58,22 @@
                 <table class="table table-hover mb-0" id="targets-table">
                     <thead>
                         <tr>
+                            <th style="width:40px;">#</th>
                             <th>HQ</th>
-                            <th>Apr</th>
-                            <th>May</th>
-                            <th>Jun</th>
-                            <th>Q1</th>
-                            <th>Jul</th>
-                            <th>Aug</th>
-                            <th>Sep</th>
-                            <th>Q2</th>
-                            <th>Oct</th>
-                            <th>Nov</th>
-                            <th>Dec</th>
-                            <th>Q3</th>
-                            <th>Jan</th>
-                            <th>Feb</th>
-                            <th>Mar</th>
-                            <th>Q4</th>
-                            <th>Total</th>
-                            <th class="text-center">Action</th>
+                            <th class="text-right">Q1</th>
+                            <th class="text-right">Q2</th>
+                            <th class="text-right">Q3</th>
+                            <th class="text-right">Q4</th>
+                            <th class="text-right">Total</th>
+                            <th class="text-center" style="width:120px;">Action</th>
                         </tr>
                     </thead>
                     <tbody id="targets-tbody"></tbody>
                 </table>
+            </div>
+            <div id="emptyTargetRows" class="text-center py-5 text-muted">
+                <i class="fa fa-inbox fa-2x mb-2"></i>
+                <p>No HQ rows yet. Click <strong>Add HQ Row</strong> to start.</p>
             </div>
         </div>
     </div>
@@ -114,15 +109,127 @@
     </div>
 </div>
 
+<!-- Edit HQ Row Modal -->
+<div class="modal fade" id="edit-hq-modal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa fa-edit"></i> <span id="edit-modal-title">Edit HQ Target</span></h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label><strong>Headquarters <span class="text-danger">*</span></strong></label>
+                    <div class="hq-cell-wrap position-relative">
+                        <input type="text" class="form-control hq-search" id="modal-hq-search" placeholder="Search HQ..." autocomplete="off">
+                        <input type="hidden" class="hq-id" id="modal-hq-id">
+                        <input type="hidden" class="hq-region-id" id="modal-hq-region-id">
+                    </div>
+                </div>
+                <h6 class="mt-4 mb-3 text-muted"><i class="fa fa-calendar-alt mr-1"></i> Monthly Targets (Lakhs)</h6>
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="quarter-block">
+                            <div class="quarter-label">Q1 (Apr - Jun)</div>
+                            <div class="row">
+                                <div class="col-4">
+                                    <label class="small text-muted">Apr</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="apr" value="0">
+                                </div>
+                                <div class="col-4">
+                                    <label class="small text-muted">May</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="may" value="0">
+                                </div>
+                                <div class="col-4">
+                                    <label class="small text-muted">Jun</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="jun" value="0">
+                                </div>
+                            </div>
+                            <div class="quarter-total">Q1 Total: <strong id="modal-q1">0.00</strong></div>
+                        </div>
+                    </div>
+                    <div class="col-md-12">
+                        <div class="quarter-block">
+                            <div class="quarter-label">Q2 (Jul - Sep)</div>
+                            <div class="row">
+                                <div class="col-4">
+                                    <label class="small text-muted">Jul</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="jul" value="0">
+                                </div>
+                                <div class="col-4">
+                                    <label class="small text-muted">Aug</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="aug" value="0">
+                                </div>
+                                <div class="col-4">
+                                    <label class="small text-muted">Sep</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="sep" value="0">
+                                </div>
+                            </div>
+                            <div class="quarter-total">Q2 Total: <strong id="modal-q2">0.00</strong></div>
+                        </div>
+                    </div>
+                    <div class="col-md-12">
+                        <div class="quarter-block">
+                            <div class="quarter-label">Q3 (Oct - Dec)</div>
+                            <div class="row">
+                                <div class="col-4">
+                                    <label class="small text-muted">Oct</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="oct" value="0">
+                                </div>
+                                <div class="col-4">
+                                    <label class="small text-muted">Nov</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="nov" value="0">
+                                </div>
+                                <div class="col-4">
+                                    <label class="small text-muted">Dec</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="dec" value="0">
+                                </div>
+                            </div>
+                            <div class="quarter-total">Q3 Total: <strong id="modal-q3">0.00</strong></div>
+                        </div>
+                    </div>
+                    <div class="col-md-12">
+                        <div class="quarter-block">
+                            <div class="quarter-label">Q4 (Jan - Mar)</div>
+                            <div class="row">
+                                <div class="col-4">
+                                    <label class="small text-muted">Jan</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="jan" value="0">
+                                </div>
+                                <div class="col-4">
+                                    <label class="small text-muted">Feb</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="feb" value="0">
+                                </div>
+                                <div class="col-4">
+                                    <label class="small text-muted">Mar</label>
+                                    <input type="number" min="0" step="0.01" class="form-control modal-month-input" data-month="mar" value="0">
+                                </div>
+                            </div>
+                            <div class="quarter-total">Q4 Total: <strong id="modal-q4">0.00</strong></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-yearly-total mt-3">
+                    <i class="fa fa-bullseye mr-1"></i> Yearly Total: <strong id="modal-yearly-total">0.00</strong> Lakhs
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="modal-save-row">
+                    <i class="fa fa-check"></i> Save Row
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Bulk Import Modal -->
 <div class="modal fade" id="bulk-import-modal" tabindex="-1" role="dialog">
     <div class="modal-dialog modal-lg" role="document">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="fa fa-upload"></i> Bulk Import Targets</h5>
-                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
             </div>
             <div class="modal-body">
                 <div class="alert alert-info mb-3" style="font-size:13px;">
@@ -156,83 +263,64 @@
     </div>
 </div>
 
-
 <style>
-    .sales-target-page {
-        animation: fadeIn 0.3s ease;
-    }
-
-    .sales-target-page .card {
-        border-radius: 16px;
-    }
-
-    .sales-target-page .card-header {
-        background: #fff;
-        border-bottom: 1px solid var(--color-border);
-    }
-
+    .sales-target-page { animation: fadeIn 0.3s ease; }
+    .sales-target-page .card { border-radius: 16px; }
+    .sales-target-page .card-header { background: #fff; border-bottom: 1px solid var(--color-border); }
     .sales-target-page .table thead th {
-        position: sticky;
-        top: 0;
-        z-index: 5;
-        background: var(--color-bg);
-        white-space: nowrap;
+        position: sticky; top: 0; z-index: 5;
+        background: var(--color-bg); white-space: nowrap; font-size: 0.8rem;
+        text-transform: uppercase; color: var(--color-text-muted);
     }
-
-    .sales-target-page .table td {
-        vertical-align: middle;
-        min-width: 92px;
-    }
-
-    .sales-target-page .table tbody tr {
-        transition: all 0.2s ease;
-    }
-
-    .sales-target-page .table tbody tr:hover {
-        transform: translateX(2px);
-    }
-
-    .sales-target-page .table td.col-hq {
-        min-width: 320px;
-    }
-
-    .sales-target-page .hq-cell-wrap {
-        position: relative;
-    }
-
-    .sales-target-page .month-input,
-    .sales-target-page .calc-input {
-        min-width: 78px;
-        text-align: right;
-    }
-
-    .sales-target-page .calc-input {
-        background: #f8f9fa;
-        font-weight: 600;
-    }
-
+    .sales-target-page .table td { vertical-align: middle; }
+    .sales-target-page .table tbody tr { transition: all 0.2s ease; }
+    .sales-target-page .table tbody tr:hover { background: #f0f4ff; }
+    .sales-target-page .hq-cell-wrap { position: relative; }
     .sales-target-page .summary-box {
-        background: #f8fbff;
-        border: 1px solid #dbe7f3;
-        border-radius: 8px;
-        padding: 10px 12px;
+        background: #f8fbff; border: 1px solid #dbe7f3;
+        border-radius: 8px; padding: 10px 12px;
     }
+    .sales-target-page .summary-label { color: #637282; font-size: 12px; }
+    .sales-target-page .summary-value { color: #2c3e50; font-size: 20px; font-weight: 700; }
+    .sales-target-page #save-btn, .sales-target-page #add-row-btn { box-shadow: var(--shadow-sm); }
 
-    .sales-target-page .summary-label {
-        color: #637282;
-        font-size: 12px;
+    /* Edit modal quarter blocks */
+    .quarter-block {
+        background: #f8fafc; border: 1px solid var(--color-border);
+        border-radius: 10px; padding: 14px 16px; margin-bottom: 12px;
     }
+    .quarter-label {
+        font-weight: 600; font-size: 13px; color: var(--color-accent);
+        margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .quarter-total {
+        text-align: right; margin-top: 10px; padding-top: 8px;
+        border-top: 1px dashed var(--color-border); font-size: 13px; color: #475569;
+    }
+    .modal-yearly-total {
+        background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+        border-radius: 10px; padding: 14px 18px; font-size: 16px;
+        color: var(--color-accent); text-align: center;
+    }
+    .modal-month-input { text-align: right; font-weight: 500; }
+    #edit-hq-modal .modal-content { border-radius: 16px; border: none; }
+    #edit-hq-modal .modal-header { border-bottom: 1px solid var(--color-border); }
 
-    .sales-target-page .summary-value {
-        color: #2c3e50;
-        font-size: 20px;
-        font-weight: 700;
+    /* Row action buttons */
+    .btn-row-edit {
+        background: #e0e7ff; color: #4338ca; border: none;
+        padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;
     }
+    .btn-row-edit:hover { background: #c7d2fe; }
+    .btn-row-del {
+        background: #fee2e2; color: #dc2626; border: none;
+        padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;
+    }
+    .btn-row-del:hover { background: #fecaca; }
 
-    .sales-target-page #save-btn,
-    .sales-target-page #add-row-btn {
-        box-shadow: var(--shadow-sm);
-    }
+    .hq-name-display { font-weight: 600; font-size: 0.9rem; }
+    .target-val { font-weight: 500; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+    .target-total { font-weight: 700; color: var(--color-accent); }
 </style>
 {% endblock %}
 
