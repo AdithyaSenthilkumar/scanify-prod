@@ -30,7 +30,9 @@
   "sales_value_ptr",
   "opening_value",
   "purchase_value",
-  "scheme_deducted_qty_calc"
+  "scheme_deducted_qty_calc",
+  "row_confidence",
+  "math_check"
  ],
  "fields": [
   {
@@ -187,6 +189,21 @@
    "fieldtype": "Float",
    "label": "Scheme Deducted Qty (Calc)",
    "read_only": 1
+  },
+  {
+   "fieldname": "row_confidence",
+   "fieldtype": "Percent",
+   "label": "Row Accuracy %",
+   "read_only": 1,
+   "description": "Per-row accuracy: 100% if quantities balance and product matched"
+  },
+  {
+   "fieldname": "math_check",
+   "fieldtype": "Select",
+   "label": "Math Check",
+   "options": "\nPass\nFail\nN/A",
+   "read_only": 1,
+   "description": "Whether Opening + Purchase - Sales - Free - Return - MiscOut ≈ Closing"
   },
   {
    "fieldname": "column_break_zxwe",

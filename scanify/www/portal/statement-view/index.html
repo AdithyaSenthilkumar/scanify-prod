@@ -71,6 +71,10 @@
                             <span class="sv-status-label">QC Confidence</span>
                             <span id="sv-qc-confidence"></span>
                         </div>
+                        <div class="sv-status-chip" id="sv-accuracy-chip" style="display:none;">
+                            <span class="sv-status-label">Accuracy</span>
+                            <span id="sv-accuracy-badge"></span>
+                        </div>
                         <button class="btn btn-sm sv-mark-matched-btn" id="sv-mark-matched-btn" style="display:none;" onclick="sv_mark_all_matched()">
                             <i class="fa fa-check-double"></i> Mark as All Matched
                         </button>
@@ -154,6 +158,8 @@
                                 <th class="text-right">Free</th>
                                 <th class="text-right">Closing</th>
                                 <th class="text-right">Cls Val</th>
+                                <th class="text-center" title="Math validation">✓</th>
+                                <th class="text-right" title="Row accuracy">Acc%</th>
                             </tr>
                         </thead>
                         <tbody id="sv-preview-tbody"></tbody>
@@ -301,6 +307,7 @@
                                 <label class="ss-chip"><input type="checkbox" value="salesvaluepts"> Sales(PTS)</label>
                                 <label class="ss-chip"><input type="checkbox" value="salesvalueptr"> Sales(PTR)</label>
                                 <label class="ss-chip"><input type="checkbox" value="closingvalue" checked> Cls Val</label>
+                                <label class="ss-chip"><input type="checkbox" value="row_confidence" checked> Acc%</label>
                             </div>
                         </div>
                     </div>
@@ -1310,7 +1317,8 @@
         { id: 'purchasevalue',     label: 'Purch Val',    readonly: true, curr: true },
         { id: 'salesvaluepts',     label: 'Sales(PTS)',   readonly: true, curr: true },
         { id: 'salesvalueptr',     label: 'Sales(PTR)',   readonly: true, curr: true },
-        { id: 'closingvalue',      label: 'Cls Val',      readonly: true, curr: true }
+        { id: 'closingvalue',      label: 'Cls Val',      readonly: true, curr: true },
+        { id: 'row_confidence',    label: 'Acc%',         readonly: true }
     ];
 
     function sv_fmt(v, currency) {
@@ -1550,6 +1558,20 @@
             $('#sv-mark-matched-btn').hide();
         }
 
+        // Accuracy badge
+        const accScore = parseFloat(sv_doc.confidence_score || 0);
+        if (accScore > 0 || sv_doc.extracted_data_status === 'Completed') {
+            let accColor = 'danger';
+            if (accScore >= 90) accColor = 'success';
+            else if (accScore >= 70) accColor = 'warning';
+            $('#sv-accuracy-chip').show();
+            $('#sv-accuracy-badge').html(
+                `<span class="badge badge-${accColor}"><i class="fa fa-percentage"></i> ${accScore.toFixed(1)}%</span>`
+            );
+        } else {
+            $('#sv-accuracy-chip').hide();
+        }
+
         // Show Submit button only for draft statements with completed extraction
         if (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed') {
             $('#sv-submit-btn').show();
@@ -1570,9 +1592,21 @@
             const prevClass = row.prev_closing_qty != null && parseFloat(row.openingqty) !== parseFloat(row.prev_closing_qty)
                 ? 'text-right text-warning' : 'text-right text-muted';
 
-            // Row coloring based on mapping status
+            // Row coloring based on confidence and mapping status
             const ms = (row.mappingstatus || 'matched');
-            const rowStyle = ms === 'unmapped' ? 'background:#fde2e2;' : ms === 'auto_mapped' ? 'background:#fff7cd;' : '';
+            const rowConf = parseFloat(row.row_confidence || 0);
+            let rowStyle = '';
+            if (ms === 'unmapped') rowStyle = 'background:#fde2e2;';
+            else if (ms === 'auto_mapped') rowStyle = 'background:#fff7cd;';
+            else if (rowConf < 70) rowStyle = 'background:#fde2e2;';
+            else if (rowConf < 90) rowStyle = 'background:#fff7cd;';
+
+            // Math check indicator
+            const mathCheck = row.math_check || 'N/A';
+            let mathIcon = '';
+            if (mathCheck === 'Pass') mathIcon = '<span class="text-success" title="Math check passed">✓</span>';
+            else if (mathCheck === 'Fail') mathIcon = '<span class="text-danger" title="Quantities don\'t balance">✗</span>';
+
 
             // Preview table is read-only regardless of draft status.
             // Editing is available only in the QC screen and Full Table modal.
@@ -1595,6 +1629,8 @@
       ${qtyCell('freeqty', row.freeqty)}
       ${qtyCell('closingqty', row.closingqty)}
       <td class="text-right sv-clsval-cell">${sv_fmt(row.closingvalue)}</td>
+      <td class="text-center">${mathIcon}</td>
+      <td class="text-right"><span class="${rowConf >= 90 ? 'text-success' : rowConf >= 70 ? 'text-warning' : 'text-danger'}" style="font-weight:600;font-size:11px;">${ms === 'unmapped' ? '0%' : rowConf.toFixed(0) + '%'}</span></td>
     </tr>`);
         });
         $('#sv-item-count').text(`${sv_items.length} products`);
@@ -1794,7 +1830,12 @@
         const qcTextCols = ['productcode', 'productname', 'pack'];
         sv_items.forEach(function (row, rowIdx) {
             const ms = (row.mappingstatus || 'matched');
-            const rowCls = ms === 'unmapped' ? ' class="qc-row-unmapped"' : ms === 'auto_mapped' ? ' class="qc-row-auto"' : '';
+            const rowConf = parseFloat(row.row_confidence || 0);
+            let rowCls = '';
+            if (ms === 'unmapped') rowCls = ' class="qc-row-unmapped"';
+            else if (ms === 'auto_mapped') rowCls = ' class="qc-row-auto"';
+            else if (rowConf < 70) rowCls = ' class="qc-row-unmapped"';
+            else if (rowConf < 90) rowCls = ' class="qc-row-auto"';
             let tr = '<tr' + rowCls + ' data-row="' + rowIdx + '">';
             sv_qc_col_configs.forEach(function (c) {
                 if (!activeCols.includes(c.id)) return;
@@ -1824,12 +1865,21 @@
                             '<i class="fa fa-info-circle"></i></button>' : '') +
                         '</td>';
                 } else if (c.readonly || !isDraft) {
-                    const display = c.curr ? sv_fmt(v, true) : sv_escape(String(v != null ? v : ''));
-                    // Only add data-calcfield to numeric readonly cells, not text columns
-                    const calcAttr = (c.readonly && !isText) ? ' data-calcfield="' + c.id + '"' : '';
-                    // Show raw product name tooltip on unmapped/auto_mapped rows for text cols
-                    const tipAttr = (isText && row.rawproductname && (ms === 'unmapped' || ms === 'auto_mapped')) ? ' title="Raw: ' + sv_escape(row.rawproductname) + '"' : '';
-                    tr += '<td class="' + align + '"' + calcAttr + tipAttr + '>' + display + '</td>';
+                    let display;
+                    if (c.id === 'row_confidence') {
+                        const conf = parseFloat(v || 0);
+                        const confColor = conf >= 90 ? '#059669' : conf >= 70 ? '#d97706' : '#dc2626';
+                        const confBg = conf >= 90 ? '#ecfdf5' : conf >= 70 ? '#fffbeb' : '#fef2f2';
+                        display = '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:' + confColor + ';background:' + confBg + ';">' + (ms === 'unmapped' ? '0%' : conf.toFixed(0) + '%') + '</span>';
+                        tr += '<td class="text-center">' + display + '</td>';
+                    } else {
+                        display = c.curr ? sv_fmt(v, true) : sv_escape(String(v != null ? v : ''));
+                        // Only add data-calcfield to numeric readonly cells, not text columns
+                        const calcAttr = (c.readonly && !isText) ? ' data-calcfield="' + c.id + '"' : '';
+                        // Show raw product name tooltip on unmapped/auto_mapped rows for text cols
+                        const tipAttr = (isText && row.rawproductname && (ms === 'unmapped' || ms === 'auto_mapped')) ? ' title="Raw: ' + sv_escape(row.rawproductname) + '"' : '';
+                        tr += '<td class="' + align + '"' + calcAttr + tipAttr + '>' + display + '</td>';
+                    }
                 } else {
                     tr += '<td class="p-0"><input type="text" inputmode="decimal" class="sv-edit-input-qc"' +
                         ' data-row="' + rowIdx + '" data-field="' + c.id + '"' +

@@ -57,6 +57,7 @@
                             <th>Month</th>
                             <th>Created On</th>
                             <th>Extraction Status</th>
+                            <th class="text-center">Accuracy</th>
                             <th>Statement Status</th>
                             <th class="text-center">Action</th>
                         </tr>
@@ -89,6 +90,20 @@
                                     }}</span>
                                 {% endif %}
                             </td>
+                            <td class="text-center">
+                                {% if row.confidence_score is not none and row.extracted_data_status == 'Completed' %}
+                                    {% set acc = row.confidence_score|round(1) %}
+                                    {% if acc >= 90 %}
+                                    <span class="badge badge-success" style="font-size:11px;">{{ acc }}%</span>
+                                    {% elif acc >= 70 %}
+                                    <span class="badge badge-warning" style="font-size:11px;">{{ acc }}%</span>
+                                    {% else %}
+                                    <span class="badge badge-danger" style="font-size:11px;">{{ acc }}%</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
                             <td>
                                 {% if row.docstatus == 0 %}
                                 <span class="badge badge-warning"><i class="fa fa-pencil-alt"></i> Draft</span>
@@ -118,7 +133,7 @@
                         {% endfor %}
                         {% else %}
                         <tr id="emptyRow">
-                            <td colspan="7" class="text-center py-5 text-muted">
+                            <td colspan="8" class="text-center py-5 text-muted">
                                 <i class="fa fa-folder-open fa-3x mb-3 text-light"></i>
                                 <h5>No stockist statements found for {{ division }}</h5>
                                 <p>Click 'New Statement' to upload one.</p>
@@ -126,7 +141,7 @@
                         </tr>
                         {% endif %}
                         <tr id="noMatchesRow" style="display: none;">
-                            <td colspan="7" class="text-center py-4 text-muted">No statements matching the filters.</td>
+                            <td colspan="8" class="text-center py-4 text-muted">No statements matching the filters.</td>
                         </tr>
                     </tbody>
                 </table>

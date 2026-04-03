@@ -268,17 +268,46 @@ def _do_extract(doc_name, file_url):
             frappe.logger().info(f"Skipped product {product_code} ('{raw_name}') — not in {statement_division} division")
             continue
 
+        # --- Row-level math validation for confidence ---
+        opening = flt(item_data.get("opening_qty"), 0)
+        purchase = flt(item_data.get("purchase_qty"), 0)
+        sales = flt(item_data.get("sales_qty"), 0)
+        free = flt(item_data.get("free_qty"), 0)
+        ret = flt(item_data.get("return_qty"), 0)
+        misc = flt(item_data.get("misc_out_qty"), 0)
+        closing = flt(item_data.get("closing_qty"), 0)
+
+        row_confidence = 100.0
+        math_check = "N/A"
+
+        if is_unmapped:
+            row_confidence = 0.0
+            math_check = "N/A"
+        elif closing > 0:
+            expected_closing = opening + purchase - sales - free - ret - misc
+            diff = abs(expected_closing - closing)
+            tolerance = max(closing * 0.02, 2)  # ±2% or ±2 units
+            if diff <= tolerance:
+                row_confidence = 100.0
+                math_check = "Pass"
+            else:
+                # Scale confidence down proportionally to the error
+                row_confidence = max(0.0, 100.0 - (diff / max(closing, 1)) * 100.0)
+                math_check = "Fail"
+
         row = {
             "raw_product_name": raw_name,
             "mapping_status": mapping_status,
-            "opening_qty": flt(item_data.get("opening_qty"), 0),
-            "purchase_qty": flt(item_data.get("purchase_qty"), 0),
-            "sales_qty": flt(item_data.get("sales_qty"), 0),
-            "free_qty": flt(item_data.get("free_qty"), 0),
-            "return_qty": flt(item_data.get("return_qty"), 0),
-            "misc_out_qty": flt(item_data.get("misc_out_qty"), 0),
-            "closing_qty": flt(item_data.get("closing_qty"), None),
+            "opening_qty": opening,
+            "purchase_qty": purchase,
+            "sales_qty": sales,
+            "free_qty": free,
+            "return_qty": ret,
+            "misc_out_qty": misc,
+            "closing_qty": closing,
             "closing_value": flt(item_data.get("closing_value"), 0),
+            "row_confidence": round(row_confidence, 1),
+            "math_check": math_check,
         }
         if product_code:
             row["product_code"] = product_code
@@ -292,8 +321,16 @@ def _do_extract(doc_name, file_url):
         frappe.db.commit()
         return
 
+    # --- Compute overall confidence score ---
+    confidence_values = [flt(item.row_confidence) for item in doc.items]
+    overall_confidence = sum(confidence_values) / len(confidence_values) if confidence_values else 0
+    if unmapped_count > 0:
+        overall_confidence = min(overall_confidence, 90.0)
+    doc.confidence_score = round(overall_confidence, 1)
+
     doc.extracted_data_status = "Completed"
     notes_parts = [f"Successfully extracted {items_added} items using AI with product catalog"]
+    notes_parts.append(f"Accuracy: {doc.confidence_score}%")
     if unmapped_count:
         notes_parts.append(f"{unmapped_count} unmapped items need QC")
     if skipped_division_count:
@@ -473,6 +510,8 @@ def get_statement_for_view(doc_name):
                 "salesvaluepts": flt(item.sales_value_pts),
                 "salesvalueptr": flt(item.sales_value_ptr),
                 "schemedeductedqty": flt(item.scheme_deducted_qty_calc),
+                "row_confidence": flt(item.row_confidence),
+                "math_check": item.math_check or "N/A",
             })
 
         return {
@@ -490,6 +529,7 @@ def get_statement_for_view(doc_name):
                 "uploaded_file": doc.uploaded_file,
                 "docstatus": doc.docstatus,
                 "qc_confidence": doc.qc_confidence or "",
+                "confidence_score": flt(doc.confidence_score),
                 "total_opening_value": flt(doc.total_opening_value),
                 "total_purchase_value": flt(doc.total_purchase_value),
                 "total_closing_value": flt(doc.total_closing_value),
@@ -559,37 +599,48 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
 
 === EXTRACTION RULES ===
 
-1. PRODUCT MATCHING (CRITICAL):
-   - Match each product in the statement to the EXACT product code from the catalog above
-   - Use product name, pack size, and pack conversion for matching
-   - Return ALL products from the statement, including those you CANNOT match to the catalog
-   - For matched products: set "product_code" to the catalog code and "unmapped" to false
-   - For unmatched products: set "product_code" to null and "unmapped" to true, and include the raw product name as "raw_product_name"
+1. COLUMN DETECTION (DO THIS FIRST — CRITICAL):
+   - FIRST: Read ALL column headers in the document from left to right.
+   - Map each header to one of the standard fields below:
+     . Opening Qty: "Op.Qty", "OPSTK", "Opening", "Open.Qty", "QpnStk", "Op.Stk"
+     . Purchase Qty: "Purch.Qty", "PURCH", "Receipt", "Pr.Qty", "Pur", "Recv"
+     . Sales Qty: "Sales", "Sale", "Sl", "Sold", "Sales Qty"
+     . Free Qty: "Free Qty", "Free", "Scheme Qty", "Fre"
+     . Return Qty: "Return", "Ret", "Sales Ret", "SR", "Sal.Ret"
+     . Misc Out: "Misc.Out", "M.Out", "Transfer", "Trans", "Adj"
+     . Closing Qty: "Closing", "Cls", "Cl.Bal", "ClsStk", "Closing Qty", "Balance", "Bal"
+     . Closing Value: "Closing Value", "Closing Val", "Cl.Value", "Closing Amount", "Cls.Val"
+   - IMPORTANT: Distinguish QUANTITY columns (integers) from VALUE/AMOUNT columns (decimals with currency).
+     Do NOT extract value columns as quantities. Value columns typically have large decimal numbers.
+   - IGNORE previous-month or historical columns: PMSalesQty, Prev.Cls, LM Sales, Last Month, PM Cls, etc.
+   - VERIFY: For a few sample rows, check that Opening + Purchase - Sales - Free - Return - MiscOut ≈ Closing.
+     If this does NOT add up, re-examine your column assignments — you may have the wrong column mapped.
 
-2. QUANTITY EXTRACTION ONLY (CRITICAL):
-   - Extract quantities for all columns AND closing value if present.
+2. PRODUCT MATCHING (CRITICAL — STRICT MATCHING ONLY):
+   - Match each product ONLY when you are confident. Use ALL of these together:
+     a) Product NAME must closely match a catalog entry
+     b) Pack SIZE must be consistent with the catalog
+     c) Pack CONVERSION must be consistent
+   - Be aware of common OCR misreads: G↔C, O↔0, I↔1↔L, 5↔S, 8↔B, rn↔m, cl↔d
+     Example: "GALCIGEN" might be OCR misread of "CALCIGEN" — use pack size to disambiguate.
+   - If a product name is ambiguous or could match multiple catalog entries, mark it UNMAPPED rather than guessing.
+   - Return ALL products from the statement, including those you CANNOT match.
+   - For matched products: set "product_code" to the EXACT catalog code and "unmapped" to false
+   - For unmatched products: set "product_code" to null and "unmapped" to true
 
-   Column meanings:
-   - Opening: "Op.Qty", "OPSTK", "Opening", "Open.Qty", "QpnStk"
-   - Purchase: "Purch.Qty", "PURCH", "Receipt", "Pr.Qty"
-   - Sales: "Sales", "Sale", "Sl", "Sold"
-   - Free: "Free Qty", "Free", "Scheme Qty"
-   - Return: "Return", "Ret", "Sales Ret"
-   - Misc Out: "Misc.Out", "M.Out", "Transfer"
-   - Closing Qty: "Closing", "Cls", "Cl.Bal", "ClsStk", "Closing Qty", "Balance"
-   - Closing Value: Closing Value, Closing Val, Cl.Value, Closing Amount
+3. QUANTITY EXTRACTION (CRITICAL):
+   - Extract quantities for all identified columns AND closing value if present.
+   - If Closing Qty is present, extract it directly.
+   - If Closing Value is present, extract it as-is (do NOT calculate it).
+   - If Closing Value is not present, set closing_value to 0.
+   - SELF-CHECK each row: Opening + Purchase - Sales - Free - Return - MiscOut should ≈ Closing.
+     If a row's math is way off, double-check which column values you assigned.
 
-   IMPORTANT:
-    - If Closing Qty is present, extract it
-    - If Closing Value is present, extract it (do NOT calculate)
-    - If Closing Value is not present, leave closingvalue as 0
-    - Ignore previous month closing/sales columns if present, like PMSalesQty, Prev.Cls, etc.
+4. OUTPUT FORMAT:
+   - Return ONLY a valid JSON array — no markdown, no explanation, no extra text.
+   - Include ONLY quantities (NO price/value columns except closing_value).
+   - Include ALL products from the statement, matched and unmatched.
 
-3. OUTPUT FORMAT - QUANTITIES ONLY:
-   - Return ONLY valid JSON array
-   - Include ONLY quantities (NO values/prices)
-   - Include ALL products from the statement, matched and unmatched
-   
 EXPECTED JSON FORMAT:
 [
   {{
@@ -621,9 +672,9 @@ EXPECTED JSON FORMAT:
 ]
 
 IMPORTANT:
-- NO values/prices in output
+- NO values/prices in output (except closing_value)
 - NO markdown formatting
-- ONLY valid JSON array with quantities
+- ONLY valid JSON array
 - Use EXACT product codes from catalog for matched products
 - Set product_code to null for unmatched products
 - Always include raw_product_name for ALL products
@@ -660,7 +711,7 @@ IMPORTANT:
                         model=current_model,
                         contents=[prompt, file_part],
                         config=genai_types.GenerateContentConfig(
-                            thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
+                            thinking_config=genai_types.ThinkingConfig(thinking_budget=1024)
                         )
                     )
 
@@ -671,7 +722,7 @@ IMPORTANT:
                         model=current_model,
                         contents=f"{prompt}\n\nCONTENT:\n{file_content}",
                         config=genai_types.GenerateContentConfig(
-                            thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
+                            thinking_config=genai_types.ThinkingConfig(thinking_budget=1024)
                         )
                     )
 
@@ -683,7 +734,7 @@ IMPORTANT:
                         model=current_model,
                         contents=f"{prompt}\n\nCONTENT:\n{file_content}",
                         config=genai_types.GenerateContentConfig(
-                            thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
+                            thinking_config=genai_types.ThinkingConfig(thinking_budget=1024)
                         )
                     )
 
@@ -1342,23 +1393,59 @@ def process_bulk_extraction(docname, month, zip_file_url):
                                 skipped_div_count += 1
                                 continue
 
+                            # --- Row-level math validation for confidence ---
+                            opening = flt(item_data.get("opening_qty") or 0)
+                            purchase = flt(item_data.get("purchase_qty") or 0)
+                            sales = flt(item_data.get("sales_qty") or 0)
+                            free = flt(item_data.get("free_qty") or 0)
+                            ret = flt(item_data.get("return_qty") or 0)
+                            misc = flt(item_data.get("misc_out_qty") or 0)
+                            closing = flt(item_data.get("closing_qty") or 0)
+
+                            row_confidence = 100.0
+                            math_check = "N/A"
+
+                            if is_unmapped:
+                                row_confidence = 0.0
+                                math_check = "N/A"
+                            elif closing > 0:
+                                expected_closing = opening + purchase - sales - free - ret - misc
+                                diff = abs(expected_closing - closing)
+                                tolerance = max(closing * 0.02, 2)
+                                if diff <= tolerance:
+                                    row_confidence = 100.0
+                                    math_check = "Pass"
+                                else:
+                                    row_confidence = max(0.0, 100.0 - (diff / max(closing, 1)) * 100.0)
+                                    math_check = "Fail"
+
                             row = {
                                 "raw_product_name": raw_name,
                                 "mapping_status": mapping_status,
-                                "opening_qty": flt(item_data.get("opening_qty") or 0),
-                                "purchase_qty": flt(item_data.get("purchase_qty") or 0),
-                                "sales_qty": flt(item_data.get("sales_qty") or 0),
-                                "free_qty": flt(item_data.get("free_qty") or 0),
-                                "return_qty": flt(item_data.get("return_qty") or 0),
-                                "misc_out_qty": flt(item_data.get("misc_out_qty") or 0),
-                                "closing_qty": flt(item_data.get("closing_qty") or 0),
+                                "opening_qty": opening,
+                                "purchase_qty": purchase,
+                                "sales_qty": sales,
+                                "free_qty": free,
+                                "return_qty": ret,
+                                "misc_out_qty": misc,
+                                "closing_qty": closing,
                                 "closing_value": flt(item_data.get("closing_value") or 0),
+                                "row_confidence": round(row_confidence, 1),
+                                "math_check": math_check,
                             }
                             if product_code:
                                 row["product_code"] = product_code
                             statement.append("items", row)
                         
+                        # Compute overall confidence
+                        conf_values = [flt(item.row_confidence) for item in statement.items]
+                        overall_conf = sum(conf_values) / len(conf_values) if conf_values else 0
+                        if unmapped_count > 0:
+                            overall_conf = min(overall_conf, 90.0)
+                        statement.confidence_score = round(overall_conf, 1)
+
                         notes_parts = [f"Extracted {len(extracted_data)} products successfully"]
+                        notes_parts.append(f"Accuracy: {statement.confidence_score}%")
                         if unmapped_count:
                             notes_parts.append(f"{unmapped_count} unmapped")
                         if skipped_div_count:
@@ -9322,3 +9409,416 @@ def get_bulk_jobs_list_enhanced(division=None, page=1, page_size=20):
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Get Bulk Jobs List Enhanced Error")
         return {"success": False, "message": str(e)}
+
+
+# ============================================================
+# AI CHATBOT - Text2SQL Agentic Pipeline
+# ============================================================
+
+SCANIFY_SCHEMA_PROMPT = """
+You are Scanify AI Assistant — an expert analytical chatbot for Stedman Pharmaceuticals' Stockist & Scheme Management System.
+You convert natural language questions into SQL queries against a MariaDB database, then format results clearly.
+
+## COMPANY CONTEXT
+- Company: Stedman Pharmaceuticals
+- Application: Scanify — manages stockist statements, scheme requests, primary sales, and sales targets
+- Divisions: Prima, Vektra (division-controlled, user sees data for their active division)
+- Current user division filter: {division}
+
+## ORGANIZATIONAL HIERARCHY (top → bottom)
+Division → Zone → Region → Team → HQ → Stockist
+- Each level links to its parent. Zone is top geographic grouping, HQ is the lowest field unit.
+- Stockists belong to an HQ. Doctors are also mapped to HQ/Team/Region.
+
+## DATABASE SCHEMA
+
+### Master Tables
+
+**`tabDivision`** — Division master
+- name (PK), division_name
+
+**`tabZone Master`** — Zone master
+- name (PK, format Z####), zone_code, zone_name, division (FK→tabDivision), status
+
+**`tabState Master`** — State master
+- name (PK, format ST####), state_code, state_name, division (FK→tabDivision), status
+
+**`tabRegion Master`** — Region master
+- name (PK, format R####), region_code, region_name, division (FK→tabDivision), zone (FK→tabZone Master), state (FK→tabState Master), status
+
+**`tabTeam Master`** — Team master
+- name (PK, format T####), team_code, team_name, division (FK→tabDivision), region (FK→tabRegion Master), sanctioned_strength, status
+
+**`tabHQ Master`** — Headquarters master (lowest field unit)
+- name (PK, format HQ####), hq_code, hq_name, division (FK→tabDivision), region (FK→tabRegion Master), team (FK→tabTeam Master), zone (Data), per_capita, status
+
+**`tabProduct Master`** — Product catalog
+- name (PK, format PR####), product_code, product_name, pack, pack_conversion, division (Select: Prima/Vektra/ASPR/Wellness), product_group (Select: Dentist/Derma/Contus/Xptum/Amino/Ortho/Drez/Gynae/Jusdee/Dygerm/Others), category (Main Product/Hospital Product/New Product), mrp, ptr, pts, gst_rate, status
+
+**`tabStockist Master`** — Stockist (distributor) master
+- name (PK, format S####), stockist_code, stockist_name, hq (FK→tabHQ Master), division (FK→tabDivision), team (FK→tabTeam Master), region (FK→tabRegion Master), zone, address, city, contact_person, phone, email, status
+
+**`tabDoctor Master`** — Doctor master
+- name (PK, format D####), doctor_code, doctor_name, division (FK→tabDivision), qualification, doctor_category, specialization, phone, place, hospital_address, house_address, hq (FK→tabHQ Master), team (FK→tabTeam Master), region (FK→tabRegion Master), state (FK→tabState Master), zone, chemist_name, status
+
+### Transaction Tables
+
+**`tabStockist Statement`** — Monthly stockist stock statements (Submittable: docstatus 0=Draft,1=Submitted,2=Cancelled)
+- name (PK), stockist_code (FK→tabStockist Master), stockist_name, hq (FK→tabHQ Master), division (FK→tabDivision), team (FK→tabTeam Master), region (FK→tabRegion Master), zone, statement_month (Date, 1st of month), uploaded_file, extracted_data_status (Pending/In Progress/Completed/Failed), extraction_notes, qc_confidence, total_opening_value, total_purchase_value, total_free_value, total_sales_value_pts, total_sales_value_ptr, total_closing_value, docstatus, owner, creation, modified
+
+**`tabStockist Statement Item`** — Line items of stockist statement (child table, parent=tabStockist Statement)
+- name, parent (FK→tabStockist Statement), parenttype='Stockist Statement', idx, product_code (FK→tabProduct Master), product_name, raw_product_name, mapping_status, pack, opening_qty, prev_month_closing, purchase_qty, sales_qty, free_qty, free_qty_scheme, conversion_factor, return_qty, misc_out_qty, closing_qty, pts, sales_value_pts, sales_value_ptr, opening_value, purchase_value, closing_value, scheme_deducted_qty_calc
+
+**`tabScheme Request`** — Scheme/discount requests (Submittable)
+- name (PK, format SCH-YYYY-#####), application_date, requested_by (FK→tabUser), division (FK→tabDivision), region (FK→tabRegion Master), team (FK→tabTeam Master), doctor_code (FK→tabDoctor Master), doctor_name, doctor_place, specialization, hospital_address, hq (FK→tabHQ Master), stockist_code (FK→tabStockist Master), stockist_name, total_scheme_value, approval_status (Pending/Approved/Rejected/Rerouted), repeated_request, scheme_notes, docstatus, owner, creation, modified
+
+**`tabScheme Request Item`** — Line items of scheme request (child table, parent=tabScheme Request)
+- name, parent (FK→tabScheme Request), idx, product_code (FK→tabProduct Master), product_name, pack, quantity, free_quantity, product_rate, special_rate, scheme_percentage, product_value
+
+**`tabScheme Approval Log`** — Approval workflow log (child table, parent=tabScheme Request)
+- name, parent (FK→tabScheme Request), idx, approver (FK→tabUser), approval_level, action (Approved/Rejected/Rerouted), action_date, comments
+
+**`tabScheme Deduction`** — Deductions applied against statements (Submittable)
+- name (PK, format SD-####), scheme_request (FK→tabScheme Request), scheme_date, doctor_code (FK→tabDoctor Master), division (FK→tabDivision), stockist_statement (FK→tabStockist Statement), stockist_code (FK→tabStockist Master), deduction_date, status (Draft/Applied/Cancelled), total_deducted_qty, total_deducted_value, notes, docstatus, owner, creation, modified
+
+**`tabScheme Deduction Item`** — Line items of deduction (child table, parent=tabScheme Deduction)
+- name, parent (FK→tabScheme Deduction), idx, product_code (FK→tabProduct Master), product_name, pack, scheme_free_qty, current_free_qty, deduct_qty, pts, deducted_value
+
+**`tabPrimary Sales Data`** — Invoice-level primary sales data
+- name (PK, hash), upload_month (YYYY-MM), division (FK→tabDivision), upload_ref (FK→tabPrimary Sales Upload), iscancelled, direct_party, stockist_code (Data), stockist_name, citypool, team (Data), region (Data), act_region, zonee, invoiceno, invoicedate, pcode, product (product name), product_head (product group), pack, batchno, quantity, freeqty, expqty, pts, ptsvalue, ptr, ptrvalue, mrp, mrpvalue, nrv, nrvvalue, dsort
+
+**`tabPrimary Sales Upload`** — Upload job tracking
+- name (PK, format PRI-YYYY-#####), upload_month (YYYY-MM), division (FK→tabDivision), uploaded_by (FK→tabUser), upload_date, file, total_rows, success_count, error_count, status (Pending/Processing/Completed/Failed), error_log
+
+**`tabBulk Statement Upload`** — Bulk OCR processing jobs (Submittable)
+- name (PK, format BULK-month-####), job_name, statement_month, zip_file, division (FK→tabDivision), status (Pending/Queued/In Progress/Completed/Failed/Partially Completed), progress, total_files, success_count, failed_count, skipped_count, job_id, extraction_log, docstatus, owner, creation, modified
+
+**`tabHQ Yearly Target`** — Annual sales targets per HQ
+- name (PK), division (FK→tabDivision), region (FK→tabRegion Master), financial_year (e.g. 2025-26), start_date, end_date, status (Draft/Active/Completed/Cancelled), total_target_amount (Lakhs), total_hqs, upload_date, uploaded_by
+
+**`tabHQ Target Item`** — Monthly target breakdowns (child table, parent=tabHQ Yearly Target)
+- name, parent (FK→tabHQ Yearly Target), idx, hq (FK→tabHQ Master), hq_name, team (FK→tabTeam Master), apr, may, jun, jul, aug, sep, oct, nov, dec, jan, feb, mar (all Currency in Lakhs), q1_total, q2_total, q3_total, q4_total, yearly_total
+
+**`tabStockist Product Correction`** — OCR product name corrections/mappings
+- name (PK, format SPC-####), stockist_code (FK→tabStockist Master), raw_product_name, mapped_product_code (FK→tabProduct Master), division (FK→tabDivision), created_from_statement (FK→tabStockist Statement), status
+
+## IMPORTANT SQL RULES
+1. Always use backticks around table names with spaces: `tabStockist Statement`
+2. For submitted documents, filter by docstatus=1 unless user asks for drafts
+3. Date fields: statement_month stores 1st of month (e.g. '2025-06-01' for June 2025)
+4. Primary Sales upload_month is YYYY-MM format string (e.g. '2025-06')
+5. Division filter: ALWAYS add division='{division}' to WHERE clause unless query is explicitly cross-division
+6. Currency values: pts/ptr/mrp are per-unit prices. Values (_value suffix) are computed totals.
+7. Use LEFT JOINs for optional relationships, INNER JOINs for required ones
+8. Limit results to 500 rows max unless user asks for all
+9. For aggregations, always include meaningful GROUP BY
+10. Financial year runs April to March (e.g. 2025-26 = Apr 2025 - Mar 2026)
+11. Use COALESCE for nullable numeric fields in aggregations
+
+## RESPONSE FORMAT
+You MUST respond with a valid JSON object in one of these formats:
+
+### For data queries:
+{{
+  "type": "data",
+  "sql": "SELECT ... FROM ... WHERE ...",
+  "title": "Brief title describing the results",
+  "description": "One-line explanation of what the data shows",
+  "columns": ["col1", "col2", ...],
+  "format": "table"
+}}
+
+### For chart-worthy queries (trends, comparisons, distributions):
+{{
+  "type": "chart",
+  "sql": "SELECT ... FROM ... WHERE ...",
+  "title": "Chart title",
+  "description": "What the chart shows",
+  "chart_type": "bar|line|pie|doughnut|horizontalBar",
+  "label_column": "column_name_for_labels",
+  "value_columns": ["col1", "col2"],
+  "columns": ["col1", "col2", ...],
+  "format": "chart"
+}}
+
+### For count/single-value queries:
+{{
+  "type": "metric",
+  "sql": "SELECT COUNT(*) as count FROM ...",
+  "title": "Metric title",
+  "description": "What this metric represents",
+  "columns": ["count"],
+  "format": "metric"
+}}
+
+### For conversational/non-data questions:
+{{
+  "type": "text",
+  "message": "Your helpful response here"
+}}
+
+### For errors or unclear questions:
+{{
+  "type": "error",
+  "message": "Explain what's wrong or ask for clarification"
+}}
+
+## CHART SELECTION GUIDELINES
+- Time series / monthly trends → "line"
+- Comparisons across categories (regions, teams, products) → "bar" or "horizontalBar"
+- Distribution / share / percentage breakdown → "pie" or "doughnut"
+- Top N rankings → "horizontalBar"
+- If user says "chart" or "graph", pick the best chart_type automatically
+- For multi-series charts, use multiple value_columns
+
+## ANALYTICAL CAPABILITIES
+You can answer questions like:
+- Sales performance by region/team/HQ/stockist
+- Product-wise sales trends and comparisons
+- Scheme utilization and deduction analysis
+- Target vs achievement analysis
+- Stock movement patterns (opening, purchase, sales, closing)
+- Top/bottom performers at any hierarchy level
+- Month-over-month and year-over-year comparisons
+- Stockist statement submission tracking
+- Product group analysis
+- Zone/Region wise breakdowns
+
+Always think step by step about which tables to join and what aggregations are needed.
+"""
+
+
+@frappe.whitelist()
+def chatbot_query(message, conversation_history=None):
+    """
+    Process a natural language query through the Text2SQL pipeline.
+    Uses Gemini to convert question to SQL, executes it, and returns formatted results.
+    """
+    if not message or not message.strip():
+        return {"success": False, "error": "Please enter a question."}
+
+    try:
+        api_key, model_name, is_enabled = get_gemini_settings()
+    except Exception:
+        return {"success": False, "error": "Gemini AI is not configured. Please enable it in Scanify Settings."}
+
+    division = get_user_division()
+
+    # Build the system prompt with division context
+    system_prompt = SCANIFY_SCHEMA_PROMPT.format(division=division)
+
+    # Build conversation messages
+    messages = []
+    if conversation_history:
+        if isinstance(conversation_history, str):
+            try:
+                conversation_history = json.loads(conversation_history)
+            except (json.JSONDecodeError, TypeError):
+                conversation_history = []
+        # Include last 10 exchanges for context
+        for entry in conversation_history[-10:]:
+            role = entry.get("role", "user")
+            content = entry.get("content", "")
+            if role == "user":
+                messages.append({"role": "user", "content": content})
+            elif role == "assistant":
+                messages.append({"role": "assistant", "content": content})
+
+    messages.append({"role": "user", "content": message})
+
+    try:
+        client = genai_sdk.Client(api_key=api_key)
+
+        # Build contents for Gemini
+        contents = []
+        for msg in messages:
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append(genai_types.Content(
+                role=role,
+                parts=[genai_types.Part(text=msg["content"])]
+            ))
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=contents,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0.1,
+                max_output_tokens=8192,
+            )
+        )
+
+        ai_text = response.text.strip()
+
+        # Extract JSON from response (handle markdown code blocks)
+        json_str = ai_text
+        if "```json" in json_str:
+            json_str = json_str.split("```json")[1].split("```")[0].strip()
+        elif "```" in json_str:
+            json_str = json_str.split("```")[1].split("```")[0].strip()
+
+        try:
+            ai_response = json.loads(json_str)
+        except json.JSONDecodeError:
+            # If AI returned plain text, treat as text response
+            return {
+                "success": True,
+                "type": "text",
+                "message": ai_text,
+                "raw_response": ai_text
+            }
+
+        response_type = ai_response.get("type", "text")
+
+        if response_type == "text":
+            return {
+                "success": True,
+                "type": "text",
+                "message": ai_response.get("message", ai_text),
+                "raw_response": ai_text
+            }
+
+        if response_type == "error":
+            return {
+                "success": True,
+                "type": "error",
+                "message": ai_response.get("message", "I couldn't understand that query."),
+                "raw_response": ai_text
+            }
+
+        sql = ai_response.get("sql", "")
+        if not sql:
+            return {
+                "success": True,
+                "type": "text",
+                "message": ai_response.get("message", ai_text),
+                "raw_response": ai_text
+            }
+
+        # Security: validate the SQL is read-only
+        sql_upper = sql.strip().upper()
+        # Use word-boundary regex to avoid false positives (e.g. LOAD in UPLOAD)
+        forbidden_patterns = [
+            r'\bINSERT\b', r'\bUPDATE\b', r'\bDELETE\b', r'\bDROP\b',
+            r'\bALTER\b', r'\bCREATE\b', r'\bTRUNCATE\b', r'\bGRANT\b',
+            r'\bREVOKE\b', r'\bEXEC\b', r'\bEXECUTE\b', r'\bCALL\b',
+            r'\bLOAD\b', r'INTO\s+OUTFILE', r'INTO\s+DUMPFILE',
+            r'\bINFORMATION_SCHEMA\b', r'\bSLEEP\s*\(', r'\bBENCHMARK\s*\('
+        ]
+        for pattern in forbidden_patterns:
+            if re.search(pattern, sql_upper):
+                return {
+                    "success": False,
+                    "error": "Only read-only SELECT queries are allowed.",
+                    "raw_response": ai_text
+                }
+
+        if not sql_upper.lstrip().startswith("SELECT") and not sql_upper.lstrip().startswith("WITH"):
+            return {
+                "success": False,
+                "error": "Only SELECT queries are permitted.",
+                "raw_response": ai_text
+            }
+
+        # Execute the SQL query
+        try:
+            results = frappe.db.sql(sql, as_dict=True)
+        except Exception as db_err:
+            # If query fails, ask Gemini to fix it
+            error_msg = str(db_err)
+            retry_prompt = f"The SQL query failed with error: {error_msg}\n\nOriginal query: {sql}\n\nPlease fix the SQL and respond with the corrected JSON."
+            contents.append(genai_types.Content(
+                role="model",
+                parts=[genai_types.Part(text=ai_text)]
+            ))
+            contents.append(genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=retry_prompt)]
+            ))
+
+            retry_response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.1,
+                    max_output_tokens=8192,
+                )
+            )
+
+            retry_text = retry_response.text.strip()
+            retry_json = retry_text
+            if "```json" in retry_json:
+                retry_json = retry_json.split("```json")[1].split("```")[0].strip()
+            elif "```" in retry_json:
+                retry_json = retry_json.split("```")[1].split("```")[0].strip()
+
+            try:
+                retry_parsed = json.loads(retry_json)
+                retry_sql = retry_parsed.get("sql", "")
+                if retry_sql:
+                    # Validate retry SQL too
+                    retry_upper = retry_sql.strip().upper()
+                    for pattern in forbidden_patterns:
+                        if re.search(pattern, retry_upper):
+                            return {"success": False, "error": "Only read-only queries are allowed."}
+                    if not retry_upper.lstrip().startswith("SELECT") and not retry_upper.lstrip().startswith("WITH"):
+                        return {"success": False, "error": "Only SELECT queries are permitted."}
+
+                    results = frappe.db.sql(retry_sql, as_dict=True)
+                    ai_response = retry_parsed
+                    sql = retry_sql
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Query failed: {error_msg}",
+                        "raw_response": ai_text
+                    }
+            except Exception:
+                return {
+                    "success": False,
+                    "error": f"Query failed: {error_msg}",
+                    "raw_response": ai_text
+                }
+
+        # Format results
+        rows = []
+        for row in results[:500]:
+            formatted_row = {}
+            for key, val in row.items():
+                if val is None:
+                    formatted_row[key] = ""
+                elif isinstance(val, (int, float)):
+                    formatted_row[key] = val
+                else:
+                    formatted_row[key] = str(val)
+            rows.append(formatted_row)
+
+        columns = ai_response.get("columns", list(rows[0].keys()) if rows else [])
+
+        response_data = {
+            "success": True,
+            "type": response_type,
+            "title": ai_response.get("title", "Query Results"),
+            "description": ai_response.get("description", ""),
+            "columns": columns,
+            "data": rows,
+            "total_rows": len(rows),
+            "sql": sql,
+            "raw_response": ai_text
+        }
+
+        # Add chart config if chart type
+        if response_type == "chart":
+            response_data["chart_type"] = ai_response.get("chart_type", "bar")
+            response_data["label_column"] = ai_response.get("label_column", columns[0] if columns else "")
+            response_data["value_columns"] = ai_response.get("value_columns", columns[1:] if len(columns) > 1 else columns)
+
+        return response_data
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Chatbot Query Error")
+        return {
+            "success": False,
+            "error": f"An error occurred: {str(e)}"
+        }

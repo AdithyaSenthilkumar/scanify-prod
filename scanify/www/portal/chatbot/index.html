@@ -1,0 +1,140 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}AI Chatbot{% endblock %}
+
+{% block head_include %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="/assets/scanify/css/chatbot.css">
+{% endblock %}
+
+{% block portal_content %}
+<div class="chatbot-page">
+    <!-- Header -->
+    <div class="chat-header">
+        <div class="chat-header-left">
+            <div class="chat-header-icon">
+                <i class="fa fa-robot"></i>
+            </div>
+            <div class="chat-header-info">
+                <h1 class="chat-header-title">Scanify Agentic Chatbot</h1>
+                <p class="chat-header-subtitle">
+                    <span class="status-dot"></span>
+                    AI-powered analytics for <strong>{{ division }}</strong> division
+                </p>
+            </div>
+        </div>
+        <div class="chat-header-actions">
+            <button class="chat-action-btn" id="btnClearChat" title="Clear conversation">
+                <i class="fa fa-trash-alt"></i>
+            </button>
+            <button class="chat-action-btn" id="btnExportChat" title="Export conversation">
+                <i class="fa fa-download"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Chat Container -->
+    <div class="chat-container" id="chatContainer">
+        <div class="chat-messages" id="chatMessages">
+            <!-- Welcome Message -->
+            <div class="chat-message assistant-message">
+                <div class="message-avatar assistant-avatar">
+                    <i class="fa fa-robot"></i>
+                </div>
+                <div class="message-content">
+                    <div class="message-bubble assistant-bubble">
+                        <div class="welcome-message">
+                            <h3>Welcome to Scanify AI Assistant</h3>
+                            <p>I can help you analyze your <strong>{{ division }}</strong> division data. Ask me anything about:</p>
+                            <div class="capability-grid">
+                                <div class="capability-item" onclick="useSuggestion(this)">
+                                    <i class="fa fa-chart-line"></i>
+                                    <span>Sales Trends</span>
+                                    <small>Show me monthly primary sales trend for last 6 months</small>
+                                </div>
+                                <div class="capability-item" onclick="useSuggestion(this)">
+                                    <i class="fa fa-warehouse"></i>
+                                    <span>Stockist Analysis</span>
+                                    <small>Top 10 stockists by secondary sales value this month</small>
+                                </div>
+                                <div class="capability-item" onclick="useSuggestion(this)">
+                                    <i class="fa fa-gift"></i>
+                                    <span>Scheme Reports</span>
+                                    <small>Show scheme requests by approval status as a pie chart</small>
+                                </div>
+                                <div class="capability-item" onclick="useSuggestion(this)">
+                                    <i class="fa fa-bullseye"></i>
+                                    <span>Target Achievement</span>
+                                    <small>Region wise target vs achievement for current financial year</small>
+                                </div>
+                                <div class="capability-item" onclick="useSuggestion(this)">
+                                    <i class="fa fa-boxes"></i>
+                                    <span>Product Analysis</span>
+                                    <small>Top 15 products by sales quantity this quarter as a bar chart</small>
+                                </div>
+                                <div class="capability-item" onclick="useSuggestion(this)">
+                                    <i class="fa fa-map-marked-alt"></i>
+                                    <span>Region Performance</span>
+                                    <small>Compare region wise closing stock value</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="message-time">Just now</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="chat-input-area">
+        <div class="chat-input-wrapper">
+            <div class="chat-input-container">
+                <textarea id="chatInput" class="chat-input" placeholder="Ask about sales, stockists, schemes, targets, products..."
+                    rows="1" maxlength="2000"></textarea>
+                <button class="chat-send-btn" id="btnSend" title="Send message">
+                    <i class="fa fa-paper-plane"></i>
+                </button>
+            </div>
+            <div class="chat-input-hint">
+                <span><i class="fa fa-lightbulb"></i> Tip: Ask for charts by saying "show as bar chart" or "pie chart"</span>
+                <span class="char-count" id="charCount">0 / 2000</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SQL Detail Modal -->
+<div class="modal fade" id="sqlModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa fa-code mr-2"></i>SQL Query</h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <pre class="sql-display" id="sqlDisplay"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="copySql()">
+                    <i class="fa fa-copy mr-1"></i> Copy SQL
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/assets/scanify/js/chatbot.js"></script>
+<script>
+    // Initialize chatbot with server context
+    document.addEventListener('DOMContentLoaded', function() {
+        window.ScanifyChatbot.init({
+            division: "{{ division }}",
+            userName: "{{ user_fullname }}",
+            csrfToken: "{{ frappe.session.csrf_token }}"
+        });
+    });
+</script>
+{% endblock %}
