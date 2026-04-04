@@ -108,11 +108,12 @@
                         <colgroup>
                             <col style="width:3%;">
                             <col style="width:11%;">
-                            <col style="width:14%;">
-                            <col style="width:8%;">
-                            <col style="width:5%;">
                             <col style="width:13%;">
-                            <col style="width:40%;"><!-- Note: largest column -->
+                            <col style="width:7%;">
+                            <col style="width:5%;">
+                            <col style="width:12%;">
+                            <col style="width:7%;">
+                            <col style="width:36%;"><!-- Note: largest column -->
                             <col style="width:6%;">
                         </colgroup>
                         <thead>
@@ -123,6 +124,7 @@
                                 <th>Status</th>
                                 <th>Items</th>
                                 <th>QC Confidence</th>
+                                <th>Accuracy</th>
                                 <th>Note / Details</th>
                                 <th>Statement</th>
                             </tr>
@@ -471,7 +473,7 @@
 
         const tbody = document.getElementById('bkv-log-tbody');
         if (!filtered.length) {
-            tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">No results match the filter.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">No results match the filter.</td></tr>`;
             return;
         }
 
@@ -489,6 +491,15 @@
             else if (qc === 'Verification Needed') qcBadge = '<span class="badge badge-warning"><i class="fa fa-exclamation-triangle"></i> Verification Needed</span>';
             else if (qc === 'QC Needed') qcBadge = '<span class="badge badge-danger"><i class="fa fa-times-circle"></i> QC Needed</span>';
 
+            // Accuracy badge
+            const conf = parseFloat(r.confidence_score || 0);
+            let accBadge = '<span class="text-muted">—</span>';
+            if (r.status === 'Success' && r.statement) {
+                const accColor = conf >= 90 ? '#059669' : conf >= 70 ? '#d97706' : '#dc2626';
+                const accBg = conf >= 90 ? '#ecfdf5' : conf >= 70 ? '#fffbeb' : '#fef2f2';
+                accBadge = `<span style="display:inline-block;padding:2px 10px;border-radius:10px;font-size:12px;font-weight:700;color:${accColor};background:${accBg};">${conf.toFixed(0)}%</span>`;
+            }
+
             return `<tr>
             <td class="text-muted" style="white-space:nowrap;">${i + 1}</td>
             <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.file || ''}">${r.file || '—'}</td>
@@ -496,6 +507,7 @@
             <td class="${stCls}" style="white-space:nowrap;">${r.status}</td>
             <td style="text-align:center;">${r.items_extracted != null ? r.items_extracted : '—'}</td>
             <td class="bkv-qc-cell">${qcBadge}</td>
+            <td class="text-center">${accBadge}</td>
             <td class="bkv-note-cell">${r.message || '<span class="text-muted">—</span>'}</td>
             <td style="white-space:nowrap;">${stLink}</td>
         </tr>`;

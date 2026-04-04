@@ -2024,6 +2024,7 @@
             if (res && res.success) {
                 sv_items[rowIdx].productcode = productCode;
                 sv_items[rowIdx].mappingstatus = 'matched';
+                sv_items[rowIdx].row_confidence = 100;
                 // Find product info from preloaded list
                 const p = sv_all_products.find(function (x) { return x.name === productCode; });
                 if (p) {
@@ -2032,6 +2033,17 @@
                     sv_items[rowIdx].pts = parseFloat(p.pts || 0);
                 }
                 if (res.qc_confidence) sv_doc.qc_confidence = res.qc_confidence;
+                if (res.confidence_score != null) {
+                    sv_doc.confidence_score = res.confidence_score;
+                    var $chip = document.getElementById('sv-accuracy-chip');
+                    if ($chip) {
+                        var cs = res.confidence_score;
+                        var col = cs >= 90 ? '#059669' : cs >= 70 ? '#d97706' : '#dc2626';
+                        var bg = cs >= 90 ? '#ecfdf5' : cs >= 70 ? '#fffbeb' : '#fef2f2';
+                        $chip.style.color = col; $chip.style.background = bg;
+                        $chip.textContent = cs.toFixed(0) + '% Accuracy';
+                    }
+                }
                 sv_render_qc_table();
             } else {
                 alert('Mapping failed: ' + ((res && res.message) || 'Unknown error'));

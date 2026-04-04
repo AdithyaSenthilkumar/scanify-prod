@@ -268,7 +268,7 @@ def _do_extract(doc_name, file_url):
             frappe.logger().info(f"Skipped product {product_code} ('{raw_name}') — not in {statement_division} division")
             continue
 
-        # --- Row-level math validation for confidence ---
+        # --- Use Gemini's self-reported confidence ---
         opening = flt(item_data.get("opening_qty"), 0)
         purchase = flt(item_data.get("purchase_qty"), 0)
         sales = flt(item_data.get("sales_qty"), 0)
@@ -277,23 +277,10 @@ def _do_extract(doc_name, file_url):
         misc = flt(item_data.get("misc_out_qty"), 0)
         closing = flt(item_data.get("closing_qty"), 0)
 
-        row_confidence = 100.0
-        math_check = "N/A"
-
+        gemini_confidence = flt(item_data.get("confidence"), 0)
+        row_confidence = min(max(gemini_confidence, 0), 100)  # clamp 0-100
         if is_unmapped:
-            row_confidence = 0.0
-            math_check = "N/A"
-        elif closing > 0:
-            expected_closing = opening + purchase - sales - free - ret - misc
-            diff = abs(expected_closing - closing)
-            tolerance = max(closing * 0.02, 2)  # ±2% or ±2 units
-            if diff <= tolerance:
-                row_confidence = 100.0
-                math_check = "Pass"
-            else:
-                # Scale confidence down proportionally to the error
-                row_confidence = max(0.0, 100.0 - (diff / max(closing, 1)) * 100.0)
-                math_check = "Fail"
+            row_confidence = min(row_confidence, 50.0)  # cap unmapped at 50%
 
         row = {
             "raw_product_name": raw_name,
@@ -307,7 +294,7 @@ def _do_extract(doc_name, file_url):
             "closing_qty": closing,
             "closing_value": flt(item_data.get("closing_value"), 0),
             "row_confidence": round(row_confidence, 1),
-            "math_check": math_check,
+            "math_check": "N/A",
         }
         if product_code:
             row["product_code"] = product_code
@@ -613,6 +600,7 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
    - IMPORTANT: Distinguish QUANTITY columns (integers) from VALUE/AMOUNT columns (decimals with currency).
      Do NOT extract value columns as quantities. Value columns typically have large decimal numbers.
    - IGNORE previous-month or historical columns: PMSalesQty, Prev.Cls, LM Sales, Last Month, PM Cls, etc.
+   - IMPORTANT: "AVSL" is NOT an Opening column. It typically refers to a scheme/free goods allocation or a sales benchmark — do NOT map it to opening_qty.
    - VERIFY: For a few sample rows, check that Opening + Purchase - Sales - Free - Return - MiscOut ≈ Closing.
      If this does NOT add up, re-examine your column assignments — you may have the wrong column mapped.
 
@@ -630,13 +618,27 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
 
 3. QUANTITY EXTRACTION (CRITICAL):
    - Extract quantities for all identified columns AND closing value if present.
-   - If Closing Qty is present, extract it directly.
-   - If Closing Value is present, extract it as-is (do NOT calculate it).
-   - If Closing Value is not present, set closing_value to 0.
-   - SELF-CHECK each row: Opening + Purchase - Sales - Free - Return - MiscOut should ≈ Closing.
+   - ONLY extract values for columns that ACTUALLY EXIST in the statement. Do NOT calculate or infer missing columns.
+   - If a column does not exist in the statement, set its value to 0. Do NOT compute it from other columns.
+   - If Closing Qty column exists in the statement, extract the printed value directly.
+   - If Closing Qty column does NOT exist in the statement, set closing_qty to 0. Do NOT calculate it as Opening + Purchase - Sales - etc.
+   - If Closing Value column exists in the statement, extract the printed value directly.
+   - If Closing Value column does NOT exist in the statement, set closing_value to 0. Do NOT calculate it.
+   - SELF-CHECK each row: For columns that DO exist, verify Opening + Purchase - Sales - Free - Return - MiscOut should ≈ Closing.
      If a row's math is way off, double-check which column values you assigned.
 
-4. OUTPUT FORMAT:
+4. CONFIDENCE SCORING (CRITICAL — per row):
+   - For EACH row, assign a "confidence" integer from 0 to 100 representing how confident you are that the extracted data is correct.
+   - Score 100: You can clearly read ALL fields in the row, the values make sense, and math sanity checks out. USE 100 LIBERALLY — if you can read it, it's 100.
+   - Score 70-99: One or more values are ambiguous — a blurry digit, faded text, overlapping columns, or the math doesn't add up (likely an OCR misread).
+   - Score 30-69: Several fields are hard to read, the row layout is confusing, or quantities seem very unusual.
+   - Score 0-29: Very poor readability, heavy guessing, or the row is heavily damaged/truncated.
+   - For unmapped products: still score based on how well you could READ the quantities (mapping is separate).
+   - Sanity check: if Opening + Purchase - Sales - Free - Return - MiscOut does NOT equal Closing and the difference is significant, REDUCE confidence below 100 (the OCR likely got a digit wrong).
+   - If some columns are genuinely absent from the statement (e.g. no Free or Return column), that is NOT a reason to reduce confidence — only reduce when you are uncertain about what you read.
+   - IMPORTANT: Do NOT artificially lower confidence. If you can read a row clearly and the math checks out, it MUST be 100.
+
+5. OUTPUT FORMAT:
    - Return ONLY a valid JSON array — no markdown, no explanation, no extra text.
    - Include ONLY quantities (NO price/value columns except closing_value).
    - Include ALL products from the statement, matched and unmatched.
@@ -647,6 +649,7 @@ EXPECTED JSON FORMAT:
     "product_code": "ARC",
     "raw_product_name": "ARCALION 200MG",
     "unmapped": false,
+    "confidence": 98,
     "opening_qty": 88,
     "purchase_qty": 29,
     "sales_qty": 59,
@@ -660,6 +663,7 @@ EXPECTED JSON FORMAT:
     "product_code": null,
     "raw_product_name": "UNKNOWN PRODUCT XYZ",
     "unmapped": true,
+    "confidence": 72,
     "opening_qty": 10,
     "purchase_qty": 5,
     "sales_qty": 8,
@@ -678,6 +682,7 @@ IMPORTANT:
 - Use EXACT product codes from catalog for matched products
 - Set product_code to null for unmatched products
 - Always include raw_product_name for ALL products
+- Always include confidence (0-100) for ALL products
 """
         
         frappe.logger().info(f"Using Gemini model: {model_name}")
@@ -1034,17 +1039,19 @@ def get_bulk_job_status(docname):
         # Enrich log with live QC confidence from actual statements
         statement_names = [r["statement"] for r in log_data if r.get("statement")]
         if statement_names:
-            live_qc = {
-                row.name: row.qc_confidence
+            live_data = {
+                row.name: row
                 for row in frappe.get_all(
                     "Stockist Statement",
                     filters={"name": ["in", statement_names]},
-                    fields=["name", "qc_confidence"],
+                    fields=["name", "qc_confidence", "confidence_score"],
                 )
             }
             for entry in log_data:
-                if entry.get("statement") and entry["statement"] in live_qc:
-                    entry["qc_confidence"] = live_qc[entry["statement"]] or entry.get("qc_confidence", "")
+                st = entry.get("statement")
+                if st and st in live_data:
+                    entry["qc_confidence"] = live_data[st].qc_confidence or entry.get("qc_confidence", "")
+                    entry["confidence_score"] = flt(live_data[st].confidence_score)
 
         return {
             "success": True,
@@ -1393,7 +1400,7 @@ def process_bulk_extraction(docname, month, zip_file_url):
                                 skipped_div_count += 1
                                 continue
 
-                            # --- Row-level math validation for confidence ---
+                            # --- Use Gemini's self-reported confidence ---
                             opening = flt(item_data.get("opening_qty") or 0)
                             purchase = flt(item_data.get("purchase_qty") or 0)
                             sales = flt(item_data.get("sales_qty") or 0)
@@ -1402,22 +1409,10 @@ def process_bulk_extraction(docname, month, zip_file_url):
                             misc = flt(item_data.get("misc_out_qty") or 0)
                             closing = flt(item_data.get("closing_qty") or 0)
 
-                            row_confidence = 100.0
-                            math_check = "N/A"
-
+                            gemini_confidence = flt(item_data.get("confidence") or 0)
+                            row_confidence = min(max(gemini_confidence, 0), 100)
                             if is_unmapped:
-                                row_confidence = 0.0
-                                math_check = "N/A"
-                            elif closing > 0:
-                                expected_closing = opening + purchase - sales - free - ret - misc
-                                diff = abs(expected_closing - closing)
-                                tolerance = max(closing * 0.02, 2)
-                                if diff <= tolerance:
-                                    row_confidence = 100.0
-                                    math_check = "Pass"
-                                else:
-                                    row_confidence = max(0.0, 100.0 - (diff / max(closing, 1)) * 100.0)
-                                    math_check = "Fail"
+                                row_confidence = min(row_confidence, 50.0)
 
                             row = {
                                 "raw_product_name": raw_name,
@@ -1431,7 +1426,7 @@ def process_bulk_extraction(docname, month, zip_file_url):
                                 "closing_qty": closing,
                                 "closing_value": flt(item_data.get("closing_value") or 0),
                                 "row_confidence": round(row_confidence, 1),
-                                "math_check": math_check,
+                                "math_check": "N/A",
                             }
                             if product_code:
                                 row["product_code"] = product_code
@@ -9289,6 +9284,11 @@ def apply_mapping_and_save_correction(doc_name, row_idx, mapped_product_code):
         # Update the item
         item.product_code = mapped_product_code
         item.mapping_status = "matched"
+        item.row_confidence = 100.0
+
+        # Recalculate overall confidence
+        conf_values = [flt(i.row_confidence) for i in doc.items]
+        doc.confidence_score = round(sum(conf_values) / len(conf_values), 1) if conf_values else 0
 
         # Recalculate
         doc.calculate_closing_and_totals()
@@ -9300,6 +9300,7 @@ def apply_mapping_and_save_correction(doc_name, row_idx, mapped_product_code):
             "success": True,
             "message": f"Mapped '{raw_name}' → {mapped_product_code}",
             "qc_confidence": doc.qc_confidence,
+            "confidence_score": flt(doc.confidence_score),
         }
 
     except Exception as e:

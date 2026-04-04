@@ -9,6 +9,16 @@
 {% endblock %}
 
 {% block portal_content %}
+{% if chatbot_disabled %}
+<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;">
+    <div style="text-align:center;max-width:420px;">
+        <div style="font-size:56px;margin-bottom:16px;color:#94a3b8;"><i class="fa fa-robot"></i></div>
+        <h3 style="margin-bottom:8px;color:#334155;">Chatbot is Disabled</h3>
+        <p style="color:#64748b;font-size:15px;">The AI Chatbot is currently turned off by your administrator. Please contact them to enable it from Scanify Settings.</p>
+        <a href="/portal/stock-statements" class="btn btn-primary btn-sm" style="margin-top:16px;">Go to Statements</a>
+    </div>
+</div>
+{% else %}
 <div class="chatbot-page">
     <!-- Header -->
     <div class="chat-header">
@@ -137,4 +147,5 @@
         });
     });
 </script>
+{% endif %}
 {% endblock %}
