@@ -201,6 +201,219 @@ def _build_correction_map(stockist_code):
     return {c["raw_product_name"].strip().upper(): c["mapped_product_code"] for c in corrections}
 
 
+def _build_correction_prompt(stockist_code):
+    """Build stockist-specific correction hints for Gemini without overriding its final decision."""
+    correction_map = _build_correction_map(stockist_code)
+    if not correction_map:
+        return ""
+
+    lines = ["\n=== STOCKIST-SPECIFIC PRODUCT CORRECTION HINTS ==="]
+    lines.append(
+        "These are past QC-approved mappings for this stockist. Use them as strong hints only when the visible"
+        " product text and pack still agree with the mapped product."
+    )
+    for raw_name, product_code in sorted(correction_map.items()):
+        lines.append(f"- {raw_name} -> {product_code}")
+
+    return "\n".join(lines) + "\n"
+
+
+def _get_first_present_value(data, *keys):
+    """Return the first non-empty value for the given keys."""
+    for key in keys:
+        if key in data and data.get(key) not in (None, ""):
+            return data.get(key)
+    return 0
+
+
+def _parse_numeric_value(value):
+    """Parse extracted numeric text while preserving negatives and parenthesized values."""
+    text = cstr(value).strip()
+    if not text:
+        return 0
+
+    if text.startswith("(") and text.endswith(")"):
+        text = f"-{text[1:-1]}"
+
+    text = text.replace(",", "")
+    return flt(text)
+
+
+def _build_gemini_generation_config(model_name):
+    """Tune Gemini thinking per model family for extraction requests."""
+    model_key = cstr(model_name).strip().lower()
+    thinking_config = None
+
+    if "gemini-3" in model_key:
+        thinking_config = genai_types.ThinkingConfig(thinking_level="high")
+    else:
+        # Gemini 2.5 models use thinkingBudget. Bump it modestly above the previous fixed 1024 cap.
+        thinking_config = genai_types.ThinkingConfig(thinking_budget=2048)
+
+    return genai_types.GenerateContentConfig(thinking_config=thinking_config)
+
+
+def _normalize_row_type(row_type, raw_product_name):
+    """Normalize Gemini row type output and backfill known special rows from the raw label."""
+    normalized = cstr(row_type).strip().lower().replace(" ", "_")
+    if normalized in {"product", "others", "branch_transfer"}:
+        return normalized
+
+    raw_name = cstr(raw_product_name).strip().upper()
+    if raw_name == "OTHERS" or raw_name.startswith("OTHERS "):
+        return "others"
+    if raw_name == "BRANCH TRANSFER" or raw_name.startswith("BRANCH TRANSFER"):
+        return "branch_transfer"
+
+    return "product"
+
+
+def _build_division_product_codes(statement_division, products_list=None):
+    """Build the valid product-code set for a statement division."""
+    division_product_codes = set()
+    if not statement_division:
+        return division_product_codes
+
+    source_products = products_list
+    if source_products is None:
+        source_products = frappe.get_all(
+            "Product Master",
+            filters={"status": "Active"},
+            fields=["product_code", "division"],
+        )
+
+    for product in source_products:
+        if product.get("division") in (statement_division, "Both"):
+            division_product_codes.add(product["product_code"])
+
+    return division_product_codes
+
+
+def _build_statement_item_row(item_data, statement_division=None, division_product_codes=None):
+    """Normalize one Gemini row into a Stockist Statement child row plus bookkeeping metadata."""
+    raw_name = cstr(item_data.get("raw_product_name")).strip().upper()
+    row_type = _normalize_row_type(item_data.get("row_type"), raw_name)
+    mapping_basis = cstr(item_data.get("mapping_basis")).strip().lower()
+
+    is_unmapped = bool(item_data.get("unmapped", False))
+    product_code = cstr(item_data.get("product_code")).strip() or None
+    if row_type != "product":
+        product_code = None
+        is_unmapped = False
+
+    if product_code and statement_division and division_product_codes and product_code not in division_product_codes:
+        return None, {
+            "unmapped": False,
+            "auto_mapped": False,
+            "special_row": False,
+            "skipped_division": True,
+        }
+
+    mapping_status = "matched"
+    if row_type == "product":
+        if is_unmapped or not product_code:
+            mapping_status = "unmapped"
+        elif mapping_basis == "stockist_correction_hint":
+            mapping_status = "auto_mapped"
+
+    row_confidence = min(max(_parse_numeric_value(item_data.get("confidence")), 0), 100)
+    operational_sales_qty = _parse_numeric_value(item_data.get("operational_sales_qty"))
+    product_sales_qty = _parse_numeric_value(item_data.get("sales_qty"))
+
+    if row_type != "product":
+        if not operational_sales_qty:
+            operational_sales_qty = product_sales_qty
+        product_sales_qty = 0
+
+    row = {
+        "raw_product_name": raw_name,
+        "row_type": row_type,
+        "mapping_status": mapping_status,
+        "opening_qty": _parse_numeric_value(item_data.get("opening_qty")),
+        "purchase_qty": _parse_numeric_value(item_data.get("purchase_qty")),
+        "sales_qty": product_sales_qty,
+        "operational_sales_qty": operational_sales_qty,
+        "free_qty": _parse_numeric_value(item_data.get("free_qty")),
+        "return_qty": _parse_numeric_value(item_data.get("return_qty")),
+        "misc_out_qty": _parse_numeric_value(item_data.get("misc_out_qty")),
+        "closing_qty": _parse_numeric_value(item_data.get("closing_qty")),
+        "closing_value": _parse_numeric_value(item_data.get("closing_value")),
+        "row_confidence": round(row_confidence, 1),
+        "math_check": "N/A",
+    }
+    if product_code:
+        row["product_code"] = product_code
+
+    return row, {
+        "unmapped": mapping_status == "unmapped",
+        "auto_mapped": mapping_status == "auto_mapped",
+        "special_row": row_type != "product",
+        "skipped_division": False,
+    }
+
+
+def _calculate_confidence_score(statement_rows):
+    """Average row-level extraction confidence without mixing in QC penalties."""
+    confidence_values = [flt(row.get("row_confidence")) for row in statement_rows]
+    return round(sum(confidence_values) / len(confidence_values), 1) if confidence_values else 0
+
+
+def _build_extraction_notes(items_added, confidence_score, unmapped_count=0, auto_mapped_count=0, special_row_count=0,
+    skipped_division_count=0, statement_division=None):
+    """Build consistent extraction notes for single and bulk flows."""
+    notes_parts = [f"Successfully extracted {items_added} rows using AI with product catalog"]
+    notes_parts.append(f"Extraction confidence: {confidence_score}%")
+    if unmapped_count:
+        notes_parts.append(f"{unmapped_count} product rows need QC mapping")
+    if auto_mapped_count:
+        notes_parts.append(f"{auto_mapped_count} correction-assisted rows need review")
+    if special_row_count:
+        notes_parts.append(f"{special_row_count} special rows were preserved outside product mapping")
+    if skipped_division_count:
+        notes_parts.append(f"{skipped_division_count} rows skipped (not in {statement_division} division)")
+    return ". ".join(notes_parts)
+
+
+def _build_statement_rows(extracted_data, statement_division=None, products_list=None):
+    """Convert Gemini response rows into statement child rows and summary counts."""
+    division_product_codes = _build_division_product_codes(statement_division, products_list)
+    statement_rows = []
+    counts = {
+        "unmapped_count": 0,
+        "auto_mapped_count": 0,
+        "special_row_count": 0,
+        "skipped_division_count": 0,
+    }
+
+    for item_data in extracted_data:
+        row, metadata = _build_statement_item_row(
+            item_data,
+            statement_division=statement_division,
+            division_product_codes=division_product_codes,
+        )
+        if metadata.get("skipped_division"):
+            counts["skipped_division_count"] += 1
+            continue
+
+        if metadata.get("unmapped"):
+            counts["unmapped_count"] += 1
+        if metadata.get("auto_mapped"):
+            counts["auto_mapped_count"] += 1
+        if metadata.get("special_row"):
+            counts["special_row_count"] += 1
+
+        statement_rows.append(row)
+
+    return statement_rows, counts
+
+
+def _replace_statement_items(doc, statement_rows):
+    """Replace a statement's items with normalized extraction rows."""
+    doc.items = []
+    for row in statement_rows:
+        doc.append("items", row)
+
+
 def _do_extract(doc_name, file_url):
     """
     Actual extraction logic, runs inside a background thread with its own DB connection.
@@ -233,73 +446,13 @@ def _do_extract(doc_name, file_url):
         frappe.db.commit()
         return
 
-    # Build set of product codes that belong to this statement's division
-    statement_division = doc.division
-    division_product_codes = set()
-    if statement_division:
-        div_products = frappe.get_all(
-            "Product Master",
-            filters={"status": "Active"},
-            fields=["product_code", "division"]
-        )
-        for dp in div_products:
-            if dp.get("division") in (statement_division, "Both"):
-                division_product_codes.add(dp["product_code"])
-
-    # Clear existing items and add new ones
-    doc.items = []
-    items_added = 0
-    unmapped_count = 0
-    skipped_division_count = 0
-
-    for item_data in extracted_data:
-        raw_name = (item_data.get("raw_product_name") or "").strip().upper()
-        is_unmapped = item_data.get("unmapped", False)
-        product_code = item_data.get("product_code") if not is_unmapped else None
-        mapping_status = "matched"
-
-        if is_unmapped:
-            mapping_status = "unmapped"
-            unmapped_count += 1
-
-        # Skip items whose mapped product does not belong to this division
-        if product_code and statement_division and division_product_codes and product_code not in division_product_codes:
-            skipped_division_count += 1
-            frappe.logger().info(f"Skipped product {product_code} ('{raw_name}') — not in {statement_division} division")
-            continue
-
-        # --- Use Gemini's self-reported confidence ---
-        opening = flt(item_data.get("opening_qty"), 0)
-        purchase = flt(item_data.get("purchase_qty"), 0)
-        sales = flt(item_data.get("sales_qty"), 0)
-        free = flt(item_data.get("free_qty"), 0)
-        ret = flt(item_data.get("return_qty"), 0)
-        misc = flt(item_data.get("misc_out_qty"), 0)
-        closing = flt(item_data.get("closing_qty"), 0)
-
-        gemini_confidence = flt(item_data.get("confidence"), 0)
-        row_confidence = min(max(gemini_confidence, 0), 100)  # clamp 0-100
-        if is_unmapped:
-            row_confidence = min(row_confidence, 50.0)  # cap unmapped at 50%
-
-        row = {
-            "raw_product_name": raw_name,
-            "mapping_status": mapping_status,
-            "opening_qty": opening,
-            "purchase_qty": purchase,
-            "sales_qty": sales,
-            "free_qty": free,
-            "return_qty": ret,
-            "misc_out_qty": misc,
-            "closing_qty": closing,
-            "closing_value": flt(item_data.get("closing_value"), 0),
-            "row_confidence": round(row_confidence, 1),
-            "math_check": "N/A",
-        }
-        if product_code:
-            row["product_code"] = product_code
-        doc.append("items", row)
-        items_added += 1
+    statement_rows, counts = _build_statement_rows(
+        extracted_data,
+        statement_division=doc.division,
+        products_list=products_list,
+    )
+    _replace_statement_items(doc, statement_rows)
+    items_added = len(statement_rows)
 
     if items_added == 0:
         doc.extracted_data_status = "Failed"
@@ -308,21 +461,18 @@ def _do_extract(doc_name, file_url):
         frappe.db.commit()
         return
 
-    # --- Compute overall confidence score ---
-    confidence_values = [flt(item.row_confidence) for item in doc.items]
-    overall_confidence = sum(confidence_values) / len(confidence_values) if confidence_values else 0
-    if unmapped_count > 0:
-        overall_confidence = min(overall_confidence, 90.0)
-    doc.confidence_score = round(overall_confidence, 1)
+    doc.confidence_score = _calculate_confidence_score(statement_rows)
 
     doc.extracted_data_status = "Completed"
-    notes_parts = [f"Successfully extracted {items_added} items using AI with product catalog"]
-    notes_parts.append(f"Accuracy: {doc.confidence_score}%")
-    if unmapped_count:
-        notes_parts.append(f"{unmapped_count} unmapped items need QC")
-    if skipped_division_count:
-        notes_parts.append(f"{skipped_division_count} items skipped (not in {statement_division} division)")
-    doc.extraction_notes = ". ".join(notes_parts)
+    doc.extraction_notes = _build_extraction_notes(
+        items_added,
+        doc.confidence_score,
+        unmapped_count=counts["unmapped_count"],
+        auto_mapped_count=counts["auto_mapped_count"],
+        special_row_count=counts["special_row_count"],
+        skipped_division_count=counts["skipped_division_count"],
+        statement_division=doc.division,
+    )
     doc.populate_previous_month_closing()
     doc.calculate_closing_and_totals()
     doc.calculate_qc_confidence()
@@ -370,20 +520,33 @@ def save_extracted_statement(doc_name, data):
             product_code = row.get("productcode") or row.get("product_code") or None
             mapping_status = row.get("mapping_status") or row.get("mappingstatus") or "matched"
             raw_product_name = row.get("raw_product_name") or row.get("rawproductname") or ""
+            row_type = _normalize_row_type(row.get("rowtype") or row.get("row_type"), raw_product_name)
+            sales_qty = _parse_numeric_value(_get_first_present_value(row, "salesqty", "sales_qty"))
+            operational_sales_qty = _parse_numeric_value(_get_first_present_value(row, "operationalsalesqty", "operational_sales_qty"))
+
+            if row_type != "product":
+                product_code = None
+                mapping_status = "matched"
+                if not operational_sales_qty:
+                    operational_sales_qty = sales_qty
+                sales_qty = 0
 
             # Unmapped items are kept in the statement but won't contribute to totals
             item_dict = {
                 "raw_product_name": raw_product_name,
+                "row_type": row_type,
                 "mapping_status": mapping_status,
-                "opening_qty": flt(row.get("openingqty") or row.get("opening_qty") or 0),
-                "purchase_qty": flt(row.get("purchaseqty") or row.get("purchase_qty") or 0),
-                "sales_qty": flt(row.get("salesqty") or row.get("sales_qty") or 0),
-                "free_qty": flt(row.get("freeqty") or row.get("free_qty") or 0),
-                "free_qty_scheme": flt(row.get("freeqtyscheme") or 0),
-                "return_qty": flt(row.get("returnqty") or row.get("return_qty") or 0),
-                "misc_out_qty": flt(row.get("miscoutqty") or row.get("misc_out_qty") or 0),
-                "closing_qty": flt(row.get("closingqty") or row.get("closing_qty") or 0),
-                "closing_value": flt(row.get("closingvalue") or row.get("closing_value") or 0),
+                "opening_qty": _parse_numeric_value(_get_first_present_value(row, "openingqty", "opening_qty")),
+                "purchase_qty": _parse_numeric_value(_get_first_present_value(row, "purchaseqty", "purchase_qty")),
+                "sales_qty": sales_qty,
+                "operational_sales_qty": operational_sales_qty,
+                "free_qty": _parse_numeric_value(_get_first_present_value(row, "freeqty", "free_qty")),
+                "free_qty_scheme": _parse_numeric_value(_get_first_present_value(row, "freeqtyscheme", "free_qty_scheme")),
+                "return_qty": _parse_numeric_value(_get_first_present_value(row, "returnqty", "return_qty")),
+                "misc_out_qty": _parse_numeric_value(_get_first_present_value(row, "miscoutqty", "misc_out_qty")),
+                "closing_qty": _parse_numeric_value(_get_first_present_value(row, "closingqty", "closing_qty")),
+                "closing_value": _parse_numeric_value(_get_first_present_value(row, "closingvalue", "closing_value")),
+                "row_confidence": _parse_numeric_value(_get_first_present_value(row, "row_confidence", "confidence")),
             }
             if product_code:
                 item_dict["product_code"] = product_code
@@ -429,19 +592,32 @@ def save_draft_statement(doc_name, data):
             product_code = row.get("productcode") or row.get("product_code") or None
             mapping_status = row.get("mapping_status") or row.get("mappingstatus") or "matched"
             raw_product_name = row.get("raw_product_name") or row.get("rawproductname") or ""
+            row_type = _normalize_row_type(row.get("rowtype") or row.get("row_type"), raw_product_name)
+            sales_qty = _parse_numeric_value(_get_first_present_value(row, "salesqty", "sales_qty"))
+            operational_sales_qty = _parse_numeric_value(_get_first_present_value(row, "operationalsalesqty", "operational_sales_qty"))
+
+            if row_type != "product":
+                product_code = None
+                mapping_status = "matched"
+                if not operational_sales_qty:
+                    operational_sales_qty = sales_qty
+                sales_qty = 0
 
             item_dict = {
                 "raw_product_name": raw_product_name,
+                "row_type": row_type,
                 "mapping_status": mapping_status,
-                "opening_qty": flt(row.get("openingqty") or row.get("opening_qty") or 0),
-                "purchase_qty": flt(row.get("purchaseqty") or row.get("purchase_qty") or 0),
-                "sales_qty": flt(row.get("salesqty") or row.get("sales_qty") or 0),
-                "free_qty": flt(row.get("freeqty") or row.get("free_qty") or 0),
-                "free_qty_scheme": flt(row.get("freeqtyscheme") or 0),
-                "return_qty": flt(row.get("returnqty") or row.get("return_qty") or 0),
-                "misc_out_qty": flt(row.get("miscoutqty") or row.get("misc_out_qty") or 0),
-                "closing_qty": flt(row.get("closingqty") or row.get("closing_qty") or 0),
-                "closing_value": flt(row.get("closingvalue") or row.get("closing_value") or 0),
+                "opening_qty": _parse_numeric_value(_get_first_present_value(row, "openingqty", "opening_qty")),
+                "purchase_qty": _parse_numeric_value(_get_first_present_value(row, "purchaseqty", "purchase_qty")),
+                "sales_qty": sales_qty,
+                "operational_sales_qty": operational_sales_qty,
+                "free_qty": _parse_numeric_value(_get_first_present_value(row, "freeqty", "free_qty")),
+                "free_qty_scheme": _parse_numeric_value(_get_first_present_value(row, "freeqtyscheme", "free_qty_scheme")),
+                "return_qty": _parse_numeric_value(_get_first_present_value(row, "returnqty", "return_qty")),
+                "misc_out_qty": _parse_numeric_value(_get_first_present_value(row, "miscoutqty", "misc_out_qty")),
+                "closing_qty": _parse_numeric_value(_get_first_present_value(row, "closingqty", "closing_qty")),
+                "closing_value": _parse_numeric_value(_get_first_present_value(row, "closingvalue", "closing_value")),
+                "row_confidence": _parse_numeric_value(_get_first_present_value(row, "row_confidence", "confidence")),
             }
             if product_code:
                 item_dict["product_code"] = product_code
@@ -469,6 +645,9 @@ def get_statement_for_view(doc_name):
         items = []
         for item in doc.items:
             product = {}
+            row_type = item.row_type or _normalize_row_type(None, item.raw_product_name)
+            operational_sales_qty = flt(item.operational_sales_qty or (row_type != "product" and item.sales_qty or 0))
+            sales_qty = 0 if row_type != "product" else flt(item.sales_qty)
             if item.product_code:
                 product = frappe.db.get_value(
                     "Product Master", item.product_code,
@@ -478,6 +657,7 @@ def get_statement_for_view(doc_name):
                 "productcode": item.product_code or "",
                 "productname": item.product_name or product.get("product_name", ""),
                 "rawproductname": item.raw_product_name or "",
+                "rowtype": row_type,
                 "mappingstatus": item.mapping_status or "matched",
                 "pack": item.pack or product.get("pack", ""),
                 "pts": flt(item.pts or product.get("pts", 0)),
@@ -485,7 +665,8 @@ def get_statement_for_view(doc_name):
                 "conversion_factor": flt(item.conversion_factor or 1),
                 "openingqty": flt(item.opening_qty),
                 "purchaseqty": flt(item.purchase_qty),
-                "salesqty": flt(item.sales_qty),
+                "salesqty": sales_qty,
+                "operationalsalesqty": operational_sales_qty,
                 "freeqty": flt(item.free_qty),
                 "freeqtyscheme": flt(item.free_qty_scheme),
                 "returnqty": flt(item.return_qty),
@@ -519,6 +700,7 @@ def get_statement_for_view(doc_name):
                 "confidence_score": flt(doc.confidence_score),
                 "total_opening_value": flt(doc.total_opening_value),
                 "total_purchase_value": flt(doc.total_purchase_value),
+                "total_operational_sales_qty": flt(doc.total_operational_sales_qty),
                 "total_closing_value": flt(doc.total_closing_value),
                 "total_sales_value_pts": flt(doc.total_sales_value_pts),
                 "total_sales_value_ptr": flt(doc.total_sales_value_ptr),
@@ -578,11 +760,15 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
         # Determine file type
         mime_type, _ = mimetypes.guess_type(file_path)
         file_ext = os.path.splitext(file_path)[1].lower()
+        correction_prompt = _build_correction_prompt(stockist_code)
+        correction_map = _build_correction_map(stockist_code)
+        generation_config = _build_gemini_generation_config(model_name)
         
         # Enhanced prompt with product catalog
         prompt = f"""You are extracting pharmaceutical stockist statement data for STEDMAN PHARMACEUTICALS.
 
 {product_catalog}
+    {correction_prompt}
 
 === EXTRACTION RULES ===
 
@@ -615,6 +801,16 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
    - Return ALL products from the statement, including those you CANNOT match.
    - For matched products: set "product_code" to the EXACT catalog code and "unmapped" to false
    - For unmatched products: set "product_code" to null and "unmapped" to true
+    - If you rely on a stockist-specific correction hint and it agrees with the visible row text and pack, set
+      "mapping_basis" to "stockist_correction_hint".
+
+2A. SPECIAL ROWS (CRITICAL):
+    - Preserve operational rows such as "OTHERS" and "BRANCH TRANSFER".
+    - Do NOT force these rows into Product Master mapping.
+    - Set "row_type" to one of: "product", "others", "branch_transfer".
+    - For special rows, set "product_code" to null, "unmapped" to false, and "mapping_basis" to "special_row".
+    - For special rows, copy the printed movement quantity into "operational_sales_qty" and set "sales_qty" to 0.
+    - For normal product rows, set "operational_sales_qty" to 0.
 
 3. QUANTITY EXTRACTION (CRITICAL):
    - Extract quantities for all identified columns AND closing value if present.
@@ -624,10 +820,12 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
    - If Closing Qty column does NOT exist in the statement, set closing_qty to 0. Do NOT calculate it as Opening + Purchase - Sales - etc.
    - If Closing Value column exists in the statement, extract the printed value directly.
    - If Closing Value column does NOT exist in the statement, set closing_value to 0. Do NOT calculate it.
+    - Preserve negative quantities exactly as printed.
+    - If a quantity is shown in parentheses, output it as a negative number.
    - SELF-CHECK each row: For columns that DO exist, verify Opening + Purchase - Sales - Free - Return - MiscOut should ≈ Closing.
      If a row's math is way off, double-check which column values you assigned.
 
-4. CONFIDENCE SCORING (CRITICAL — per row):
+4. EXTRACTION CONFIDENCE (CRITICAL — per row):
    - For EACH row, assign a "confidence" integer from 0 to 100 representing how confident you are that the extracted data is correct.
    - Score 100: You can clearly read ALL fields in the row, the values make sense, and math sanity checks out. USE 100 LIBERALLY — if you can read it, it's 100.
    - Score 70-99: One or more values are ambiguous — a blurry digit, faded text, overlapping columns, or the math doesn't add up (likely an OCR misread).
@@ -648,11 +846,14 @@ EXPECTED JSON FORMAT:
   {{
     "product_code": "ARC",
     "raw_product_name": "ARCALION 200MG",
+        "row_type": "product",
+        "mapping_basis": "catalog_exact",
     "unmapped": false,
     "confidence": 98,
     "opening_qty": 88,
     "purchase_qty": 29,
     "sales_qty": 59,
+    "operational_sales_qty": 0,
     "free_qty": 0,
     "return_qty": 0,
     "misc_out_qty": 0,
@@ -661,12 +862,15 @@ EXPECTED JSON FORMAT:
   }},
   {{
     "product_code": null,
-    "raw_product_name": "UNKNOWN PRODUCT XYZ",
-    "unmapped": true,
-    "confidence": 72,
+        "raw_product_name": "BRANCH TRANSFER",
+        "row_type": "branch_transfer",
+        "mapping_basis": "special_row",
+        "unmapped": false,
+        "confidence": 92,
     "opening_qty": 10,
     "purchase_qty": 5,
-    "sales_qty": 8,
+    "sales_qty": 0,
+    "operational_sales_qty": 8,
     "free_qty": 0,
     "return_qty": 0,
     "misc_out_qty": 0,
@@ -679,10 +883,12 @@ IMPORTANT:
 - NO values/prices in output (except closing_value)
 - NO markdown formatting
 - ONLY valid JSON array
+- Always include row_type and mapping_basis for every row
 - Use EXACT product codes from catalog for matched products
 - Set product_code to null for unmatched products
 - Always include raw_product_name for ALL products
 - Always include confidence (0-100) for ALL products
+- Always include operational_sales_qty for every row
 """
         
         frappe.logger().info(f"Using Gemini model: {model_name}")
@@ -715,9 +921,7 @@ IMPORTANT:
                     response = genai_client.models.generate_content(
                         model=current_model,
                         contents=[prompt, file_part],
-                        config=genai_types.GenerateContentConfig(
-                            thinking_config=genai_types.ThinkingConfig(thinking_budget=1024)
-                        )
+                        config=generation_config
                     )
 
                 elif file_ext in [".csv", ".txt"]:
@@ -726,9 +930,7 @@ IMPORTANT:
                     response = genai_client.models.generate_content(
                         model=current_model,
                         contents=f"{prompt}\n\nCONTENT:\n{file_content}",
-                        config=genai_types.GenerateContentConfig(
-                            thinking_config=genai_types.ThinkingConfig(thinking_budget=1024)
-                        )
+                        config=generation_config
                     )
 
                 elif file_ext in [".xls", ".xlsx"]:
@@ -738,9 +940,7 @@ IMPORTANT:
                     response = genai_client.models.generate_content(
                         model=current_model,
                         contents=f"{prompt}\n\nCONTENT:\n{file_content}",
-                        config=genai_types.GenerateContentConfig(
-                            thinking_config=genai_types.ThinkingConfig(thinking_budget=1024)
-                        )
+                        config=generation_config
                     )
 
                 else:
@@ -835,20 +1035,43 @@ IMPORTANT:
         
         for item in extracted_items:
             raw_name = (item.get("raw_product_name") or "").strip()
+            row_type = _normalize_row_type(item.get("row_type"), raw_name)
+            mapping_basis = cstr(item.get("mapping_basis")).strip().lower()
             pc = (item.get("product_code") or "").strip() or None
             is_unmapped = item.get("unmapped", False)
+
+            if row_type != "product":
+                item["product_code"] = None
+                item["raw_product_name"] = raw_name
+                item["row_type"] = row_type
+                item["mapping_basis"] = mapping_basis or "special_row"
+                item["unmapped"] = False
+                item["operational_sales_qty"] = _parse_numeric_value(item.get("operational_sales_qty") or item.get("sales_qty"))
+                item["sales_qty"] = 0
+                validated_items.append(item)
+                frappe.logger().info(f"Special row kept: {raw_name} (type={row_type})")
+                continue
+
+            if not mapping_basis and raw_name.strip().upper() in correction_map and correction_map[raw_name.strip().upper()] == pc:
+                mapping_basis = "stockist_correction_hint"
 
             if pc and pc in valid_codes:
                 # Gemini matched to a valid catalog product
                 item["product_code"] = pc
                 item["raw_product_name"] = raw_name
+                item["row_type"] = row_type
+                item["mapping_basis"] = mapping_basis or "catalog_match"
                 item["unmapped"] = False
+                item["operational_sales_qty"] = _parse_numeric_value(item.get("operational_sales_qty"))
                 validated_items.append(item)
             else:
                 # Unmatched — keep the item but mark unmapped
                 item["product_code"] = None
                 item["raw_product_name"] = raw_name
+                item["row_type"] = row_type
+                item["mapping_basis"] = mapping_basis or "unmapped"
                 item["unmapped"] = True
+                item["operational_sales_qty"] = _parse_numeric_value(item.get("operational_sales_qty"))
                 validated_items.append(item)
                 frappe.logger().info(f"Unmapped product kept: {raw_name} (code={pc})")
         
@@ -1374,79 +1597,24 @@ def process_bulk_extraction(docname, month, zip_file_url):
                     )
                     
                     if extracted_data and len(extracted_data) > 0:
-                        unmapped_count = 0
-                        skipped_div_count = 0
+                        statement_rows, counts = _build_statement_rows(
+                            extracted_data,
+                            statement_division=doc.division,
+                            products_list=products_list,
+                        )
+                        _replace_statement_items(statement, statement_rows)
+                        statement.confidence_score = _calculate_confidence_score(statement_rows)
 
-                        # Build division filter for bulk job
-                        bulk_division = doc.division
-                        bulk_div_codes = set()
-                        if bulk_division:
-                            for dp in products_list:
-                                if dp.get("division") in (bulk_division, "Both"):
-                                    bulk_div_codes.add(dp["product_code"])
-
-                        for item_data in extracted_data:
-                            raw_name = (item_data.get("raw_product_name") or "").strip().upper()
-                            is_unmapped = item_data.get("unmapped", False)
-                            product_code = item_data.get("product_code") if not is_unmapped else None
-                            mapping_status = "matched"
-
-                            if is_unmapped:
-                                mapping_status = "unmapped"
-                                unmapped_count += 1
-
-                            # Skip items whose product is not in this division
-                            if product_code and bulk_division and bulk_div_codes and product_code not in bulk_div_codes:
-                                skipped_div_count += 1
-                                continue
-
-                            # --- Use Gemini's self-reported confidence ---
-                            opening = flt(item_data.get("opening_qty") or 0)
-                            purchase = flt(item_data.get("purchase_qty") or 0)
-                            sales = flt(item_data.get("sales_qty") or 0)
-                            free = flt(item_data.get("free_qty") or 0)
-                            ret = flt(item_data.get("return_qty") or 0)
-                            misc = flt(item_data.get("misc_out_qty") or 0)
-                            closing = flt(item_data.get("closing_qty") or 0)
-
-                            gemini_confidence = flt(item_data.get("confidence") or 0)
-                            row_confidence = min(max(gemini_confidence, 0), 100)
-                            if is_unmapped:
-                                row_confidence = min(row_confidence, 50.0)
-
-                            row = {
-                                "raw_product_name": raw_name,
-                                "mapping_status": mapping_status,
-                                "opening_qty": opening,
-                                "purchase_qty": purchase,
-                                "sales_qty": sales,
-                                "free_qty": free,
-                                "return_qty": ret,
-                                "misc_out_qty": misc,
-                                "closing_qty": closing,
-                                "closing_value": flt(item_data.get("closing_value") or 0),
-                                "row_confidence": round(row_confidence, 1),
-                                "math_check": "N/A",
-                            }
-                            if product_code:
-                                row["product_code"] = product_code
-                            statement.append("items", row)
-                        
-                        # Compute overall confidence
-                        conf_values = [flt(item.row_confidence) for item in statement.items]
-                        overall_conf = sum(conf_values) / len(conf_values) if conf_values else 0
-                        if unmapped_count > 0:
-                            overall_conf = min(overall_conf, 90.0)
-                        statement.confidence_score = round(overall_conf, 1)
-
-                        notes_parts = [f"Extracted {len(extracted_data)} products successfully"]
-                        notes_parts.append(f"Accuracy: {statement.confidence_score}%")
-                        if unmapped_count:
-                            notes_parts.append(f"{unmapped_count} unmapped")
-                        if skipped_div_count:
-                            notes_parts.append(f"{skipped_div_count} skipped (not in {bulk_division} division)")
                         statement.extracted_data_status = "Completed"
-                        statement.extraction_notes = ". ".join(notes_parts)
+                        statement.extraction_notes = _build_extraction_notes(
+                            len(statement_rows),
+                            statement.confidence_score,
+                            unmapped_count=counts["unmapped_count"],
+                            auto_mapped_count=counts["auto_mapped_count"],
+                            special_row_count=counts["special_row_count"],
+                            skipped_division_count=counts["skipped_division_count"],
+                            statement_division=doc.division,
+                        )
                     else:
                         statement.extracted_data_status = "Failed"
                         statement.extraction_notes = "No data extracted from file"
@@ -1610,23 +1778,37 @@ def bulk_extract_statements(month, zip_file_url):
                         file_doc.attached_to_name = statement.name
                         file_doc.save(ignore_permissions=True)
                         
-                        # Extract data
-                        extracted_data = call_gemini_extraction_two_stage(file_full_path, stockist_code)
+                        # Extract data using the active Gemini extraction path
+                        sync_api_key, sync_model_name, _ = get_gemini_settings()
+                        sync_genai_client = genai_sdk.Client(api_key=sync_api_key)
+                        product_catalog, products_list = build_product_catalog_for_prompt()
+                        extracted_data = call_gemini_extraction_with_catalog(
+                            file_full_path,
+                            stockist_code,
+                            product_catalog,
+                            products_list,
+                            sync_model_name,
+                            sync_genai_client,
+                        )
                         
                         if extracted_data and len(extracted_data) > 0:
-                            for item_data in extracted_data:
-                                statement.append("items", {
-                                    "product_code": item_data.get("product_code"),
-                                    "opening_qty": flt(item_data.get("opening_qty", 0)),
-                                    "purchase_qty": flt(item_data.get("purchase_qty", 0)),
-                                    "sales_qty": flt(item_data.get("sales_qty", 0)),
-                                    "free_qty": flt(item_data.get("free_qty", 0)),
-                                    "return_qty": flt(item_data.get("return_qty", 0)),
-                                    "misc_out_qty": flt(item_data.get("misc_out_qty", 0)),
-                                })
-                            
+                            statement_rows, counts = _build_statement_rows(
+                                extracted_data,
+                                statement_division=statement.division,
+                                products_list=products_list,
+                            )
+                            _replace_statement_items(statement, statement_rows)
+                            statement.confidence_score = _calculate_confidence_score(statement_rows)
                             statement.extracted_data_status = "Completed"
-                            statement.extraction_notes = f"Extracted {len(extracted_data)} products successfully"
+                            statement.extraction_notes = _build_extraction_notes(
+                                len(statement_rows),
+                                statement.confidence_score,
+                                unmapped_count=counts["unmapped_count"],
+                                auto_mapped_count=counts["auto_mapped_count"],
+                                special_row_count=counts["special_row_count"],
+                                skipped_division_count=counts["skipped_division_count"],
+                                statement_division=statement.division,
+                            )
                         else:
                             statement.extracted_data_status = "Failed"
                             statement.extraction_notes = "No data extracted from file"
@@ -9284,9 +9466,8 @@ def apply_mapping_and_save_correction(doc_name, row_idx, mapped_product_code):
         # Update the item
         item.product_code = mapped_product_code
         item.mapping_status = "matched"
-        item.row_confidence = 100.0
 
-        # Recalculate overall confidence
+        # Keep extraction confidence intact; mapping review is reflected via QC status.
         conf_values = [flt(i.row_confidence) for i in doc.items]
         doc.confidence_score = round(sum(conf_values) / len(conf_values), 1) if conf_values else 0
 

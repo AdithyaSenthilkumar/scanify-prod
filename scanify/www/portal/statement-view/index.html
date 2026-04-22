@@ -68,15 +68,15 @@
                             <span id="sv-docstatus"></span>
                         </div>
                         <div class="sv-status-chip" id="sv-qc-chip" style="display:none;">
-                            <span class="sv-status-label">QC Confidence</span>
+                            <span class="sv-status-label">QC Review Status</span>
                             <span id="sv-qc-confidence"></span>
                         </div>
                         <div class="sv-status-chip" id="sv-accuracy-chip" style="display:none;">
-                            <span class="sv-status-label">Accuracy</span>
+                            <span class="sv-status-label">Extraction Confidence</span>
                             <span id="sv-accuracy-badge"></span>
                         </div>
                         <button class="btn btn-sm sv-mark-matched-btn" id="sv-mark-matched-btn" style="display:none;" onclick="sv_mark_all_matched()">
-                            <i class="fa fa-check-double"></i> Mark as All Matched
+                            <i class="fa fa-check-double"></i> Mark Review Complete
                         </button>
                     </div>
                     <div class="sv-actions-group" id="sv-actions-bar">
@@ -99,16 +99,7 @@
 
         <!-- Stat cards -->
         <div class="sv-stats-row">
-            <div class="sv-stat-card sv-stat-blue">
-                <div class="sv-stat-inner">
-                    <div class="sv-stat-icon"><i class="fa fa-box"></i></div>
-                    <div>
-                        <div class="sv-stat-value" id="sv-total-products">0</div>
-                        <div class="sv-stat-label">Products</div>
-                    </div>
-                </div>
-            </div>
-            <div class="sv-stat-card sv-stat-indigo">
+            <div class="sv-stat-card sv-stat-card-primary sv-stat-indigo">
                 <div class="sv-stat-inner">
                     <div class="sv-stat-icon"><i class="fa fa-cubes"></i></div>
                     <div>
@@ -117,7 +108,7 @@
                     </div>
                 </div>
             </div>
-            <div class="sv-stat-card sv-stat-green">
+            <div class="sv-stat-card sv-stat-card-primary sv-stat-green">
                 <div class="sv-stat-inner">
                     <div class="sv-stat-icon"><i class="fa fa-shopping-cart"></i></div>
                     <div>
@@ -126,12 +117,30 @@
                     </div>
                 </div>
             </div>
-            <div class="sv-stat-card sv-stat-purple">
+            <div class="sv-stat-card sv-stat-card-primary sv-stat-purple">
                 <div class="sv-stat-inner">
                     <div class="sv-stat-icon"><i class="fa fa-warehouse"></i></div>
                     <div>
                         <div class="sv-stat-value" id="sv-close-val">0</div>
                         <div class="sv-stat-label">Closing Value</div>
+                    </div>
+                </div>
+            </div>
+            <div class="sv-stat-card sv-stat-card-secondary sv-stat-blue">
+                <div class="sv-stat-inner">
+                    <div class="sv-stat-icon"><i class="fa fa-box"></i></div>
+                    <div>
+                        <div class="sv-stat-value" id="sv-total-products">0</div>
+                        <div class="sv-stat-label">Rows</div>
+                    </div>
+                </div>
+            </div>
+            <div class="sv-stat-card sv-stat-card-secondary sv-stat-purple">
+                <div class="sv-stat-inner">
+                    <div class="sv-stat-icon"><i class="fa fa-random"></i></div>
+                    <div>
+                        <div class="sv-stat-value" id="sv-oper-sales">0</div>
+                        <div class="sv-stat-label">Operational Sales Qty</div>
                     </div>
                 </div>
             </div>
@@ -155,11 +164,12 @@
                                 <th class="text-right">Opening</th>
                                 <th class="text-right">Purchase</th>
                                 <th class="text-right">Sales</th>
+                                <th class="text-right">Op Sales</th>
                                 <th class="text-right">Free</th>
                                 <th class="text-right">Closing</th>
                                 <th class="text-right">Cls Val</th>
                                 <th class="text-center" title="Math validation">✓</th>
-                                <th class="text-right" title="Row accuracy">Acc%</th>
+                                <th class="text-right" title="Row extraction confidence">Ext%</th>
                             </tr>
                         </thead>
                         <tbody id="sv-preview-tbody"></tbody>
@@ -207,7 +217,13 @@
     <div class="modal-dialog ss-modal-fs">
         <div class="modal-content ss-modal-content-fs">
             <div class="ss-modal-header">
-                <h5><i class="fa fa-table"></i> Complete Statement</h5>
+                <div class="sv-modal-header-copy">
+                    <h5><i class="fa fa-table"></i> Complete Statement</h5>
+                    <div class="sv-modal-metric">
+                        <span class="sv-modal-metric-label">Operational Sales Qty</span>
+                        <span class="sv-modal-metric-value" id="sv-full-oper-sales">0</span>
+                    </div>
+                </div>
                 <button class="ss-modal-close" data-dismiss="modal">&times;</button>
             </div>
             <div class="ss-modal-body-fs">
@@ -223,6 +239,7 @@
                             <th>Opening</th>
                             <th>Purchase</th>
                             <th>Sales</th>
+                            <th>Op Sales</th>
                             <th>Free</th>
                             <th>Return</th>
                             <th>Closing</th>
@@ -282,6 +299,10 @@
                     <div class="ss-qc-panel-header qc-data-header">
                         <div class="d-flex align-items-center gap-2">
                             <h6><i class="fa fa-database"></i> Extracted Data</h6>
+                            <div class="sv-modal-metric sv-modal-metric-compact">
+                                <span class="sv-modal-metric-label">Operational Sales Qty</span>
+                                <span class="sv-modal-metric-value" id="sv-qc-oper-sales">0</span>
+                            </div>
                             <button class="btn btn-sm btn-outline-success sv-qc-add-row-btn" id="sv-qc-add-row-btn" onclick="sv_qc_add_row()" style="display:none;" title="Add Row">
                                 <i class="fa fa-plus"></i> Add Row
                             </button>
@@ -296,6 +317,7 @@
                                 <label class="ss-chip"><input type="checkbox" value="openingqty" checked> Opening</label>
                                 <label class="ss-chip"><input type="checkbox" value="purchaseqty" checked> Purchase</label>
                                 <label class="ss-chip"><input type="checkbox" value="salesqty" checked> Sales</label>
+                                <label class="ss-chip"><input type="checkbox" value="operationalsalesqty" checked> Op Sales</label>
                                 <label class="ss-chip"><input type="checkbox" value="freeqty"> Free</label>
                                 <label class="ss-chip"><input type="checkbox" value="returnqty"> Return</label>
                                 <label class="ss-chip"><input type="checkbox" value="closingqty" checked> Closing</label>
@@ -307,7 +329,7 @@
                                 <label class="ss-chip"><input type="checkbox" value="salesvaluepts"> Sales(PTS)</label>
                                 <label class="ss-chip"><input type="checkbox" value="salesvalueptr"> Sales(PTR)</label>
                                 <label class="ss-chip"><input type="checkbox" value="closingvalue" checked> Cls Val</label>
-                                <label class="ss-chip"><input type="checkbox" value="row_confidence" checked> Acc%</label>
+                                <label class="ss-chip"><input type="checkbox" value="row_confidence" checked> Ext%</label>
                             </div>
                         </div>
                     </div>
@@ -490,6 +512,9 @@
     .sv-info-bar {
         margin-bottom: 1rem;
         overflow: hidden;
+        border: 1px solid #dbe4f0;
+        border-radius: 18px;
+        box-shadow: 0 14px 36px rgba(15, 23, 42, 0.06);
     }
 
     .sv-info-row {
@@ -541,7 +566,7 @@
         justify-content: space-between;
         gap: 12px;
         flex-wrap: wrap;
-        background: #f8fafc;
+        background: linear-gradient(180deg, #f8fbff 0%, #f3f7fc 100%);
     }
 
     .sv-status-group {
@@ -555,6 +580,11 @@
         display: flex;
         align-items: center;
         gap: 6px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: white;
+        border: 1px solid #dbe7f3;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
     }
 
     .sv-status-label {
@@ -570,6 +600,16 @@
         gap: 8px;
         flex-wrap: wrap;
         align-items: center;
+        padding: 4px;
+        border-radius: 999px;
+        background: white;
+        border: 1px solid #dbe7f3;
+    }
+
+    .sv-actions-group .btn {
+        border-radius: 999px;
+        font-weight: 600;
+        padding: 7px 14px;
     }
 
     .sv-mark-matched-btn {
@@ -608,23 +648,52 @@
 
     .sv-stats-row {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(12, minmax(0, 1fr));
         gap: 12px;
         margin-bottom: 1.25rem;
     }
 
-    @media(max-width: 768px) {
+    .sv-stat-card-primary {
+        grid-column: span 4;
+    }
+
+    .sv-stat-card-secondary {
+        grid-column: span 6;
+    }
+
+    @media(max-width: 992px) {
         .sv-stats-row {
             grid-template-columns: repeat(2, 1fr);
+        }
+
+        .sv-stat-card-primary,
+        .sv-stat-card-secondary {
+            grid-column: auto;
+        }
+    }
+
+    @media(max-width: 576px) {
+        .sv-stats-row {
+            grid-template-columns: 1fr;
         }
     }
 
     .sv-stat-card {
-        background: white;
-        border-radius: 12px;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+        border-radius: 16px;
         padding: 1rem 1.25rem;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+        border: 1px solid #dbe4f0;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .sv-stat-card::before {
+        content: '';
+        position: absolute;
+        inset: 0 0 auto 0;
+        height: 3px;
+        background: linear-gradient(90deg, rgba(37, 99, 235, 0.9), rgba(99, 102, 241, 0.9));
     }
 
     .sv-stat-inner {
@@ -665,20 +734,23 @@
     }
 
     .sv-stat-value {
-        font-size: 1.25rem;
-        font-weight: 700;
+        font-size: 1.5rem;
+        font-weight: 800;
         color: #1e293b;
         line-height: 1;
+        font-variant-numeric: tabular-nums;
     }
 
     .sv-stat-label {
         font-size: 11px;
         color: #64748b;
-        margin-top: 2px;
+        margin-top: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
     }
 
     .sv-table-head th {
-        background: #1e293b;
+        background: linear-gradient(180deg, #20324a 0%, #162437 100%);
         color: white;
         font-size: 11px;
         white-space: nowrap;
@@ -970,6 +1042,55 @@
         white-space: nowrap;
     }
 
+    .sv-modal-header-copy {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .sv-modal-header-copy h5 {
+        margin: 0;
+    }
+
+    .sv-modal-metric {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: #eef6ff;
+        border: 1px solid #cfe3ff;
+        color: #0f3d75;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .sv-modal-metric-compact {
+        margin-left: 6px;
+    }
+
+    .sv-modal-metric-label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #4d6a8a;
+    }
+
+    .sv-modal-metric-value {
+        font-size: 14px;
+        font-weight: 800;
+        color: #0b4f95;
+    }
+
+    @media(max-width: 992px) {
+        .sv-modal-metric-compact {
+            margin-left: 0;
+        }
+    }
+
     .ss-col-selector {
         text-align: right;
     }
@@ -1250,16 +1371,19 @@
                 return {
                     productcode: r.productcode,
                     rawproductname: r.rawproductname || '',
+                    rowtype: r.rowtype || 'product',
                     mapping_status: r.mappingstatus || 'matched',
                     openingqty: r.openingqty,
                     purchaseqty: r.purchaseqty,
                     salesqty: r.salesqty,
+                    operationalsalesqty: r.operationalsalesqty || 0,
                     freeqty: r.freeqty,
                     freeqtyscheme: r.freeqtyscheme || 0,
                     returnqty: r.returnqty || 0,
                     miscoutqty: r.miscoutqty || 0,
                     closingqty: r.closingqty,
-                    closingvalue: r.closingvalue
+                    closingvalue: r.closingvalue,
+                    row_confidence: r.row_confidence || 0
                 };
             })
         }).then(function (res) {
@@ -1307,6 +1431,7 @@
         { id: 'openingqty',        label: 'Opening' },
         { id: 'purchaseqty',       label: 'Purchase' },
         { id: 'salesqty',          label: 'Sales' },
+        { id: 'operationalsalesqty', label: 'Op Sales' },
         { id: 'freeqty',           label: 'Free Qty' },
         { id: 'returnqty',         label: 'Return' },
         { id: 'closingqty',        label: 'Closing' },
@@ -1318,7 +1443,7 @@
         { id: 'salesvaluepts',     label: 'Sales(PTS)',   readonly: true, curr: true },
         { id: 'salesvalueptr',     label: 'Sales(PTR)',   readonly: true, curr: true },
         { id: 'closingvalue',      label: 'Cls Val',      readonly: true, curr: true },
-        { id: 'row_confidence',    label: 'Acc%',         readonly: true }
+        { id: 'row_confidence',    label: 'Ext%',         readonly: true }
     ];
 
     function sv_fmt(v, currency) {
@@ -1401,15 +1526,16 @@
     }
 
     function sv_calc_totals() {
-        let t_open = 0, t_purch = 0, t_sales_ptr = 0, t_sales_pts = 0, t_close = 0;
+        let t_open = 0, t_purch = 0, t_sales_ptr = 0, t_sales_pts = 0, t_close = 0, t_oper = 0;
         sv_items.forEach(r => {
             t_open += parseFloat(r.openingvalue || 0);
             t_purch += parseFloat(r.purchasevalue || 0);
             t_sales_ptr += parseFloat(r.salesvalueptr || 0);
             t_sales_pts += parseFloat(r.salesvaluepts || 0);
             t_close += parseFloat(r.closingvalue || 0);
+            t_oper += parseFloat(r.operationalsalesqty || 0);
         });
-        return { t_open, t_purch, t_sales_ptr, t_sales_pts, t_close };
+        return { t_open, t_purch, t_sales_ptr, t_sales_pts, t_close, t_oper };
     }
 
     // Replicates the normal flow calculation
@@ -1455,6 +1581,7 @@
                 row.salesvaluepts = (parseFloat(row.salesqty || 0) / cf) * pts;
                 row.salesvalueptr = (parseFloat(row.salesqty || 0) / cf) * ptr;
                 break;
+            case 'operationalsalesqty':
             case 'freeqty':
             case 'returnqty':
             case 'miscoutqty':
@@ -1499,13 +1626,16 @@
         $('#svt-sales-ptr').text('₹' + sv_fmt(t.t_sales_ptr, true));
         $('#svt-sales-pts').text('₹' + sv_fmt(t.t_sales_pts, true));
         $('#svt-closing').text('₹' + sv_fmt(t.t_close, true));
+        $('#sv-qc-oper-sales').text(sv_fmt(t.t_oper));
+        $('#sv-full-oper-sales').text(sv_fmt(t.t_oper));
         $('#sv-totals-section').show();
         // Update stat cards
         $('#sv-total-products').text(sv_items.length);
         $('#sv-open-val').text('₹' + sv_fmt(t.t_open, true));
         $('#sv-sales-val').text('₹' + sv_fmt(t.t_sales_pts, true));
+        $('#sv-oper-sales').text(sv_fmt(t.t_oper));
         $('#sv-close-val').text('₹' + sv_fmt(t.t_close, true));
-        $('#sv-item-count').text(sv_items.length + ' products');
+        $('#sv-item-count').text(sv_items.length + ' rows');
     }
 
     function render_sv_page() {
@@ -1558,7 +1688,7 @@
             $('#sv-mark-matched-btn').hide();
         }
 
-        // Accuracy badge
+        // Extraction confidence badge
         const accScore = parseFloat(sv_doc.confidence_score || 0);
         if (accScore > 0 || sv_doc.extracted_data_status === 'Completed') {
             let accColor = 'danger';
@@ -1581,6 +1711,7 @@
         $('#sv-total-products').text(sv_items.length);
         $('#sv-open-val').text('₹' + sv_fmt(sv_doc.total_opening_value, true));
         $('#sv-sales-val').text('₹' + sv_fmt(sv_doc.total_sales_value_pts, true));
+        $('#sv-oper-sales').text(sv_fmt(sv_doc.total_operational_sales_qty || 0));
         $('#sv-close-val').text('₹' + sv_fmt(sv_doc.total_closing_value, true));
 
         // Preview table — includes Prev Cls column
@@ -1594,10 +1725,13 @@
 
             // Row coloring based on confidence and mapping status
             const ms = (row.mappingstatus || 'matched');
+            const rowType = row.rowtype || 'product';
+            const isSpecialRow = rowType !== 'product';
             const rowConf = parseFloat(row.row_confidence || 0);
             let rowStyle = '';
             if (ms === 'unmapped') rowStyle = 'background:#fde2e2;';
             else if (ms === 'auto_mapped') rowStyle = 'background:#fff7cd;';
+            else if (isSpecialRow) rowStyle = 'background:#eef6ff;';
             else if (rowConf < 70) rowStyle = 'background:#fde2e2;';
             else if (rowConf < 90) rowStyle = 'background:#fff7cd;';
 
@@ -1615,8 +1749,14 @@
             }
 
             // For unmapped items, show raw name instead of blank product code
-            const displayCode = row.productcode || (row.rawproductname ? `<span class="text-danger" title="Unmapped: ${sv_escape(row.rawproductname)}">${sv_escape(row.rawproductname)}</span>` : '—');
-            const displayName = row.productname || (ms === 'unmapped' ? '<span class="text-danger"><i class="fa fa-exclamation-triangle"></i> Unmapped</span>' : '');
+            const displayCode = row.productcode || (row.rawproductname
+                ? (isSpecialRow
+                    ? `<span class="text-info" title="Special row: ${sv_escape(row.rawproductname)}">${sv_escape(row.rawproductname)}</span>`
+                    : `<span class="text-danger" title="Unmapped: ${sv_escape(row.rawproductname)}">${sv_escape(row.rawproductname)}</span>`)
+                : '—');
+            const displayName = row.productname || (isSpecialRow
+                ? '<span class="text-info"><i class="fa fa-random"></i> Operational row</span>'
+                : (ms === 'unmapped' ? '<span class="text-danger"><i class="fa fa-exclamation-triangle"></i> Unmapped</span>' : ''));
 
             $tbody.append(`<tr style="${rowStyle}">
       <td><strong>${displayCode}</strong></td>
@@ -1626,14 +1766,15 @@
       ${qtyCell('openingqty', row.openingqty)}
       ${qtyCell('purchaseqty', row.purchaseqty)}
       ${qtyCell('salesqty', row.salesqty)}
+    ${qtyCell('operationalsalesqty', row.operationalsalesqty)}
       ${qtyCell('freeqty', row.freeqty)}
       ${qtyCell('closingqty', row.closingqty)}
       <td class="text-right sv-clsval-cell">${sv_fmt(row.closingvalue)}</td>
       <td class="text-center">${mathIcon}</td>
-      <td class="text-right"><span class="${rowConf >= 90 ? 'text-success' : rowConf >= 70 ? 'text-warning' : 'text-danger'}" style="font-weight:600;font-size:11px;">${ms === 'unmapped' ? '0%' : rowConf.toFixed(0) + '%'}</span></td>
+            <td class="text-right"><span class="${rowConf >= 90 ? 'text-success' : rowConf >= 70 ? 'text-warning' : 'text-danger'}" style="font-weight:600;font-size:11px;">${rowConf.toFixed(0) + '%'}</span></td>
     </tr>`);
         });
-        $('#sv-item-count').text(`${sv_items.length} products`);
+                $('#sv-item-count').text(`${sv_items.length} rows`);
 
         // Totals section
         sv_refresh_totals();
@@ -1655,16 +1796,19 @@
             data: sv_items.map(r => ({
                 productcode: r.productcode,
                 rawproductname: r.rawproductname || '',
+                rowtype: r.rowtype || 'product',
                 mapping_status: r.mappingstatus || 'matched',
                 openingqty: r.openingqty,
                 purchaseqty: r.purchaseqty,
                 salesqty: r.salesqty,
+                operationalsalesqty: r.operationalsalesqty || 0,
                 freeqty: r.freeqty,
                 freeqtyscheme: r.freeqtyscheme || 0,
                 returnqty: r.returnqty || 0,
                 miscoutqty: r.miscoutqty || 0,
                 closingqty: r.closingqty,
-                closingvalue: r.closingvalue
+                closingvalue: r.closingvalue,
+                row_confidence: r.row_confidence || 0
             }))
         }).then(r => {
             if (r && r.success) {
@@ -1691,7 +1835,7 @@
 
         const cols = [
             'productcode', 'productname', 'pack', 'pts', 'conversion_factor', 'prev_closing_qty',
-            'openingqty', 'purchaseqty', 'salesqty', 'freeqty',
+            'openingqty', 'purchaseqty', 'salesqty', 'operationalsalesqty', 'freeqty',
             'returnqty', 'closingqty', 'miscoutqty',
             'freeqtyscheme', 'schemedeductedqty',
             'openingvalue', 'purchasevalue', 'salesvaluepts', 'salesvalueptr', 'closingvalue'
@@ -1701,6 +1845,8 @@
 
         sv_items.forEach((row, rowIdx) => {
             const ms = (row.mappingstatus || 'matched');
+            const rowType = row.rowtype || 'product';
+            const isSpecialRow = rowType !== 'product';
             const rowStyle = ms === 'unmapped' ? ' style="background:#fde2e2;"' : ms === 'auto_mapped' ? ' style="background:#fff7cd;"' : '';
             let tr = '<tr' + rowStyle + '>';
             cols.forEach(c => {
@@ -1708,7 +1854,14 @@
                 const isText = textCols.includes(c);
                 const isCurr = currCols.includes(c);
                 const align = isText ? '' : 'text-right';
-                const display = isText ? sv_escape(v || '') : (isCurr ? sv_fmt(v, true) : (v != null ? sv_fmt(v) : '—'));
+                let display;
+                if (isText) {
+                    if (c === 'productcode' && !v && isSpecialRow) display = 'Special row';
+                    else if (c === 'productname' && !v && isSpecialRow) display = row.rawproductname || 'Operational row';
+                    else display = sv_escape(v || '');
+                } else {
+                    display = isCurr ? sv_fmt(v, true) : (v != null ? sv_fmt(v) : '—');
+                }
                 tr += `<td class="${align}">${display}</td>`;
             });
             tr += '</tr>';
@@ -1830,6 +1983,8 @@
         const qcTextCols = ['productcode', 'productname', 'pack'];
         sv_items.forEach(function (row, rowIdx) {
             const ms = (row.mappingstatus || 'matched');
+            const rowType = row.rowtype || 'product';
+            const isSpecialRow = rowType !== 'product';
             const rowConf = parseFloat(row.row_confidence || 0);
             let rowCls = '';
             if (ms === 'unmapped') rowCls = ' class="qc-row-unmapped"';
@@ -1856,6 +2011,10 @@
                         '<div class="input-group-append"><button class="btn btn-outline-success btn-sm sv-map-btn" data-row="' + rowIdx + '" disabled><i class="fa fa-check"></i></button></div>' +
                         '</div>' +
                         '</td>';
+                } else if (c.id === 'productcode' && isSpecialRow) {
+                    tr += '<td><span class="text-info">Special row</span></td>';
+                } else if (c.id === 'productname' && isSpecialRow) {
+                    tr += '<td><span class="text-info">' + sv_escape(row.rawproductname || 'Operational row') + '</span></td>';
                 } else if (c.id === 'productname' && ms === 'unmapped') {
                     const rawTip = sv_escape(row.rawproductname || '');
                     tr += '<td><span class="text-danger">Unmapped</span>' +
@@ -1870,14 +2029,14 @@
                         const conf = parseFloat(v || 0);
                         const confColor = conf >= 90 ? '#059669' : conf >= 70 ? '#d97706' : '#dc2626';
                         const confBg = conf >= 90 ? '#ecfdf5' : conf >= 70 ? '#fffbeb' : '#fef2f2';
-                        display = '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:' + confColor + ';background:' + confBg + ';">' + (ms === 'unmapped' ? '0%' : conf.toFixed(0) + '%') + '</span>';
+                        display = '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:' + confColor + ';background:' + confBg + ';">' + conf.toFixed(0) + '%</span>';
                         tr += '<td class="text-center">' + display + '</td>';
                     } else {
                         display = c.curr ? sv_fmt(v, true) : sv_escape(String(v != null ? v : ''));
                         // Only add data-calcfield to numeric readonly cells, not text columns
                         const calcAttr = (c.readonly && !isText) ? ' data-calcfield="' + c.id + '"' : '';
                         // Show raw product name tooltip on unmapped/auto_mapped rows for text cols
-                        const tipAttr = (isText && row.rawproductname && (ms === 'unmapped' || ms === 'auto_mapped')) ? ' title="Raw: ' + sv_escape(row.rawproductname) + '"' : '';
+                        const tipAttr = (isText && row.rawproductname && (ms === 'unmapped' || ms === 'auto_mapped' || isSpecialRow)) ? ' title="Raw: ' + sv_escape(row.rawproductname) + '"' : '';
                         tr += '<td class="' + align + '"' + calcAttr + tipAttr + '>' + display + '</td>';
                     }
                 } else {
@@ -1956,15 +2115,16 @@
                 productcode: productCode,
                 productname: p ? p.product_name || '' : '',
                 rawproductname: '',
+                rowtype: 'product',
                 mappingstatus: 'matched',
                 pack: p ? p.pack || '' : '',
                 pts: parseFloat(p ? p.pts || 0 : 0),
                 ptr: 0,
                 conversion_factor: 1,
-                openingqty: 0, purchaseqty: 0, salesqty: 0, freeqty: 0,
+                openingqty: 0, purchaseqty: 0, salesqty: 0, operationalsalesqty: 0, freeqty: 0,
                 freeqtyscheme: 0, returnqty: 0, miscoutqty: 0, closingqty: 0,
                 closingvalue: 0, openingvalue: 0, purchasevalue: 0,
-                salesvaluepts: 0, salesvalueptr: 0, schemedeductedqty: 0,
+                salesvaluepts: 0, salesvalueptr: 0, schemedeductedqty: 0, row_confidence: 0,
                 prev_closing_qty: 0
             };
             sv_items.push(newRow);
@@ -2024,7 +2184,7 @@
             if (res && res.success) {
                 sv_items[rowIdx].productcode = productCode;
                 sv_items[rowIdx].mappingstatus = 'matched';
-                sv_items[rowIdx].row_confidence = 100;
+                sv_items[rowIdx].rowtype = 'product';
                 // Find product info from preloaded list
                 const p = sv_all_products.find(function (x) { return x.name === productCode; });
                 if (p) {
@@ -2035,15 +2195,8 @@
                 if (res.qc_confidence) sv_doc.qc_confidence = res.qc_confidence;
                 if (res.confidence_score != null) {
                     sv_doc.confidence_score = res.confidence_score;
-                    var $chip = document.getElementById('sv-accuracy-chip');
-                    if ($chip) {
-                        var cs = res.confidence_score;
-                        var col = cs >= 90 ? '#059669' : cs >= 70 ? '#d97706' : '#dc2626';
-                        var bg = cs >= 90 ? '#ecfdf5' : cs >= 70 ? '#fffbeb' : '#fef2f2';
-                        $chip.style.color = col; $chip.style.background = bg;
-                        $chip.textContent = cs.toFixed(0) + '% Accuracy';
-                    }
                 }
+                render_sv_page();
                 sv_render_qc_table();
             } else {
                 alert('Mapping failed: ' + ((res && res.message) || 'Unknown error'));
@@ -2055,9 +2208,9 @@
         });
     });
 
-    // ---- Mark as All Matched (override QC confidence) ----
+    // ---- Mark review complete (override QC review status) ----
     window.sv_mark_all_matched = async function () {
-        if (!confirm('Mark this statement as "All Matched"? This confirms all auto-mapped items are correct.')) return;
+        if (!confirm('Mark this statement review as complete? This confirms all correction-assisted mappings are correct.')) return;
         const $btn = $('#sv-mark-matched-btn');
         $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Updating…');
         try {
@@ -2077,7 +2230,7 @@
         } catch (e) {
             alert('Error: ' + e.message);
         }
-        $btn.prop('disabled', false).html('<i class="fa fa-check-double"></i> Mark as All Matched');
+        $btn.prop('disabled', false).html('<i class="fa fa-check-double"></i> Mark Review Complete');
     };
 
     // ---- Primary Sales View ----

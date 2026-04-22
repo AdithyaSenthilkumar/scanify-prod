@@ -123,6 +123,7 @@ class StockistStatement(Document):
         """Calculate closing qty and value totals with pack-to-strip conversion"""
 
         total_sales_qty = 0
+        total_operational_sales_qty = 0
         total_sales_value_pts = 0
         total_sales_value_ptr = 0
         total_opening_value = 0
@@ -131,6 +132,10 @@ class StockistStatement(Document):
 
 
         for item in self.items:
+            row_type = (item.row_type or "product").strip()
+            if row_type in ("others", "branch_transfer"):
+                total_operational_sales_qty += flt(item.operational_sales_qty or item.sales_qty)
+
             if not item.product_code:
                 continue
 
@@ -190,6 +195,7 @@ class StockistStatement(Document):
 
         # -------- DOCUMENT TOTALS --------
         self.total_sales_qty = total_sales_qty
+        self.total_operational_sales_qty = total_operational_sales_qty
         self.total_sales_value_pts = total_sales_value_pts
         self.total_sales_value_ptr = total_sales_value_ptr
         self.total_opening_value = total_opening_value

@@ -8,6 +8,7 @@
   "product_code",
   "product_name",
   "raw_product_name",
+  "row_type",
   "mapping_status",
   "pack",
   "column_break_zxwe",
@@ -15,6 +16,7 @@
   "purchase_qty",
   "column_break_qwer",
   "sales_qty",
+  "operational_sales_qty",
   "free_qty",
   "column_break_siwx",
   "return_qty",
@@ -59,6 +61,16 @@
    "description": "Original product name as extracted by OCR"
   },
   {
+   "default": "product",
+   "fieldname": "row_type",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Row Type",
+   "options": "product\nothers\nbranch_transfer",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
    "default": "matched",
    "fieldname": "mapping_status",
    "fieldtype": "Select",
@@ -101,6 +113,13 @@
    "fieldtype": "Float",
    "in_list_view": 1,
    "label": "Sales Qty"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "operational_sales_qty",
+   "fieldtype": "Float",
+   "label": "Operational Sales Qty"
   },
   {
    "allow_on_submit": 1,
@@ -193,9 +212,9 @@
   {
    "fieldname": "row_confidence",
    "fieldtype": "Percent",
-   "label": "Row Accuracy %",
+    "label": "Row Extraction Confidence %",
    "read_only": 1,
-   "description": "Per-row accuracy: 100% if quantities balance and product matched"
+    "description": "Gemini's per-row extraction confidence before QC corrections"
   },
   {
    "fieldname": "math_check",
