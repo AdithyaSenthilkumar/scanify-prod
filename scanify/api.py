@@ -7367,8 +7367,11 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
         product_data[pc]["col_qty"][cc] = product_data[pc]["col_qty"].get(cc, 0) + (float(r.closing_qty) if r.closing_qty else 0)
         product_data[pc]["col_value"][cc] = product_data[pc]["col_value"].get(cc, 0) + (float(r.closing_value) if r.closing_value else 0)
 
-    # Sort products by product_code (guard against None values)
-    sorted_products = sorted(product_data.values(), key=lambda x: x["product_code"] or "")
+    # Sort products by product_code; exclude rows with empty/None product_code
+    sorted_products = sorted(
+        [p for p in product_data.values() if p["product_code"]],
+        key=lambda x: x["product_code"]
+    )
 
     # Compute value_in_lakhs (total across all products per column/team/region)
     col_total_value = {}
@@ -7696,6 +7699,254 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                 write_data_row(ws, row, [d.stockist_code, d.stockist_name, d.address or "",
                                          d.city or "", d.phone or "", d.hq or "", d.team or "", d.region or ""])
                 row += 1
+
+    elif report_type == "sec_moving_trend":
+        # Report 7 – Secondary Sales Moving Trend
+        entity_type = kwargs.get("entity_type", "Team")
+        entity_name = kwargs.get("entity_name", "")
+        financial_year = kwargs.get("financial_year", "")
+        ws.title = "Sec Sales Moving Trend"
+        result = get_secondary_sales_moving_trend(division, entity_type, entity_name, financial_year)
+        ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
+        fy_label = result.get("fy_label", "")
+        entity_display = result.get("entity_display", entity_name)
+        row = write_title_rows(ws, f"Secondary Sales Moving Trend – {division}",
+                               f"{entity_type}: {entity_display}  |  {fy_label}")
+        headers = ["S.No", "Product", "Pack"] + ml + ["Target", "Total", "Average", "Per Capita", "%"]
+        write_header_row(ws, row, headers)
+        row += 1
+
+        # Style helpers for special rows
+        section_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+        section_font = Font(bold=True, size=11, color="FFFFFF")
+        lakhs_fill = PatternFill(start_color="DBE4F3", end_color="DBE4F3", fill_type="solid")
+        lakhs_font = Font(bold=True, size=10)
+
+        sno = 0
+        for sec in result.get("sections", []):
+            # Section header row (merged across all columns)
+            for c in range(1, len(headers) + 1):
+                cell = ws.cell(row=row, column=c, value=sec.get("label", "") if c == 1 else None)
+                cell.fill = section_fill
+                cell.font = section_font
+                cell.border = thin_border
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=len(headers))
+            row += 1
+
+            # Value in Lakhs row comes FIRST in each section
+            vl = sec.get("value_in_lakhs", {})
+            vl_months = vl.get("months", [0] * 12)
+            vl_vals = ["Value in Lakhs", "", ""] + vl_months + [
+                vl.get("target", 0), vl.get("total", 0),
+                vl.get("average", 0), vl.get("per_capita", 0), vl.get("pct", 0)
+            ]
+            for c, v in enumerate(vl_vals, 1):
+                cell = ws.cell(row=row, column=c, value=v)
+                cell.fill = lakhs_fill
+                cell.font = lakhs_font
+                cell.border = thin_border
+                if c > 3:
+                    cell.alignment = Alignment(horizontal="right")
+            row += 1
+
+            # Product rows
+            for p in sec.get("products", []):
+                sno += 1
+                vals = [sno, p.get("code", ""), p.get("pack", "")] + list(p.get("months", [0] * 12)) + [
+                    p.get("target", 0), p.get("total", 0),
+                    p.get("average", 0), p.get("per_capita", 0), p.get("pct", 0)
+                ]
+                write_data_row(ws, row, vals)
+                row += 1
+
+    elif report_type == "region_stockist_trend":
+        # Report 8 – Region-wise Stockist Secondary Sales Moving Trend
+        financial_year = kwargs.get("financial_year", "")
+        ws.title = "Region Stockist Trend"
+        result = get_region_wise_stockist_moving_trend(division, region, financial_year)
+        ml = result.get("month_labels") or ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
+        fy_label = result.get("fy_label", "")
+        region_name = result.get("region_name", region)
+        row = write_title_rows(ws, f"Region-wise Stockist Secondary Sales Moving Trend – {division}",
+                               f"Region: {region_name}  |  {fy_label}  |  Values in ₹ Lakhs")
+        headers = ["Customers", "HQ", "Current Month Opening"] + ml + ["Total Sales Value", "Current Month Closing"]
+        write_header_row(ws, row, headers)
+        row += 1
+
+        team_fill = PatternFill(start_color="334155", end_color="334155", fill_type="solid")
+        team_font = Font(bold=True, size=11, color="FFFFFF")
+        subtotal_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+        subtotal_font = Font(bold=True, size=10)
+        grand_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+        grand_font = Font(bold=True, size=11, color="FFFFFF")
+
+        for team in result.get("teams", []):
+            # Team header (merged)
+            for c in range(1, len(headers) + 1):
+                cell = ws.cell(row=row, column=c,
+                               value=(team.get("team_name", team.get("team", "")) + " Team") if c == 1 else None)
+                cell.fill = team_fill
+                cell.font = team_font
+                cell.border = thin_border
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=len(headers))
+            row += 1
+
+            for s in team.get("stockists", []):
+                vals = [s.get("stockist_name", ""), s.get("hq", ""), s.get("opening", 0)] + \
+                       list(s.get("months", [0] * 12)) + [s.get("total_sales", 0), s.get("closing", 0)]
+                write_data_row(ws, row, vals)
+                row += 1
+
+            # Team subtotal
+            tt = team.get("total", {})
+            sub_vals = [f"{team.get('team_name', team.get('team', ''))} Team Total", "", tt.get("opening", 0)] + \
+                       list(tt.get("months", [0] * 12)) + [tt.get("total_sales", 0), tt.get("closing", 0)]
+            for c, v in enumerate(sub_vals, 1):
+                cell = ws.cell(row=row, column=c, value=v)
+                cell.fill = subtotal_fill
+                cell.font = subtotal_font
+                cell.border = thin_border
+                if c > 2:
+                    cell.alignment = Alignment(horizontal="right")
+            row += 1
+            row += 1  # spacer
+
+        # Grand total
+        grand = result.get("grand_total", {})
+        grand_vals = [f"{region_name} Total", "", grand.get("opening", 0)] + \
+                     list(grand.get("months", [0] * 12)) + [grand.get("total_sales", 0), grand.get("closing", 0)]
+        for c, v in enumerate(grand_vals, 1):
+            cell = ws.cell(row=row, column=c, value=v)
+            cell.fill = grand_fill
+            cell.font = grand_font
+            cell.border = thin_border
+            if c > 2:
+                cell.alignment = Alignment(horizontal="right")
+        row += 1
+
+    elif report_type == "region_product_stock":
+        # Report 9 – Product Closing Stock Region Summary (pivot: products × HQs/Stockists)
+        group_by = kwargs.get("group_by", "hq")
+        from_date = kwargs.get("from_date", "")
+        to_date = kwargs.get("to_date", "")
+        ws.title = "Product Closing Stock"
+        result = get_region_product_closing_stock(division, region, from_date, to_date, group_by)
+        region_name = result.get("region_name", region)
+        teams = result.get("team_order", [])
+        products = result.get("products", [])
+        vil = result.get("value_in_lakhs", {})
+        gb_label = "Stockist-wise" if group_by == "stockist" else "HQ-wise"
+        period_label = f"{from_date} to {to_date}" if from_date and to_date else "All Dates"
+
+        row = write_title_rows(ws, f"Product Closing Stock – Region Summary ({division})",
+                               f"Region: {region_name}  |  {gb_label}  |  Period: {period_label}")
+
+        # Build flat column list
+        flat_cols = []
+        for team in teams:
+            for hq in team.get("hqs", []):
+                flat_cols.append({"col_code": hq["col_code"], "col_name": hq.get("col_name", hq["col_code"]),
+                                  "team_code": team["team_code"],
+                                  "team_name": team.get("team_name", team["team_code"])})
+
+        # Row 1: Team group headers (merged)
+        hdr_row1 = row
+        row += 1
+        hdr_row2 = row
+        row += 1
+
+        # Write Row 1 (team group spans)
+        col_cursor = 4  # after S.No, Product, Pack
+        for c_idx, lbl in enumerate(["S.No", "Product", "Pack"], 1):
+            cell = ws.cell(row=hdr_row1, column=c_idx, value=lbl)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+            ws.merge_cells(start_row=hdr_row1, start_column=c_idx, end_row=hdr_row2, end_column=c_idx)
+
+        team_fill2 = PatternFill(start_color="334155", end_color="334155", fill_type="solid")
+        team_font2 = Font(bold=True, size=10, color="FFFFFF")
+        for team in teams:
+            span = len(team.get("hqs", [])) + 1  # HQ cols + Team Total
+            cell = ws.cell(row=hdr_row1, column=col_cursor,
+                           value=team.get("team_name", team["team_code"]))
+            cell.font = team_font2
+            cell.fill = team_fill2
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = thin_border
+            if span > 1:
+                ws.merge_cells(start_row=hdr_row1, start_column=col_cursor,
+                               end_row=hdr_row1, end_column=col_cursor + span - 1)
+            col_cursor += span
+
+        # Region Total header (merged across 2 rows)
+        rt_col = col_cursor
+        cell = ws.cell(row=hdr_row1, column=rt_col, value="Region Total")
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+        ws.merge_cells(start_row=hdr_row1, start_column=rt_col, end_row=hdr_row2, end_column=rt_col)
+
+        # Row 2: individual HQ/stockist + Team Total headers
+        col_cursor2 = 4
+        for team in teams:
+            for hq in team.get("hqs", []):
+                cell = ws.cell(row=hdr_row2, column=col_cursor2,
+                               value=hq.get("col_name", hq["col_code"]))
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = Alignment(horizontal="center", wrap_text=True)
+                cell.border = thin_border
+                col_cursor2 += 1
+            # Team Total column
+            cell = ws.cell(row=hdr_row2, column=col_cursor2, value="Team Total")
+            cell.font = Font(bold=True, size=10, color="FFFFFF")
+            cell.fill = PatternFill(start_color="475569", end_color="475569", fill_type="solid")
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = thin_border
+            col_cursor2 += 1
+
+        # Value in Lakhs row
+        lakhs_fill2 = PatternFill(start_color="DBEAFE", end_color="DBEAFE", fill_type="solid")
+        lakhs_font2 = Font(bold=True, size=10, color="1E40AF")
+        vl_col_vals = vil.get("col_values", {})
+        vl_team_vals = vil.get("team_values", {})
+        vl_region = vil.get("region_total", 0)
+
+        vil_vals = ["Value In Lakhs", "", ""]
+        for team in teams:
+            for hq in team.get("hqs", []):
+                v = vl_col_vals.get(hq["col_code"])
+                vil_vals.append(round(v, 2) if v else "")
+            tv = vl_team_vals.get(team["team_code"])
+            vil_vals.append(round(tv, 2) if tv else "0.00")
+        vil_vals.append(round(vl_region, 2) if vl_region else "0.00")
+
+        for c, v in enumerate(vil_vals, 1):
+            cell = ws.cell(row=row, column=c, value=v)
+            cell.fill = lakhs_fill2
+            cell.font = lakhs_font2
+            cell.border = thin_border
+            if c > 3:
+                cell.alignment = Alignment(horizontal="right")
+        row += 1
+
+        # Product rows
+        for p in products:
+            p_vals = [p.get("sno", ""), p.get("product_code", ""), p.get("pack", "")]
+            for team in teams:
+                for hq in team.get("hqs", []):
+                    qty = (p.get("col_qty") or {}).get(hq["col_code"])
+                    p_vals.append(qty if qty else "")
+                tqty = (p.get("team_qty") or {}).get(team["team_code"])
+                p_vals.append(tqty if tqty else "")
+            rqty = p.get("region_qty")
+            p_vals.append(rqty if rqty else "")
+            write_data_row(ws, row, p_vals)
+            row += 1
+
     else:
         frappe.throw("Invalid report type")
 

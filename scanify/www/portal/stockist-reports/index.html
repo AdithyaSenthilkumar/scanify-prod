@@ -1000,7 +1000,21 @@ function renderSecMovingTrend(result, thead, tbody) {
     var sno = 0;
     (result.sections || []).forEach(function(sec) {
         // Section header row
-        tbody.innerHTML += '<tr class="section-header-row"><td colspan="18" style="background:#1e293b;color:#fff;font-weight:bold;padding:6px 10px;">' + esc(sec.label) + '</td></tr>';
+        tbody.innerHTML += '<tr class="section-header-row"><td colspan="20" style="background:#1e293b;color:#fff;font-weight:bold;padding:6px 10px;">' + esc(sec.label) + '</td></tr>';
+
+        // Value in Lakhs row comes FIRST in each section
+        var vl = sec.value_in_lakhs || {};
+        var vlMonths = vl.months || [];
+        var vlCells = '<td colspan="3" style="font-weight:bold;">Value in Lakhs</td>';
+        for (var mi = 0; mi < 12; mi++) {
+            vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vlMonths[mi] || 0) + '</td>';
+        }
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.target || 0) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.total || 0) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.average || 0) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.per_capita || 0) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.pct || 0) + '</td>';
+        tbody.innerHTML += '<tr class="value-lakhs-row" style="background:#f1f5f9;">' + vlCells + '</tr>';
 
         (sec.products || []).forEach(function(p) {
             sno++;
@@ -1015,20 +1029,6 @@ function renderSecMovingTrend(result, thead, tbody) {
             cells += '<td class="text-right">' + fmt(p.pct || 0) + '</td>';
             tbody.innerHTML += '<tr>' + cells + '</tr>';
         });
-
-        // Value in Lakhs row
-        var vl = sec.value_in_lakhs || {};
-        var vlMonths = vl.months || [];
-        var vlCells = '<td colspan="3" style="font-weight:bold;">Value in Lakhs</td>';
-        for (var mi = 0; mi < 12; mi++) {
-            vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vlMonths[mi] || 0) + '</td>';
-        }
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.target || 0) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.total || 0) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.average || 0) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.per_capita || 0) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.pct || 0) + '</td>';
-        tbody.innerHTML += '<tr class="value-lakhs-row" style="background:#f1f5f9;">' + vlCells + '</tr>';
     });
 }
 
