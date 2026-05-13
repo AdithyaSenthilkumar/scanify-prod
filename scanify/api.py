@@ -7042,11 +7042,11 @@ def get_stockist_primary_sales_report(division=None, sales_type="primary", regio
 @frappe.whitelist()
 def get_stockist_secondary_sales_report(division=None, region=None,
                                          from_date=None, to_date=None):
-    """Report 2 – Stockist Wise Secondary Sales Report (from submitted Stockist Statements)."""
+    """Report 2 – Stockist Wise Secondary Sales Report (from Draft or submitted Stockist Statements)."""
     if not division:
         division = get_user_division()
 
-    conditions = ["ss.division = %(division)s", "ss.docstatus = 1"]
+    conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
     params = {"division": division}
 
     if region:
@@ -7112,7 +7112,7 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
             INNER JOIN `tabStockist Statement Item` si
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
             WHERE ss.division = %(division)s AND ss.stockist_code = %(stockist)s
-                  AND ss.docstatus = 1
+                  AND ss.docstatus IN (0, 1)
             GROUP BY si.product_code, si.product_name, si.pack,
                      MONTH(ss.statement_month), YEAR(ss.statement_month)
             ORDER BY si.product_code, y, m
@@ -7157,12 +7157,14 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
 
 @frappe.whitelist()
 def get_stockist_closing_stock_report(division=None, region=None,
-                                       from_date=None, to_date=None):
-    """Report 4 – Stockist Wise Closing Stock Report (from submitted Stockist Statements)."""
+                                       from_date=None, to_date=None, group_by="stockist"):
+    """Report 4 – Stockist Wise Closing Stock Report (from Draft or submitted Stockist Statements).
+    group_by: 'stockist' (default) or 'hq'
+    """
     if not division:
         division = get_user_division()
 
-    conditions = ["ss.division = %(division)s", "ss.docstatus = 1"]
+    conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
     params = {"division": division}
 
     if region:
@@ -7177,25 +7179,46 @@ def get_stockist_closing_stock_report(division=None, region=None,
 
     where = " AND ".join(conditions)
 
-    rows = frappe.db.sql(f"""
-        SELECT ss.stockist_code, ss.stockist_name,
-               si.product_code, si.product_name, si.pack,
-               SUM(si.opening_qty) AS opening_qty,
-               SUM(si.purchase_qty) AS purchase_qty,
-               SUM(si.sales_qty) AS sales_qty,
-               SUM(si.free_qty) AS free_qty,
-               SUM(si.free_qty_scheme) AS scheme_free_qty,
-               SUM(si.closing_qty) AS closing_qty
-        FROM `tabStockist Statement` ss
-        INNER JOIN `tabStockist Statement Item` si
-            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
-        WHERE {where}
-        GROUP BY ss.stockist_code, ss.stockist_name,
-                 si.product_code, si.product_name, si.pack
-        ORDER BY ss.stockist_name, si.product_code
-    """, params, as_dict=True)
+    if group_by == "hq":
+        rows = frappe.db.sql(f"""
+            SELECT ss.hq AS hq_code,
+                   COALESCE(hm.hq_name, ss.hq, '') AS hq_name,
+                   si.product_code, si.product_name, si.pack,
+                   SUM(si.opening_qty) AS opening_qty,
+                   SUM(si.purchase_qty) AS purchase_qty,
+                   SUM(si.sales_qty) AS sales_qty,
+                   SUM(si.free_qty) AS free_qty,
+                   SUM(si.free_qty_scheme) AS scheme_free_qty,
+                   SUM(si.closing_qty) AS closing_qty
+            FROM `tabStockist Statement` ss
+            INNER JOIN `tabStockist Statement Item` si
+                ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+            LEFT JOIN `tabHQ Master` hm ON hm.name = ss.hq AND hm.division = %(division)s
+            WHERE {where}
+            GROUP BY ss.hq, hm.hq_name,
+                     si.product_code, si.product_name, si.pack
+            ORDER BY hm.hq_name, si.product_code
+        """, params, as_dict=True)
+    else:
+        rows = frappe.db.sql(f"""
+            SELECT ss.stockist_code, ss.stockist_name,
+                   si.product_code, si.product_name, si.pack,
+                   SUM(si.opening_qty) AS opening_qty,
+                   SUM(si.purchase_qty) AS purchase_qty,
+                   SUM(si.sales_qty) AS sales_qty,
+                   SUM(si.free_qty) AS free_qty,
+                   SUM(si.free_qty_scheme) AS scheme_free_qty,
+                   SUM(si.closing_qty) AS closing_qty
+            FROM `tabStockist Statement` ss
+            INNER JOIN `tabStockist Statement Item` si
+                ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+            WHERE {where}
+            GROUP BY ss.stockist_code, ss.stockist_name,
+                     si.product_code, si.product_name, si.pack
+            ORDER BY ss.stockist_name, si.product_code
+        """, params, as_dict=True)
 
-    return {"success": True, "data": rows}
+    return {"success": True, "data": rows, "group_by": group_by}
 
 
 @frappe.whitelist()
@@ -8274,7 +8297,7 @@ def _moving_trend_secondary(division, criteria, from_date, to_date, region, zone
     }
     criteria_col = criteria_col_map.get(criteria, "ss.region")
 
-    conditions = ["ss.division = %(division)s", "ss.docstatus = 1",
+    conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)",
                    "ss.statement_month >= %(from_date)s", "ss.statement_month <= %(to_date)s"]
     params = {"division": division, "from_date": from_date, "to_date": to_date}
 
@@ -8338,7 +8361,7 @@ def get_ranking_rupee_wise_report(division=None, sales_type="secondary",
             LIMIT 5000
         """, params, as_dict=True)
     else:
-        conditions = ["ss.division = %(division)s", "ss.docstatus = 1",
+        conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)",
                        f"si.sales_value_pts {val_op} %(sale_value)s"]
         params = {"division": division, "sale_value": sale_value}
         if from_date:
@@ -8409,7 +8432,7 @@ def get_ranking_productwise_topn(division=None, product_codes=None, top_n=5,
             ORDER BY total_value DESC
         """, params, as_dict=True)
     else:
-        conditions = ["ss.division = %(division)s", "ss.docstatus = 1"]
+        conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
         params = {"division": division}
         if from_date:
             conditions.append("ss.statement_month >= %(from_date)s")
@@ -8488,7 +8511,7 @@ def get_ranking_productwise_all(division=None, product_code=None, region=None,
             ORDER BY total_value DESC
         """, params, as_dict=True)
     else:
-        conditions = ["ss.division = %(division)s", "ss.docstatus = 1",
+        conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)",
                        "si.product_code = %(product_code)s"]
         params = {"division": division, "product_code": product_code}
         if region:
@@ -8553,7 +8576,7 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
 
     if sales_type == "closing":
         # Closing stock from statement items
-        conditions = ["ss.division = %(division)s", "ss.docstatus = 1"]
+        conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
         params = {"division": division}
         if region:
             conditions.append("ss.region = %(region)s")
@@ -8626,7 +8649,7 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
         """, dict(**params, qty_filter=qty_filter), as_dict=True)
 
     else:  # secondary
-        conditions = ["ss.division = %(division)s", "ss.docstatus = 1"]
+        conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
         params = {"division": division}
         if region:
             conditions.append("ss.region = %(region)s")
@@ -8730,7 +8753,7 @@ def get_ranking_pcpm_tracker(division=None, sales_type="secondary",
             GROUP BY ps.pcode, ps.product, MONTH(ps.invoicedate)
         """, params, as_dict=True)
     else:
-        conditions = ["ss.division = %(division)s", "ss.docstatus = 1",
+        conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)",
                        "ss.statement_month >= %(from_date)s", "ss.statement_month <= %(to_date)s"]
         params = {"division": division, "from_date": fy_start, "to_date": fy_end}
         if region:
@@ -9095,7 +9118,7 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
-        WHERE ss.division = %s AND ss.docstatus = 1
+        WHERE ss.division = %s AND ss.docstatus IN (0, 1)
               AND ss.hq IN ({hq_placeholders})
               AND ss.statement_month BETWEEN %s AND %s
         GROUP BY si.product_code, si.pack, MONTH(ss.statement_month)
@@ -9128,9 +9151,9 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
 
     # ── Build sections by category ──
     category_order = [
-        ("Main Product", "MAIN PRODUCTS"),
-        ("Hospital Product", "HOSPITAL PRODUCTS"),
-        ("New Product", "NEW PRODUCTS"),
+        ("Main Products", "MAIN PRODUCTS"),
+        ("Hospital Products", "HOSPITAL PRODUCTS"),
+        ("New Products", "NEW PRODUCTS"),
     ]
 
     # Count months with actual data
@@ -9147,14 +9170,14 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
     # First pass: compute totals per section
     section_totals = {}
     for cat_key, cat_label in category_order:
-        cat_products = [p for p in products if p.category == cat_key]
+        cat_products = [p for p in products if (p.category or "").lower() == cat_key.lower()]
         total_val = sum(sum(product_data.get(p.product_code, {"months_val": [0.0] * 12})["months_val"])
                         for p in cat_products)
         section_totals[cat_key] = total_val
         grand_total_val += total_val
 
     for cat_key, cat_label in category_order:
-        cat_products = [p for p in products if p.category == cat_key]
+        cat_products = [p for p in products if (p.category or "").lower() == cat_key.lower()]
         if not cat_products:
             continue
 
@@ -9221,6 +9244,215 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
         "active_months": active_months,
         "sections": sections,
         "month_labels": _MONTH_LABELS,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# REGION-WISE STOCKIST SECONDARY SALES MOVING TREND
+# Format: Rows = Stockists; Cols = Opening | Apr..Mar | Total Value | Closing
+# Values in ₹ Lakhs; grouped by Team within Region
+# Includes Draft (docstatus IN (0,1)) statements
+# ═══════════════════════════════════════════════════════════════
+
+@frappe.whitelist()
+def get_region_wise_stockist_moving_trend(division=None, region=None, financial_year=None):
+    """
+    Region-wise stockist sales moving trend with opening and closing values.
+    Matches the Orissa Secondary Sales Excel format:
+      Columns: Stockist | HQ | Current Opening | Apr..Mar (12 months) | Total Sales Value | Current Closing
+    Values in ₹ Lakhs.  Grouped by Team within the Region.
+    Includes both Draft and Submitted statements (docstatus IN (0,1)).
+    """
+    if not division:
+        division = get_user_division()
+    if not region:
+        return {"success": False, "message": "Region is required"}
+
+    from datetime import date
+    today = date.today()
+
+    # Determine financial year
+    if financial_year:
+        try:
+            start_year = int(financial_year.split("-")[0])
+        except Exception:
+            start_year = today.year if today.month >= 4 else today.year - 1
+    else:
+        start_year = today.year if today.month >= 4 else today.year - 1
+        financial_year = f"{start_year}-{str(start_year + 1)[2:]}"
+
+    fy_start = f"{start_year}-04-01"
+    fy_end   = f"{start_year + 1}-03-31"
+    fy_label = f"Apr {str(start_year)[2:]} to Mar {str(start_year + 1)[2:]}"
+
+    # ── Month headers (FY order Apr=0 … Mar=11) ──
+    month_map = {4: 0, 5: 1, 6: 2, 7: 3, 8: 4, 9: 5,
+                 10: 6, 11: 7, 12: 8, 1: 9, 2: 10, 3: 11}
+    month_labels = [
+        f"Apr-{str(start_year)[2:]}", f"May-{str(start_year)[2:]}",
+        f"Jun-{str(start_year)[2:]}", f"Jul-{str(start_year)[2:]}",
+        f"Aug-{str(start_year)[2:]}", f"Sep-{str(start_year)[2:]}",
+        f"Oct-{str(start_year)[2:]}", f"Nov-{str(start_year)[2:]}",
+        f"Dec-{str(start_year)[2:]}", f"Jan-{str(start_year + 1)[2:]}",
+        f"Feb-{str(start_year + 1)[2:]}", f"Mar-{str(start_year + 1)[2:]}",
+    ]
+
+    # ── Get all active stockists in this region ──
+    stockists = frappe.db.sql("""
+        SELECT sm.name AS code, sm.stockist_name, sm.hq,
+               COALESCE(hm.hq_name, sm.hq, '') AS hq_name,
+               COALESCE(hm.team, '') AS team,
+               COALESCE(tm.team_name, hm.team, '') AS team_name
+        FROM `tabStockist Master` sm
+        LEFT JOIN `tabHQ Master` hm ON hm.name = sm.hq AND hm.division = %(division)s
+        LEFT JOIN `tabTeam Master` tm ON tm.name = hm.team AND tm.division IN (%(division)s, 'Both')
+        WHERE sm.division = %(division)s
+          AND sm.region = %(region)s
+          AND sm.status = 'Active'
+        ORDER BY hm.team, sm.stockist_name
+    """, {"division": division, "region": region}, as_dict=True)
+
+    if not stockists:
+        return {"success": True, "data": [], "teams": [], "fy_label": fy_label,
+                "month_labels": month_labels, "region": region}
+
+    stockist_codes = [s.code for s in stockists]
+    placeholders = ", ".join(["%s"] * len(stockist_codes))
+
+    # ── Monthly secondary sales value (₹) per stockist ──
+    sales_rows = frappe.db.sql(f"""
+        SELECT ss.stockist_code,
+               MONTH(ss.statement_month) AS m,
+               SUM(IFNULL(si.sales_value_pts, si.sales_qty * IFNULL(si.pts, 0))) AS sales_value
+        FROM `tabStockist Statement` ss
+        INNER JOIN `tabStockist Statement Item` si
+            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+        WHERE ss.division = %s
+          AND ss.docstatus IN (0, 1)
+          AND ss.stockist_code IN ({placeholders})
+          AND ss.statement_month BETWEEN %s AND %s
+        GROUP BY ss.stockist_code, MONTH(ss.statement_month)
+    """, [division] + stockist_codes + [fy_start, fy_end], as_dict=True)
+
+    # ── Opening stock of the FIRST statement in the FY (total value across all products) ──
+    opening_rows = frappe.db.sql(f"""
+        SELECT ss.stockist_code,
+               SUM(IFNULL(si.opening_value, 0)) AS opening_value
+        FROM `tabStockist Statement` ss
+        INNER JOIN `tabStockist Statement Item` si
+            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+        WHERE ss.division = %s
+          AND ss.docstatus IN (0, 1)
+          AND ss.stockist_code IN ({placeholders})
+          AND ss.statement_month = (
+              SELECT MIN(ss2.statement_month)
+              FROM `tabStockist Statement` ss2
+              WHERE ss2.stockist_code = ss.stockist_code
+                AND ss2.division = %s
+                AND ss2.docstatus IN (0, 1)
+                AND ss2.statement_month BETWEEN %s AND %s
+          )
+        GROUP BY ss.stockist_code
+    """, [division] + stockist_codes + [division, fy_start, fy_end], as_dict=True)
+
+    # ── Closing stock of the LATEST statement in the FY ──
+    closing_rows = frappe.db.sql(f"""
+        SELECT ss.stockist_code,
+               SUM(IFNULL(si.closing_value, 0)) AS closing_value
+        FROM `tabStockist Statement` ss
+        INNER JOIN `tabStockist Statement Item` si
+            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+        WHERE ss.division = %s
+          AND ss.docstatus IN (0, 1)
+          AND ss.stockist_code IN ({placeholders})
+          AND ss.statement_month = (
+              SELECT MAX(ss2.statement_month)
+              FROM `tabStockist Statement` ss2
+              WHERE ss2.stockist_code = ss.stockist_code
+                AND ss2.division = %s
+                AND ss2.docstatus IN (0, 1)
+                AND ss2.statement_month BETWEEN %s AND %s
+          )
+        GROUP BY ss.stockist_code
+    """, [division] + stockist_codes + [division, fy_start, fy_end], as_dict=True)
+
+    # ── Index into dicts ──
+    sales_by_stockist = {}
+    for r in sales_rows:
+        sales_by_stockist.setdefault(r.stockist_code, {})[r.m] = flt(r.sales_value)
+
+    opening_by_stockist = {r.stockist_code: flt(r.opening_value) for r in opening_rows}
+    closing_by_stockist = {r.stockist_code: flt(r.closing_value) for r in closing_rows}
+
+    # ── Build team-grouped output ──
+    LAKH = 100000.0
+
+    def to_lakhs(v):
+        return round(v / LAKH, 2) if v else 0.0
+
+    teams_dict = {}
+    for s in stockists:
+        team_key = s.team or "Unassigned"
+        team_display = s.team_name or team_key
+        if team_key not in teams_dict:
+            teams_dict[team_key] = {"team": team_key, "team_name": team_display, "stockists": []}
+
+        monthly_values = [to_lakhs(sales_by_stockist.get(s.code, {}).get(m_num, 0))
+                          for m_num in [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3]]
+        total_sales = round(sum(monthly_values), 2)
+        opening = to_lakhs(opening_by_stockist.get(s.code, 0))
+        closing = to_lakhs(closing_by_stockist.get(s.code, 0))
+
+        teams_dict[team_key]["stockists"].append({
+            "stockist_code": s.code,
+            "stockist_name": s.stockist_name,
+            "hq": s.hq_name or s.hq or "",
+            "opening": opening,
+            "months": monthly_values,
+            "total_sales": total_sales,
+            "closing": closing,
+        })
+
+    # ── Compute team totals ──
+    teams_list = []
+    grand_opening = grand_months = None
+    grand_total = 0.0
+    grand_closing = 0.0
+
+    for team_key, td in teams_dict.items():
+        t_opening = round(sum(s["opening"] for s in td["stockists"]), 2)
+        t_months = [round(sum(s["months"][i] for s in td["stockists"]), 2) for i in range(12)]
+        t_total = round(sum(t_months), 2)
+        t_closing = round(sum(s["closing"] for s in td["stockists"]), 2)
+        td["total"] = {"opening": t_opening, "months": t_months, "total_sales": t_total, "closing": t_closing}
+        teams_list.append(td)
+
+        grand_total += t_total
+        grand_closing += t_closing
+        if grand_months is None:
+            grand_opening = t_opening
+            grand_months = list(t_months)
+        else:
+            grand_opening = round(grand_opening + t_opening, 2)
+            grand_months = [round(grand_months[i] + t_months[i], 2) for i in range(12)]
+
+    region_name = frappe.db.get_value("Region Master", region, "region_name") or region
+
+    return {
+        "success": True,
+        "region": region,
+        "region_name": region_name,
+        "division": division,
+        "fy_label": fy_label,
+        "financial_year": financial_year,
+        "month_labels": month_labels,
+        "teams": teams_list,
+        "grand_total": {
+            "opening": round(grand_opening or 0, 2),
+            "months": grand_months or [0] * 12,
+            "total_sales": round(grand_total, 2),
+            "closing": round(grand_closing, 2),
+        },
     }
 
 

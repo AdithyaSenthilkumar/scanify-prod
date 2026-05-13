@@ -28,10 +28,11 @@
                         <option value="primary_sales">1. Stockist Wise Primary Sales Report</option>
                         <option value="secondary_sales">2. Stockist Wise Secondary Sales Report</option>
                         <option value="moving_trend">3. Moving Trend – Stockist Wise</option>
-                        <option value="closing_stock">4. Stockist Wise Closing Stock Report</option>
+                        <option value="closing_stock">4. Closing Stock Report</option>
                         <option value="hq_wise">5. HQ Wise Stockist Report</option>
                         <option value="address">6. Stockist Address Report</option>
                         <option value="sec_moving_trend">7. Secondary Sales Moving Trend</option>
+                        <option value="region_stockist_trend">8. Region-wise Stockist Moving Trend (Opening/Closing)</option>
                     </select>
                 </div>
                 <div class="col-md-5 col-lg-6 mt-3 mt-md-0 d-flex align-items-end" style="gap:8px;">
@@ -68,7 +69,7 @@
                 </select>
             </div>
 
-            <!-- Region -->
+            <!-- Region (reports 1,2,4,5,6) -->
             <div class="sr-filter-item filter-field" data-reports="primary_sales,secondary_sales,closing_stock,hq_wise,address">
                 <label class="sr-filter-label">Region</label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-region">
@@ -76,6 +77,28 @@
                     {% for r in regions %}
                     <option value="{{ r.code }}">{{ r.code }} – {{ r.name }}</option>
                     {% endfor %}
+                </select>
+            </div>
+
+            <!-- Region (Report 8: Region-wise Stockist Trend) -->
+            <div class="sr-filter-item filter-field" data-reports="region_stockist_trend" style="min-width:220px;">
+                <label class="sr-filter-label">Region <span class="text-danger">*</span></label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-region-trend">
+                    <option value="">-- Select Region --</option>
+                    {% for r in regions %}
+                    <option value="{{ r.code }}">{{ r.code }} – {{ r.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Financial Year (Report 8) -->
+            <div class="sr-filter-item filter-field" data-reports="region_stockist_trend,sec_moving_trend">
+                <label class="sr-filter-label">Financial Year</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-financial-year">
+                    <option value="">Current FY</option>
+                    <option value="2025-26">2025-26</option>
+                    <option value="2026-27">2026-27</option>
+                    <option value="2027-28">2027-28</option>
                 </select>
             </div>
 
@@ -89,6 +112,15 @@
             <div class="sr-filter-item filter-field" data-reports="primary_sales,secondary_sales,closing_stock">
                 <label class="sr-filter-label">To Date</label>
                 <input type="date" class="form-control form-control-sm sr-filter-select" id="f-to-date">
+            </div>
+
+            <!-- Group By (Report 4) -->
+            <div class="sr-filter-item filter-field" data-reports="closing_stock">
+                <label class="sr-filter-label">Group By</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-closing-group-by">
+                    <option value="stockist">Stockist Wise</option>
+                    <option value="hq">HQ Wise</option>
+                </select>
             </div>
 
             <!-- Stockist (Report 3) -->
@@ -554,6 +586,7 @@ function generateReport() {
         hq_wise: "scanify.api.get_hq_wise_stockist_report",
         address: "scanify.api.get_stockist_address_report",
         sec_moving_trend: "scanify.api.get_secondary_sales_moving_trend",
+        region_stockist_trend: "scanify.api.get_region_wise_stockist_moving_trend",
     };
 
     document.getElementById("report-loading").style.display = "block";
@@ -596,10 +629,15 @@ function buildParams() {
         if (region) p.region = region;
         if (fromDate) p.from_date = fromDate;
         if (toDate) p.to_date = toDate;
-    } else if (currentReportType === "secondary_sales" || currentReportType === "closing_stock") {
+    } else if (currentReportType === "secondary_sales") {
         if (region) p.region = region;
         if (fromDate) p.from_date = fromDate;
         if (toDate) p.to_date = toDate;
+    } else if (currentReportType === "closing_stock") {
+        if (region) p.region = region;
+        if (fromDate) p.from_date = fromDate;
+        if (toDate) p.to_date = toDate;
+        p.group_by = (document.getElementById("f-closing-group-by") || {}).value || "stockist";
     } else if (currentReportType === "moving_trend") {
         p.sales_type = document.getElementById("f-sales-type-trend").value;
         p.stockist_code = document.getElementById("f-stockist").value;
@@ -611,6 +649,12 @@ function buildParams() {
     } else if (currentReportType === "sec_moving_trend") {
         p.entity_type = document.getElementById("f-entity-type").value;
         p.entity_name = document.getElementById("f-entity-name").value;
+        const fy = document.getElementById("f-financial-year").value;
+        if (fy) p.financial_year = fy;
+    } else if (currentReportType === "region_stockist_trend") {
+        p.region = document.getElementById("f-region-trend").value;
+        const fy = document.getElementById("f-financial-year").value;
+        if (fy) p.financial_year = fy;
     }
     return p;
 }
@@ -632,6 +676,7 @@ function renderReport(result) {
         hq_wise: renderHQWise,
         address: renderAddress,
         sec_moving_trend: renderSecMovingTrend,
+        region_stockist_trend: renderRegionStockistTrend,
     };
 
     const renderer = renderers[currentReportType];
@@ -657,10 +702,11 @@ function renderReport(result) {
         primary_sales: "Stockist Wise Primary Sales Report",
         secondary_sales: "Stockist Wise Secondary Sales Report",
         moving_trend: "Moving Trend – Stockist Wise",
-        closing_stock: "Stockist Wise Closing Stock Report",
+        closing_stock: "Closing Stock Report",
         hq_wise: "HQ Wise Stockist Report",
         address: "Stockist Address Report",
         sec_moving_trend: "Secondary Sales Moving Trend",
+        region_stockist_trend: "Region-wise Stockist Secondary Sales Moving Trend",
     };
     const region = document.getElementById("f-region").value || "All Regions";
     const fromDate = document.getElementById("f-from-date").value;
@@ -681,6 +727,12 @@ function renderReport(result) {
         if (result.fy_label) subtitle += ` | ${result.fy_label}`;
     }
 
+    if (currentReportType === "region_stockist_trend") {
+        subtitle = `Region: ${result.region_name || result.region || ""}`;
+        if (result.fy_label) subtitle += ` | ${result.fy_label}`;
+        subtitle += ` | Values in ₹ Lakhs`;
+    }
+
     currentReportMeta = {
         title: titles[currentReportType] + " – " + DIVISION,
         subtitle: subtitle,
@@ -698,6 +750,11 @@ function getDataLength(result) {
     if (currentReportType === "sec_moving_trend") {
         var total = 0;
         (result.sections || []).forEach(function(sec) { total += (sec.products || []).length; });
+        return total;
+    }
+    if (currentReportType === "region_stockist_trend") {
+        var total = 0;
+        (result.teams || []).forEach(function(t) { total += (t.stockists || []).length; });
         return total;
     }
     return (result.data || []).length;
@@ -787,15 +844,27 @@ function renderMovingTrend(result, thead, tbody) {
 
 // ---------- Report 4: Closing Stock ----------
 function renderClosingStock(result, thead, tbody) {
-    thead.innerHTML = `<tr>${th("Stockist Code")}${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Opening")}${th("Purchase")}${th("Sales")}${th("Free")}${th("Scheme Free")}${th("Closing")}</tr>`;
-    let currentStk = null;
-    (result.data || []).forEach(r => {
-        if (r.stockist_code !== currentStk) {
-            currentStk = r.stockist_code;
-            tbody.innerHTML += `<tr class="group-row"><td colspan="11">${esc(r.stockist_name)} (${esc(r.stockist_code)})</td></tr>`;
-        }
-        tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQty(r.opening_qty), "text-right")}${td(fmtQty(r.purchase_qty), "text-right")}${td(fmtQty(r.sales_qty), "text-right")}${td(fmtQty(r.free_qty), "text-right")}${td(fmtQty(r.scheme_free_qty), "text-right")}${td(fmtQty(r.closing_qty), "text-right")}</tr>`;
-    });
+    if (result.group_by === "hq") {
+        thead.innerHTML = `<tr>${th("HQ Code")}${th("HQ Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Opening")}${th("Purchase")}${th("Sales")}${th("Free")}${th("Scheme Free")}${th("Closing")}</tr>`;
+        let currentHQ = null;
+        (result.data || []).forEach(r => {
+            if (r.hq_code !== currentHQ) {
+                currentHQ = r.hq_code;
+                tbody.innerHTML += `<tr class="group-row"><td colspan="11">${esc(r.hq_name || r.hq_code)}</td></tr>`;
+            }
+            tbody.innerHTML += `<tr>${td(r.hq_code)}${td(r.hq_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQty(r.opening_qty), "text-right")}${td(fmtQty(r.purchase_qty), "text-right")}${td(fmtQty(r.sales_qty), "text-right")}${td(fmtQty(r.free_qty), "text-right")}${td(fmtQty(r.scheme_free_qty), "text-right")}${td(fmtQty(r.closing_qty), "text-right")}</tr>`;
+        });
+    } else {
+        thead.innerHTML = `<tr>${th("Stockist Code")}${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Opening")}${th("Purchase")}${th("Sales")}${th("Free")}${th("Scheme Free")}${th("Closing")}</tr>`;
+        let currentStk = null;
+        (result.data || []).forEach(r => {
+            if (r.stockist_code !== currentStk) {
+                currentStk = r.stockist_code;
+                tbody.innerHTML += `<tr class="group-row"><td colspan="11">${esc(r.stockist_name)} (${esc(r.stockist_code)})</td></tr>`;
+            }
+            tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQty(r.opening_qty), "text-right")}${td(fmtQty(r.purchase_qty), "text-right")}${td(fmtQty(r.sales_qty), "text-right")}${td(fmtQty(r.free_qty), "text-right")}${td(fmtQty(r.scheme_free_qty), "text-right")}${td(fmtQty(r.closing_qty), "text-right")}</tr>`;
+        });
+    }
 }
 
 // ---------- Report 5: HQ Wise Stockist ----------
@@ -869,6 +938,73 @@ function renderSecMovingTrend(result, thead, tbody) {
         vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.pct || 0) + '</td>';
         tbody.innerHTML += '<tr class="value-lakhs-row" style="background:#f1f5f9;">' + vlCells + '</tr>';
     });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Report 8: Region-wise Stockist Secondary Sales Moving Trend
+// Columns: Stockist | HQ | Opening | Apr..Mar | Total | Closing
+// Values in ₹ Lakhs; grouped by Team
+// ─────────────────────────────────────────────────────────────
+function renderRegionStockistTrend(result, thead, tbody) {
+    var ml = result.month_labels || ["Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar"];
+    var COL_COUNT = 4 + ml.length; // Stockist + HQ + Opening + months + Total + Closing = varies
+
+    // Header
+    thead.innerHTML = "<tr>"
+        + th("Customers") + th("HQ")
+        + th("Current Month Opening")
+        + ml.map(function(m) { return th(m); }).join("")
+        + th("Total Sales Value")
+        + th("Current Month Closing")
+        + "</tr>";
+
+    var teams = result.teams || [];
+    var grand = result.grand_total || {};
+
+    teams.forEach(function(team) {
+        // Team header
+        var teamColspan = 4 + ml.length;
+        tbody.innerHTML += '<tr class="group-row" style="background:#334155;color:#fff;">'
+            + '<td colspan="' + teamColspan + '" style="font-weight:700;padding:7px 10px;font-size:12px;">'
+            + esc(team.team_name || team.team) + ' Team'
+            + '</td></tr>';
+
+        (team.stockists || []).forEach(function(s) {
+            var cells = td(esc(s.stockist_name) + ' / HQ: ' + esc(s.hq))
+                      + td(esc(s.hq))
+                      + '<td class="text-right">' + fmt(s.opening) + '</td>';
+            (s.months || []).forEach(function(v) {
+                cells += '<td class="text-right">' + (v ? fmt(v) : '') + '</td>';
+            });
+            cells += '<td class="text-right font-weight-bold">' + fmt(s.total_sales) + '</td>';
+            cells += '<td class="text-right">' + fmt(s.closing) + '</td>';
+            tbody.innerHTML += '<tr>' + cells + '</tr>';
+        });
+
+        // Team subtotal
+        var tt = team.total || {};
+        var tCells = '<td style="font-weight:700;">' + esc(team.team_name || team.team) + ' Team Total</td>'
+                   + '<td></td>'
+                   + '<td class="text-right font-weight-700">' + fmt(tt.opening || 0) + '</td>';
+        (tt.months || []).forEach(function(v) {
+            tCells += '<td class="text-right font-weight-700">' + fmt(v || 0) + '</td>';
+        });
+        tCells += '<td class="text-right font-weight-700">' + fmt(tt.total_sales || 0) + '</td>';
+        tCells += '<td class="text-right font-weight-700">' + fmt(tt.closing || 0) + '</td>';
+        tbody.innerHTML += '<tr class="subtotal-row">' + tCells + '</tr>';
+        tbody.innerHTML += '<tr><td colspan="' + teamColspan + '" style="height:6px;background:#f8fafc;border:none;"></td></tr>';
+    });
+
+    // Grand Total
+    var gCells = '<td style="font-weight:700;">' + esc(result.region_name || result.region) + ' Total</td>'
+               + '<td></td>'
+               + '<td class="text-right">' + fmt(grand.opening || 0) + '</td>';
+    (grand.months || []).forEach(function(v) {
+        gCells += '<td class="text-right">' + fmt(v || 0) + '</td>';
+    });
+    gCells += '<td class="text-right">' + fmt(grand.total_sales || 0) + '</td>';
+    gCells += '<td class="text-right">' + fmt(grand.closing || 0) + '</td>';
+    tbody.innerHTML += '<tr class="grand-total-row">' + gCells + '</tr>';
 }
 
 function esc(s) {
@@ -990,20 +1126,27 @@ function buildMovingTrendSummary(data) {
 }
 
 // Build summary for Report 4 (Closing Stock)
-function buildClosingStockSummary(data) {
-    var stockists = {};
+function buildClosingStockSummary(data, groupBy) {
+    var groups = {};
     (data || []).forEach(function(r) {
-        var key = r.stockist_code;
-        if (!stockists[key]) {
-            stockists[key] = { code: key, name: r.stockist_name, products: 0, totalOpening: 0, totalPurchase: 0, totalSales: 0, totalClosing: 0 };
+        var key, label;
+        if (groupBy === "hq") {
+            key = r.hq_code || "";
+            label = r.hq_name || r.hq_code || "";
+        } else {
+            key = r.stockist_code || "";
+            label = r.stockist_name || "";
         }
-        stockists[key].products += 1;
-        stockists[key].totalOpening += Number(r.opening_qty) || 0;
-        stockists[key].totalPurchase += Number(r.purchase_qty) || 0;
-        stockists[key].totalSales += Number(r.sales_qty) || 0;
-        stockists[key].totalClosing += Number(r.closing_qty) || 0;
+        if (!groups[key]) {
+            groups[key] = { code: key, name: label, products: 0, totalOpening: 0, totalPurchase: 0, totalSales: 0, totalClosing: 0 };
+        }
+        groups[key].products += 1;
+        groups[key].totalOpening += Number(r.opening_qty) || 0;
+        groups[key].totalPurchase += Number(r.purchase_qty) || 0;
+        groups[key].totalSales += Number(r.sales_qty) || 0;
+        groups[key].totalClosing += Number(r.closing_qty) || 0;
     });
-    var arr = Object.values(stockists);
+    var arr = Object.values(groups);
     arr.sort(function(a, b) { return b.totalSales - a.totalSales; });
     return arr;
 }
@@ -1309,7 +1452,8 @@ async function downloadPDF() {
 
     } else if (currentReportType === "closing_stock") {
         // ── Report 4: Closing Stock ──
-        var csSummary = buildClosingStockSummary(data.data);
+        var csGroupBy = data.group_by || "stockist";
+        var csSummary = buildClosingStockSummary(data.data, csGroupBy);
         var grandOpening = 0, grandPurchase = 0, grandSales = 0, grandClosing = 0;
         csSummary.forEach(function(s) {
             grandOpening += s.totalOpening;
@@ -1325,7 +1469,7 @@ async function downloadPDF() {
         doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
         doc.roundedRect(218, startY, 62, 18, 3, 3, "F");
         doc.setFontSize(8); doc.setTextColor(100);
-        doc.text("Total Stockists", 18, startY + 6);
+        doc.text(csGroupBy === "hq" ? "Total HQs" : "Total Stockists", 18, startY + 6);
         doc.text("Total Opening", 86, startY + 6);
         doc.text("Total Sales", 154, startY + 6);
         doc.text("Total Closing", 222, startY + 6);
@@ -1338,8 +1482,11 @@ async function downloadPDF() {
 
         // Consolidated table
         doc.setFontSize(10);
-        doc.text("Stockist-wise Closing Stock Summary", 14, startY + 26);
-        var csHead = [["#", "Stockist Code", "Stockist Name", "Products", "Opening", "Purchase", "Sales", "Closing"]];
+        var csGroupLabel = csGroupBy === "hq" ? "HQ-wise" : "Stockist-wise";
+        doc.text(csGroupLabel + " Closing Stock Summary", 14, startY + 26);
+        var csCodeCol = csGroupBy === "hq" ? "HQ Code" : "Stockist Code";
+        var csNameCol = csGroupBy === "hq" ? "HQ Name" : "Stockist Name";
+        var csHead = [["#", csCodeCol, csNameCol, "Products", "Opening", "Purchase", "Sales", "Closing"]];
         var csBody = csSummary.map(function(s, i) {
             return [i + 1, s.code, s.name, s.products, fmtQty(s.totalOpening), fmtQty(s.totalPurchase), fmtQty(s.totalSales), fmtQty(s.totalClosing)];
         });
@@ -1361,8 +1508,9 @@ async function downloadPDF() {
         doc.addPage();
         startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
 
-        // Top 10 stockists by sales - horizontal bar
+        // Top 10 by sales - horizontal bar
         var csTop10 = csSummary.slice(0, 10);
+        var csGroupTitle = csGroupBy === "hq" ? "Top 10 HQs – Stock Movement" : "Top 10 Stockists – Stock Movement";
         var csBarImg = await renderChartToImage({
             type: "bar",
             data: {
@@ -1373,7 +1521,7 @@ async function downloadPDF() {
                     { label: "Closing", data: csTop10.map(function(s) { return s.totalClosing; }), backgroundColor: "#f59e0b" }
                 ]
             },
-            options: { indexAxis: "y", responsive: false, animation: false, plugins: { title: { display: true, text: "Top 10 Stockists – Stock Movement", font: { size: 16 } }, legend: { position: "top" } }, scales: { x: { beginAtZero: true } } }
+            options: { indexAxis: "y", responsive: false, animation: false, plugins: { title: { display: true, text: csGroupTitle, font: { size: 16 } }, legend: { position: "top" } }, scales: { x: { beginAtZero: true } } }
         }, 900, 450);
         doc.addImage(csBarImg, "PNG", 14, startY, 170, 85);
 
@@ -1452,6 +1600,105 @@ async function downloadPDF() {
             options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Stockist Distribution by Group", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
         }, 600, 400);
         doc.addImage(addrPieImg, "PNG", 190, startY, 95, 63);
+
+    } else if (currentReportType === "region_stockist_trend") {
+        // ── Report 8: Region-wise Stockist Moving Trend ──
+        var teams = data.teams || [];
+        var grand = data.grand_total || {};
+        var ml = data.month_labels || ["Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar"];
+        var totalStockists = teams.reduce(function(s, t) { return s + (t.stockists || []).length; }, 0);
+
+        // Summary stats
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(218, startY, 62, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Total Stockists", 18, startY + 6);
+        doc.text("Total Sales (\u20b9 Lakhs)", 86, startY + 6);
+        doc.text("Total Opening (\u20b9 L)", 154, startY + 6);
+        doc.text("Total Closing (\u20b9 L)", 222, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(totalStockists), 18, startY + 14);
+        doc.text(fmt(grand.total_sales || 0), 86, startY + 14);
+        doc.text(fmt(grand.opening || 0), 154, startY + 14);
+        doc.text(fmt(grand.closing || 0), 222, startY + 14);
+        doc.setTextColor(0);
+
+        // Team-wise summary table
+        doc.setFontSize(10);
+        doc.text("Team-wise Sales Summary (\u20b9 Lakhs)", 14, startY + 26);
+        var tHead = [["Team", "Stockists", "Opening"].concat(ml).concat(["Total Sales", "Closing"])];
+        var tBody = teams.map(function(t) {
+            var row = [t.team_name || t.team, String((t.stockists || []).length), fmt(t.total && t.total.opening || 0)];
+            (t.total && t.total.months || []).forEach(function(v) { row.push(fmt(v)); });
+            row.push(fmt(t.total && t.total.total_sales || 0));
+            row.push(fmt(t.total && t.total.closing || 0));
+            return row;
+        });
+        var gtRow = ["TOTAL", String(totalStockists), fmt(grand.opening || 0)];
+        (grand.months || []).forEach(function(v) { gtRow.push(fmt(v)); });
+        gtRow.push(fmt(grand.total_sales || 0));
+        gtRow.push(fmt(grand.closing || 0));
+        tBody.push(gtRow);
+
+        doc.autoTable({
+            head: tHead, body: tBody, startY: startY + 30,
+            styles: { fontSize: 6.5, cellPadding: 1.2 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === tBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 10, right: 10 },
+        });
+
+        // Charts page
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+
+        // Monthly sales trend line chart (all teams combined)
+        var monthlyTotals = (grand.months || []).map(function(v) { return v || 0; });
+        var trendLineImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: ml,
+                datasets: teams.map(function(t, idx) {
+                    var colors = ["#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#3b82f6", "#8b5cf6", "#06b6d4"];
+                    return {
+                        label: t.team_name || t.team,
+                        data: (t.total && t.total.months || []).map(function(v) { return v || 0; }),
+                        backgroundColor: colors[idx % colors.length] + "cc",
+                        borderColor: colors[idx % colors.length],
+                        borderWidth: 1
+                    };
+                })
+            },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Team-wise Monthly Sales Trend (\u20b9 Lakhs)", font: { size: 16 } }, legend: { position: "top" } },
+                scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, title: { display: true, text: "\u20b9 Lakhs" } } }
+            }
+        }, 900, 420);
+        doc.addImage(trendLineImg, "PNG", 14, startY, 175, 90);
+
+        // Top 10 stockists by total sales
+        var allStockists = [];
+        teams.forEach(function(t) { (t.stockists || []).forEach(function(s) { allStockists.push(s); }); });
+        var top10s = allStockists.slice().sort(function(a, b) { return (b.total_sales || 0) - (a.total_sales || 0); }).slice(0, 10);
+        var stkBarImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: top10s.map(function(s) { var n = s.stockist_name || ""; return n.length > 18 ? n.substring(0, 18) + "\u2026" : n; }),
+                datasets: [{ label: "Total Sales (\u20b9 Lakhs)", data: top10s.map(function(s) { return s.total_sales || 0; }), backgroundColor: "#4f46e5" }]
+            },
+            options: { indexAxis: "y", responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Top 10 Stockists by Sales (\u20b9 Lakhs)", font: { size: 16 } }, legend: { display: false } },
+                scales: { x: { beginAtZero: true, title: { display: true, text: "\u20b9 Lakhs" } } }
+            }
+        }, 900, 420);
+        doc.addImage(stkBarImg, "PNG", 14, startY + 96, 175, 90);
 
     } else {
         // Generic fallback for any future reports
