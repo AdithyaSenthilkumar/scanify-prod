@@ -92,7 +92,7 @@ def build_product_catalog_for_prompt():
             "ptr",
             "mrp"
         ],
-        order_by="division, product_group, product_name"
+        order_by="division, product_group, sequence asc, product_name"
     )
     
     if not products:
@@ -3103,13 +3103,13 @@ def get_approved_products_for_doctor(doctor_code=None, division=None):
 
     where_sql = " AND ".join(conditions)
     products = frappe.db.sql("""
-        SELECT DISTINCT pm.name, pm.product_code, pm.product_name, pm.pack, pm.pts, pm.division
+        SELECT DISTINCT pm.name, pm.product_code, pm.product_name, pm.pack, pm.pts, pm.division, pm.sequence
         FROM `tabProduct Master` pm
         INNER JOIN `tabScheme Request Item` sri ON sri.product_code = pm.name
         INNER JOIN `tabScheme Request` sr ON sr.name = sri.parent
         WHERE pm.status = 'Active'
           AND {where_sql}
-        ORDER BY pm.product_name
+        ORDER BY COALESCE(pm.sequence, 9999), pm.product_name
     """.format(where_sql=where_sql), params, as_dict=True)
 
     return products
@@ -7036,6 +7036,12 @@ def get_stockist_primary_sales_report(division=None, sales_type="primary", regio
         ORDER BY stockist_name, pcode
     """, params, as_dict=True)
 
+    seq_map = {r[0]: (r[1] if r[1] is not None else 9999) for r in frappe.db.sql(
+        "SELECT product_code, COALESCE(sequence, 9999) FROM `tabProduct Master` WHERE division=%s AND status='Active'",
+        (division,)
+    )}
+    rows.sort(key=lambda r: (r.stockist_name or "", seq_map.get(r.product_code, 9999), r.product_code or ""))
+
     return {"success": True, "data": rows}
 
 
@@ -7074,6 +7080,12 @@ def get_stockist_secondary_sales_report(division=None, region=None,
                  si.product_code, si.product_name, si.pack
         ORDER BY ss.stockist_name, si.product_code
     """, params, as_dict=True)
+
+    seq_map = {r[0]: (r[1] if r[1] is not None else 9999) for r in frappe.db.sql(
+        "SELECT product_code, COALESCE(sequence, 9999) FROM `tabProduct Master` WHERE division=%s AND status='Active'",
+        (division,)
+    )}
+    rows.sort(key=lambda r: (r.stockist_name or "", seq_map.get(r.product_code, 9999), r.product_code or ""))
 
     return {"success": True, "data": rows}
 
@@ -7151,7 +7163,11 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
             products[key]["months"][idx] += flt(r.qty)
             products[key]["total"] += flt(r.qty)
 
-    data = list(products.values())
+    seq_map = {r[0]: (r[1] if r[1] is not None else 9999) for r in frappe.db.sql(
+        "SELECT product_code, COALESCE(sequence, 9999) FROM `tabProduct Master` WHERE division=%s AND status='Active'",
+        (division,)
+    )}
+    data = sorted(products.values(), key=lambda p: (seq_map.get(p["product_code"], 9999), p["product_code"] or ""))
     return {"success": True, "data": data, "fy_label": fy_label, "month_labels": month_labels}
 
 
@@ -7217,6 +7233,15 @@ def get_stockist_closing_stock_report(division=None, region=None,
                      si.product_code, si.product_name, si.pack
             ORDER BY ss.stockist_name, si.product_code
         """, params, as_dict=True)
+
+    seq_map = {r[0]: (r[1] if r[1] is not None else 9999) for r in frappe.db.sql(
+        "SELECT product_code, COALESCE(sequence, 9999) FROM `tabProduct Master` WHERE division=%s AND status='Active'",
+        (division,)
+    )}
+    if group_by == "hq":
+        rows.sort(key=lambda r: (r.hq_name or "", seq_map.get(r.product_code, 9999), r.product_code or ""))
+    else:
+        rows.sort(key=lambda r: (r.stockist_name or "", seq_map.get(r.product_code, 9999), r.product_code or ""))
 
     return {"success": True, "data": rows, "group_by": group_by}
 
@@ -7367,10 +7392,14 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
         product_data[pc]["col_qty"][cc] = product_data[pc]["col_qty"].get(cc, 0) + (float(r.closing_qty) if r.closing_qty else 0)
         product_data[pc]["col_value"][cc] = product_data[pc]["col_value"].get(cc, 0) + (float(r.closing_value) if r.closing_value else 0)
 
-    # Sort products by product_code; exclude rows with empty/None product_code
+    # Sort products by sequence then product_code; exclude rows with empty/None product_code
+    _seq_map = {r[0]: (r[1] if r[1] is not None else 9999) for r in frappe.db.sql(
+        "SELECT product_code, COALESCE(sequence, 9999) FROM `tabProduct Master` WHERE division=%s AND status='Active'",
+        (division,)
+    )}
     sorted_products = sorted(
         [p for p in product_data.values() if p["product_code"]],
-        key=lambda x: x["product_code"]
+        key=lambda x: (_seq_map.get(x["product_code"], 9999), x["product_code"])
     )
 
     # Compute value_in_lakhs (total across all products per column/team/region)
@@ -7999,8 +8028,8 @@ def get_scheme_report_filter_options(division=None):
         (division,), as_dict=True,
     )
     products = frappe.db.sql(
-        "SELECT product_code, product_name, category, product_group, pack "
-        "FROM `tabProduct Master` WHERE division=%s AND status='Active' ORDER BY product_name",
+        "SELECT product_code, product_name, category, product_group, pack, sequence "
+        "FROM `tabProduct Master` WHERE division=%s AND status='Active' ORDER BY COALESCE(sequence, 9999), product_name",
         (division,), as_dict=True,
     )
 
@@ -8632,8 +8661,8 @@ def get_ranking_report_filter_options(division=None):
         "SELECT name, stockist_name, hq FROM `tabStockist Master` WHERE division=%s AND status='Active' ORDER BY stockist_name",
         (division,), as_dict=True)
     products = frappe.db.sql(
-        "SELECT product_code, product_name, category, product_group, pack "
-        "FROM `tabProduct Master` WHERE division=%s AND status='Active' ORDER BY product_name",
+        "SELECT product_code, product_name, category, product_group, pack, sequence "
+        "FROM `tabProduct Master` WHERE division=%s AND status='Active' ORDER BY COALESCE(sequence, 9999), product_name",
         (division,), as_dict=True)
     doctors = frappe.db.sql(
         "SELECT name, doctor_code, doctor_name, hq, region "
@@ -9554,7 +9583,7 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
     products = frappe.db.sql(
         "SELECT product_code, product_name, pack, category, pts "
         "FROM `tabProduct Master` WHERE division=%s AND status='Active' "
-        "ORDER BY category, product_code",
+        "ORDER BY category, COALESCE(sequence, 9999), product_code",
         (division,), as_dict=True
     )
 
@@ -9980,7 +10009,7 @@ def get_products_for_division(division=None):
         "Product Master",
         filters={"status": "Active", "division": division},
         fields=["product_code", "product_name", "pack", "pts", "ptr", "pack_conversion"],
-        order_by="product_name asc",
+        order_by="sequence asc, product_name asc",
         limit_page_length=0,
     )
     return products
