@@ -15,8 +15,9 @@
     <!-- Filters -->
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body bg-light rounded px-4 py-3 border">
-            <div class="row align-items-center">
-                <div class="col-md-5 mb-3 mb-md-0">
+            <!-- Row 1: Search + Month + Extraction Status + Clear -->
+            <div class="row align-items-center mb-2">
+                <div class="col-md-5 mb-2 mb-md-0">
                     <div class="input-group">
                         <div class="input-group-prepend">
                             <span class="input-group-text bg-white"><i class="fa fa-search text-muted"></i></span>
@@ -25,21 +26,56 @@
                             placeholder="Search by Stockist Name or Code...">
                     </div>
                 </div>
-                <div class="col-md-2 mb-3 mb-md-0">
+                <div class="col-md-2 mb-2 mb-md-0">
                     <input type="month" id="monthFilter" class="form-control" placeholder="Filter by Month">
                 </div>
-                <div class="col-md-3 mb-3 mb-md-0">
+                <div class="col-md-3 mb-2 mb-md-0">
                     <select id="statusFilter" class="form-control custom-select">
-                        <option value="">All Statuses</option>
+                        <option value="">All Extraction Statuses</option>
                         <option value="Pending">Pending</option>
                         <option value="In Progress">In Progress</option>
                         <option value="Completed">Completed</option>
                         <option value="Failed">Failed</option>
                     </select>
                 </div>
-                <div class="col-md-2 text-md-right">
+                <div class="col-md-2 text-md-right mb-2 mb-md-0">
                     <button class="btn btn-outline-secondary w-100" onclick="clearFilters()"><i class="fa fa-times"></i>
                         Clear</button>
+                </div>
+            </div>
+            <!-- Row 2: QC Status + Region + Zone + HQ -->
+            <div class="row align-items-center">
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <select id="qcFilter" class="form-control custom-select stmt-select2">
+                        <option value="">All QC Statuses</option>
+                        <option value="All Matched">✓ All Matched</option>
+                        <option value="Verification Needed">⚠ Verification Needed</option>
+                        <option value="QC Needed">✗ QC Needed</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <select id="regionFilter" class="form-control custom-select stmt-select2">
+                        <option value="">All Regions</option>
+                        {% for r in regions %}
+                        <option value="{{ r.code }}">{{ r.name }}{% if r.code %} ({{ r.code }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <select id="zoneFilter" class="form-control custom-select stmt-select2">
+                        <option value="">All Zones</option>
+                        {% for z in zones %}
+                        <option value="{{ z.code }}">{{ z.name }}{% if z.code %} ({{ z.code }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <select id="hqFilter" class="form-control custom-select stmt-select2">
+                        <option value="">All HQs</option>
+                        {% for h in hqs %}
+                        <option value="{{ h.code }}">{{ h.name }}{% if h.code %} ({{ h.code }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
                 </div>
             </div>
         </div>
@@ -68,7 +104,11 @@
                         <tr class="statement-row"
                             data-stockist="{{ row.stockist_name|lower }} {{ row.stockist_code|lower }}"
                             data-month="{{ row.statement_month and row.statement_month|string|truncate(7, True, '') or '' }}"
-                            data-status="{{ row.extracted_data_status }}">
+                            data-status="{{ row.extracted_data_status }}"
+                            data-qc="{{ row.qc_confidence or '' }}"
+                            data-region="{{ row.region or '' }}"
+                            data-zone="{{ row.zone or '' }}"
+                            data-hq="{{ row.hq or '' }}">
                             <td><strong>{{ row.name }}</strong></td>
                             <td>
                                 <div>{{ row.stockist_name }}</div>
@@ -161,6 +201,19 @@
         line-height: 1.4;
     }
 </style>
+<!-- Select2 for searchable dropdowns -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<style>
+.select2-container--default .select2-selection--single {
+    height: 38px; border-radius: 4px;
+    border: 1px solid #ced4da; font-size: 14px;
+}
+.select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 36px; padding-left: 10px; }
+.select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
+.select2-dropdown { font-size: 14px; z-index: 9999; }
+.select2-results__option--highlighted { background: #4f46e5 !important; }
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -172,22 +225,44 @@
         const searchInput = document.getElementById("searchInput");
         const statusFilter = document.getElementById("statusFilter");
         const monthFilter = document.getElementById("monthFilter");
+        const qcFilter = document.getElementById("qcFilter");
+        const regionFilter = document.getElementById("regionFilter");
+        const zoneFilter = document.getElementById("zoneFilter");
+        const hqFilter = document.getElementById("hqFilter");
         const allRows = Array.from(document.querySelectorAll(".statement-row"));
         const noMatchesRow = document.getElementById("noMatchesRow");
+
+        // Initialise Select2 on searchable filters
+        if (typeof $ !== "undefined" && $.fn.select2) {
+            $(".stmt-select2").select2({ width: "100%", allowClear: true });
+            $(".stmt-select2").on("change", onFilterChange);
+        }
 
         function getVisibleRows() {
             const searchTerm = searchInput.value.toLowerCase();
             const statusTerm = statusFilter.value;
             const monthTerm = monthFilter.value;
+            const qcTerm = qcFilter.value;
+            const regionTerm = regionFilter.value;
+            const zoneTerm = zoneFilter.value;
+            const hqTerm = hqFilter.value;
             return allRows.filter(function(row) {
                 const stockistData = row.getAttribute("data-stockist");
                 const rowStatus = row.getAttribute("data-status");
                 const rowMonth = row.getAttribute("data-month");
+                const rowQc = row.getAttribute("data-qc");
+                const rowRegion = row.getAttribute("data-region");
+                const rowZone = row.getAttribute("data-zone");
+                const rowHq = row.getAttribute("data-hq");
                 const matchesSearch = stockistData.includes(searchTerm);
                 const matchesStatus = statusTerm === "" || rowStatus === statusTerm;
+                const matchesQc = qcTerm === "" || rowQc === qcTerm;
+                const matchesRegion = regionTerm === "" || rowRegion === regionTerm;
+                const matchesZone = zoneTerm === "" || rowZone === zoneTerm;
+                const matchesHq = hqTerm === "" || rowHq === hqTerm;
                 let matchesMonth = true;
                 if (monthTerm) matchesMonth = rowMonth.startsWith(monthTerm);
-                return matchesSearch && matchesStatus && matchesMonth;
+                return matchesSearch && matchesStatus && matchesMonth && matchesQc && matchesRegion && matchesZone && matchesHq;
             });
         }
 
@@ -234,11 +309,23 @@
         searchInput.addEventListener("input", onFilterChange);
         statusFilter.addEventListener("change", onFilterChange);
         monthFilter.addEventListener("change", onFilterChange);
+        qcFilter.addEventListener("change", onFilterChange);
+        regionFilter.addEventListener("change", onFilterChange);
+        zoneFilter.addEventListener("change", onFilterChange);
+        hqFilter.addEventListener("change", onFilterChange);
 
         window.clearFilters = function () {
             searchInput.value = "";
             statusFilter.value = "";
             monthFilter.value = "";
+            if (typeof $ !== "undefined" && $.fn.select2) {
+                $("#qcFilter, #regionFilter, #zoneFilter, #hqFilter").val("").trigger("change");
+            } else {
+                qcFilter.value = "";
+                regionFilter.value = "";
+                zoneFilter.value = "";
+                hqFilter.value = "";
+            }
             stmtCurrentPage = 1;
             paginateRows();
         };

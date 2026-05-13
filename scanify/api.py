@@ -7222,6 +7222,205 @@ def get_stockist_closing_stock_report(division=None, region=None,
 
 
 @frappe.whitelist()
+def get_region_product_closing_stock(division=None, region=None, from_date=None, to_date=None, group_by="hq"):
+    """Report 9 – Product Closing Stock for Region, pivoted by HQ or Stockist (grouped by Team).
+    Returns products as rows, HQs/Stockists as columns grouped by team, with Team Totals and Region Total.
+    group_by: 'hq' (default) or 'stockist'
+    """
+    if not division:
+        division = get_user_division()
+    if not region:
+        frappe.throw("Region is required for this report.")
+
+    conditions = ["ss.division = %(division)s", "ss.region = %(region)s", "ss.docstatus IN (0, 1)"]
+    params = {"division": division, "region": region}
+
+    if from_date:
+        conditions.append("ss.statement_month >= %(from_date)s")
+        params["from_date"] = from_date
+    if to_date:
+        conditions.append("ss.statement_month <= %(to_date)s")
+        params["to_date"] = to_date
+
+    where = " AND ".join(conditions)
+
+    if group_by == "stockist":
+        # Stockist-wise pivot: one column per stockist
+        rows = frappe.db.sql(f"""
+            SELECT
+                ss.stockist_code AS col_code,
+                ss.stockist_name AS col_name,
+                COALESCE(hm.team, ss.team, '') AS team_code,
+                COALESCE(tm.team_name, hm.team, ss.team, '') AS team_name,
+                si.product_code,
+                si.product_name,
+                si.pack,
+                SUM(si.closing_qty) AS closing_qty,
+                SUM(COALESCE(si.closing_value, si.closing_qty * si.pts, 0)) AS closing_value
+            FROM `tabStockist Statement` ss
+            INNER JOIN `tabStockist Statement Item` si
+                ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+            LEFT JOIN `tabHQ Master` hm ON hm.name = ss.hq AND hm.division = %(division)s
+            LEFT JOIN `tabTeam Master` tm ON tm.name = COALESCE(hm.team, ss.team)
+            WHERE {where}
+            GROUP BY ss.stockist_code, ss.stockist_name, hm.team, tm.team_name,
+                     si.product_code, si.product_name, si.pack
+            ORDER BY hm.team, ss.stockist_name, si.product_code
+        """, params, as_dict=True)
+
+        # Build ordered column list from Stockist Master for this region
+        col_list = frappe.db.sql("""
+            SELECT sm.name AS col_code, sm.stockist_name AS col_name,
+                   COALESCE(hm.team, sm.team, '') AS team_code,
+                   COALESCE(tm.team_name, hm.team, sm.team, '') AS team_name
+            FROM `tabStockist Master` sm
+            LEFT JOIN `tabHQ Master` hm ON hm.name = sm.hq
+            LEFT JOIN `tabTeam Master` tm ON tm.name = COALESCE(hm.team, sm.team)
+            WHERE sm.division = %(division)s AND sm.region = %(region)s AND sm.status = 'Active'
+            ORDER BY hm.team, sm.stockist_name
+        """, params, as_dict=True)
+    else:
+        # HQ-wise pivot: one column per HQ
+        rows = frappe.db.sql(f"""
+            SELECT
+                ss.hq AS col_code,
+                COALESCE(hm.hq_name, ss.hq, '') AS col_name,
+                COALESCE(hm.team, ss.team, '') AS team_code,
+                COALESCE(tm.team_name, hm.team, ss.team, '') AS team_name,
+                si.product_code,
+                si.product_name,
+                si.pack,
+                SUM(si.closing_qty) AS closing_qty,
+                SUM(COALESCE(si.closing_value, si.closing_qty * si.pts, 0)) AS closing_value
+            FROM `tabStockist Statement` ss
+            INNER JOIN `tabStockist Statement Item` si
+                ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+            LEFT JOIN `tabHQ Master` hm ON hm.name = ss.hq AND hm.division = %(division)s
+            LEFT JOIN `tabTeam Master` tm ON tm.name = COALESCE(hm.team, ss.team)
+            WHERE {where}
+            GROUP BY ss.hq, hm.hq_name, hm.team, tm.team_name,
+                     si.product_code, si.product_name, si.pack
+            ORDER BY hm.team, hm.hq_name, si.product_code
+        """, params, as_dict=True)
+
+        # Build ordered HQ column list from HQ Master for this region
+        col_list = frappe.db.sql("""
+            SELECT hm.name AS col_code, COALESCE(hm.hq_name, hm.name, '') AS col_name,
+                   COALESCE(hm.team, '') AS team_code,
+                   COALESCE(tm.team_name, hm.team, '') AS team_name
+            FROM `tabHQ Master` hm
+            LEFT JOIN `tabTeam Master` tm ON tm.name = hm.team
+            WHERE hm.division = %(division)s AND hm.region = %(region)s AND hm.status = 'Active'
+            ORDER BY hm.team, hm.hq_name
+        """, params, as_dict=True)
+
+    if not rows:
+        return {"success": True, "products": [], "team_order": [], "hq_columns": [],
+                "value_in_lakhs": {}, "region": region, "region_name": region, "group_by": group_by}
+
+    # Fall back to data-derived column list if master has no entries
+    if not col_list:
+        seen = {}
+        for r in rows:
+            if r.col_code and r.col_code not in seen:
+                seen[r.col_code] = {"col_code": r.col_code, "col_name": r.col_name,
+                                    "team_code": r.team_code, "team_name": r.team_name}
+        col_list = list(seen.values())
+
+    # Build team order: only include teams/columns that actually have data
+    data_col_codes = {r.col_code for r in rows if r.col_code}
+    team_map = {}
+    for c in col_list:
+        tc = c.team_code or "Unknown"
+        if tc not in team_map:
+            team_map[tc] = {"team_code": tc, "team_name": c.team_name or tc, "hqs": []}
+        if c.col_code in data_col_codes:
+            team_map[tc]["hqs"].append({"col_code": c.col_code, "col_name": c.col_name})
+
+    # Include any data columns not in master
+    configured_cols = {c.col_code for c in col_list}
+    for r in rows:
+        if r.col_code and r.col_code not in configured_cols:
+            tc = r.team_code or "Unknown"
+            if tc not in team_map:
+                team_map[tc] = {"team_code": tc, "team_name": r.team_name or tc, "hqs": []}
+            if not any(h["col_code"] == r.col_code for h in team_map[tc]["hqs"]):
+                team_map[tc]["hqs"].append({"col_code": r.col_code, "col_name": r.col_name})
+
+    # Filter teams with at least one column
+    team_order = [t for t in team_map.values() if t["hqs"]]
+    flat_col_codes = [h["col_code"] for t in team_order for h in t["hqs"]]
+
+    # Build product data matrix
+    product_data = {}
+    for r in rows:
+        pc = r.product_code
+        if pc not in product_data:
+            product_data[pc] = {
+                "product_code": pc,
+                "product_name": r.product_name,
+                "pack": r.pack,
+                "col_qty": {},
+                "col_value": {},
+            }
+        cc = r.col_code
+        product_data[pc]["col_qty"][cc] = product_data[pc]["col_qty"].get(cc, 0) + (float(r.closing_qty) if r.closing_qty else 0)
+        product_data[pc]["col_value"][cc] = product_data[pc]["col_value"].get(cc, 0) + (float(r.closing_value) if r.closing_value else 0)
+
+    # Sort products by product_code (guard against None values)
+    sorted_products = sorted(product_data.values(), key=lambda x: x["product_code"] or "")
+
+    # Compute value_in_lakhs (total across all products per column/team/region)
+    col_total_value = {}
+    for pdata in sorted_products:
+        for cc, val in pdata["col_value"].items():
+            col_total_value[cc] = col_total_value.get(cc, 0) + val
+
+    team_total_value = {}
+    for t in team_order:
+        tv = sum(col_total_value.get(h["col_code"], 0) for h in t["hqs"])
+        team_total_value[t["team_code"]] = tv
+
+    region_total_value = sum(col_total_value.values())
+
+    # Build product rows
+    product_rows = []
+    for sno, pdata in enumerate(sorted_products, 1):
+        team_qty = {}
+        for t in team_order:
+            team_qty[t["team_code"]] = sum(pdata["col_qty"].get(h["col_code"], 0) for h in t["hqs"])
+        region_qty = sum(pdata["col_qty"].values())
+        product_rows.append({
+            "sno": sno,
+            "product_code": pdata["product_code"],
+            "product_name": pdata["product_name"],
+            "pack": pdata["pack"],
+            "col_qty": pdata["col_qty"],
+            "team_qty": team_qty,
+            "region_qty": region_qty,
+        })
+
+    region_name = frappe.db.get_value("Region Master", region, "region_name") or region
+
+    return {
+        "success": True,
+        "region": region,
+        "region_name": region_name,
+        "from_date": from_date,
+        "to_date": to_date,
+        "group_by": group_by,
+        "team_order": team_order,
+        "hq_columns": flat_col_codes,
+        "products": product_rows,
+        "value_in_lakhs": {
+            "col_values": {cc: round(v / 100000, 2) for cc, v in col_total_value.items()},
+            "team_values": {tc: round(v / 100000, 2) for tc, v in team_total_value.items()},
+            "region_total": round(region_total_value / 100000, 2),
+        },
+    }
+
+
+@frappe.whitelist()
 def get_hq_wise_stockist_report(division=None, region=None):
     """Report 5 – HQ Wise Stockist Report (active stockists grouped by HQ)."""
     if not division:
