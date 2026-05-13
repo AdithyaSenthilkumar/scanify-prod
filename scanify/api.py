@@ -4033,6 +4033,9 @@ def import_master_data(doctype, division):
                 if doctype != "Division":
                     data["division"] = row_division
 
+                # ---- Normalize Select field values (case-insensitive match) ----
+                _normalize_select_fields(doctype, data)
+
                 # ---- Resolve link-field labels → doc names ----
                 _resolve_import_links(doctype, data, row_division)
 
@@ -4094,6 +4097,23 @@ def import_master_data(doctype, division):
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Import Master Data Error")
         return {"success": False, "message": str(e)}
+
+
+def _normalize_select_fields(doctype, data):
+    """Case-insensitively match imported Select values to their valid options."""
+    meta = frappe.get_meta(doctype)
+    for field in meta.fields:
+        if field.fieldtype != "Select" or not field.options:
+            continue
+        val = data.get(field.fieldname)
+        if not val:
+            continue
+        valid_options = [o for o in field.options.split("\n") if o]
+        val_lower = val.lower()
+        for opt in valid_options:
+            if opt.lower() == val_lower:
+                data[field.fieldname] = opt  # replace with correctly-cased version
+                break
 
 
 def _resolve_import_links(doctype, data, division):
@@ -4186,6 +4206,7 @@ def get_column_mapping(doctype):
         "Product Master": {
             "Product Code": "product_code",
             "Product Name": "product_name",
+            "Sequence": "sequence",
             "Product Group": "product_group",
             "Category": "category",
             "Pack": "pack",

@@ -68,18 +68,19 @@ const masterConfigs = {
         fields: [
             { name: 'product_code', label: 'Product Code', type: 'text', required: true, readonly_on_edit: true },
             { name: 'product_name', label: 'Product Name', type: 'text', required: true },
+            { name: 'sequence', label: 'Sequence', type: 'number' },
             {
                 name: 'product_group',
                 label: 'Product Group',
                 type: 'select',
                 required: true,
-                options: ['Dentist', 'Derma', 'Contus', 'Xptum', 'Amino', 'Ortho', 'Drez', 'Gynae', 'Jusdee', 'Dygerm', 'Others']
+                options: ['Dentist', 'Derma', 'Contus', 'Xptum', 'Amino', 'Ortho', 'Drez', 'Gynae', 'Jusdee', 'Dygerm', 'Others', 'Hospital Products', 'New Products']
             },
             {
                 name: 'category',
                 label: 'Category',
                 type: 'select',
-                options: ['Main Product', 'Hospital Product', 'New Product']
+                options: ['Main Products', 'Others', 'Hospital Products', 'New Products']
             },
             { name: 'pack', label: 'Pack', type: 'text' },
             { name: 'pack_conversion', label: 'Pack Conversion', type: 'text' },
@@ -89,14 +90,14 @@ const masterConfigs = {
             { name: 'gst_rate', label: 'GST Rate (%)', type: 'number', default: 5 },
             { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true }
         ],
-        columns: ['product_code', 'product_name', 'product_group', 'category', 'pack', 'pack_conversion', 'pts', 'ptr', 'mrp', 'gst_rate', 'status'],
+        columns: ['product_code', 'product_name', 'sequence', 'product_group', 'category', 'pack', 'pack_conversion', 'pts', 'ptr', 'mrp', 'gst_rate', 'status'],
         searchFields: ['product_code', 'product_name', 'product_group', 'category', 'pack'],
         excelColumns: [
-            'Product Code', 'Product Name', 'Product Group', 'Category',
+            'Product Code', 'Product Name', 'Sequence', 'Product Group', 'Category',
             'Pack', 'Pack Conversion', 'PTS', 'PTR', 'MRP', 'GST Rate (%)', 'Division', 'Status'
         ],
         excelSample: [
-            'PROD001', 'Paracetamol 500mg', 'Others', 'Main Product',
+            'PROD001', 'Paracetamol 500mg', 1, 'Others', 'Main Product',
             '10x10', "10's", '10.00', '55.00', '60.00', '5', 'Prima', 'Active'
         ]
     },

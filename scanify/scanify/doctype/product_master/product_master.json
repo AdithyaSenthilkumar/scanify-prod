@@ -1,13 +1,14 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "format:PR{####}",
+ "autoname": "field:product_code",
  "creation": "2025-11-28 22:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
   "product_code",
   "product_name",
+  "sequence",
   "pack",
   "column_break_zmwd",
   "division",
@@ -36,6 +37,11 @@
       "in_list_view": 1
     },
     {
+      "fieldname": "sequence",
+      "fieldtype": "Int",
+      "label": "Sequence"
+    },
+    {
       "fieldname": "pack",
       "fieldtype": "Data",
       "label": "Pack"
@@ -61,14 +67,14 @@
       "fieldname": "product_group",
       "fieldtype": "Select",
       "label": "Product Group",
-      "options": "\nDentist\nDerma\nContus\nXptum\nAmino\nOrtho\nDrez\nGynae\nJusdee\nDygerm\nOthers",
+      "options": "\nDentist\nDerma\nContus\nXptum\nAmino\nOrtho\nDrez\nGynae\nJusdee\nDygerm\nOthers\nHospital Products\nNew Products",
       "reqd": 1
     },
     {
       "fieldname": "category",
       "fieldtype": "Select",
       "label": "Category",
-      "options": "\nMain Product\nHospital Product\nNew Product"
+      "options": "\nMain Products\nOthers\nHospital Products\nNew Products"
     },
     {
       "fieldname": "section_break_ypsu",
