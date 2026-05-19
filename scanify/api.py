@@ -5414,7 +5414,7 @@ def get_insights_products_data(division=None, from_date=None, to_date=None, regi
     top_products_closing = frappe.db.sql(f"""
         SELECT si.product_name, si.product_code,
                COALESCE(SUM(si.closing_value), 0) as total_closing,
-               COALESCE(SUM(si.sales_qty), 0) as total_sales_qty
+               COALESCE(SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)), 0) as total_sales_qty
         FROM `tabStockist Statement Item` si
         INNER JOIN `tabStockist Statement` ss ON ss.name = si.parent
         WHERE {stmt_where} AND si.product_name IS NOT NULL AND si.product_name != ''
@@ -7070,7 +7070,7 @@ def get_stockist_secondary_sales_report(division=None, region=None,
     rows = frappe.db.sql(f"""
         SELECT ss.stockist_code, ss.stockist_name,
                si.product_code, si.product_name, si.pack,
-               SUM(si.sales_qty) AS total_qty,
+               SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS total_qty,
                SUM(si.sales_value_pts) AS total_value
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
@@ -7119,7 +7119,7 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
         rows = frappe.db.sql("""
             SELECT si.product_code, si.product_name, si.pack,
                    MONTH(ss.statement_month) AS m, YEAR(ss.statement_month) AS y,
-                   SUM(si.sales_qty) AS qty
+                     SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -7200,12 +7200,12 @@ def get_stockist_closing_stock_report(division=None, region=None,
             SELECT ss.hq AS hq_code,
                    COALESCE(hm.hq_name, ss.hq, '') AS hq_name,
                    si.product_code, si.product_name, si.pack,
-                   SUM(si.opening_qty) AS opening_qty,
-                   SUM(si.purchase_qty) AS purchase_qty,
-                   SUM(si.sales_qty) AS sales_qty,
-                   SUM(si.free_qty) AS free_qty,
-                   SUM(si.free_qty_scheme) AS scheme_free_qty,
-                   SUM(si.closing_qty) AS closing_qty
+                     SUM(si.opening_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS opening_qty,
+                     SUM(si.purchase_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS purchase_qty,
+                     SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS sales_qty,
+                     SUM(si.free_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS free_qty,
+                     SUM(si.free_qty_scheme / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS scheme_free_qty,
+                     SUM(si.closing_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS closing_qty
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -7219,12 +7219,12 @@ def get_stockist_closing_stock_report(division=None, region=None,
         rows = frappe.db.sql(f"""
             SELECT ss.stockist_code, ss.stockist_name,
                    si.product_code, si.product_name, si.pack,
-                   SUM(si.opening_qty) AS opening_qty,
-                   SUM(si.purchase_qty) AS purchase_qty,
-                   SUM(si.sales_qty) AS sales_qty,
-                   SUM(si.free_qty) AS free_qty,
-                   SUM(si.free_qty_scheme) AS scheme_free_qty,
-                   SUM(si.closing_qty) AS closing_qty
+                     SUM(si.opening_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS opening_qty,
+                     SUM(si.purchase_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS purchase_qty,
+                     SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS sales_qty,
+                     SUM(si.free_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS free_qty,
+                     SUM(si.free_qty_scheme / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS scheme_free_qty,
+                     SUM(si.closing_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS closing_qty
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -7280,8 +7280,8 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
                 si.product_code,
                 si.product_name,
                 si.pack,
-                SUM(si.closing_qty) AS closing_qty,
-                SUM(COALESCE(si.closing_value, si.closing_qty * si.pts, 0)) AS closing_value
+                SUM(si.closing_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS closing_qty,
+                SUM(COALESCE(si.closing_value, (si.closing_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * si.pts, 0)) AS closing_value
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -7315,8 +7315,8 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
                 si.product_code,
                 si.product_name,
                 si.pack,
-                SUM(si.closing_qty) AS closing_qty,
-                SUM(COALESCE(si.closing_value, si.closing_qty * si.pts, 0)) AS closing_value
+                SUM(si.closing_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS closing_qty,
+                SUM(COALESCE(si.closing_value, (si.closing_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * si.pts, 0)) AS closing_value
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -8794,7 +8794,7 @@ def _moving_trend_secondary(division, criteria, from_date, to_date, region, zone
     return frappe.db.sql(f"""
         SELECT {criteria_col} AS criteria_name,
                MONTH(ss.statement_month) AS m,
-               SUM(si.sales_qty) AS qty
+             SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -8855,7 +8855,7 @@ def get_ranking_rupee_wise_report(division=None, sales_type="secondary",
             SELECT ss.statement_month AS date, ss.region, ss.hq,
                    ss.stockist_code, ss.stockist_name,
                    si.product_code, si.product_name,
-                   si.sales_qty AS qty, si.pts AS rate, si.sales_value_pts AS value
+                     (si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty, si.pts AS rate, si.sales_value_pts AS value
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -8926,7 +8926,7 @@ def get_ranking_productwise_topn(division=None, product_codes=None, top_n=5,
 
         rows = frappe.db.sql(f"""
             SELECT si.product_code, si.product_name,
-                   SUM(si.sales_qty) AS total_qty,
+                     SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS total_qty,
                    SUM(si.sales_value_pts) AS total_value
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
@@ -9007,7 +9007,7 @@ def get_ranking_productwise_all(division=None, product_code=None, region=None,
         rows = frappe.db.sql(f"""
             SELECT IFNULL(sm.hq, ss.hq) AS hq,
                    si.product_code, si.product_name,
-                   SUM(si.sales_qty) AS total_qty,
+                     SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS total_qty,
                    SUM(si.sales_value_pts) AS total_value
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
@@ -9077,7 +9077,7 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
         rows = frappe.db.sql(f"""
             SELECT ss.region, {group_col} AS group_key,
                    si.product_code, si.product_name,
-                   SUM(si.closing_qty) AS qty,
+                     SUM(si.closing_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty,
                    SUM(si.closing_value) AS value
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
@@ -9150,7 +9150,7 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
         rows = frappe.db.sql(f"""
             SELECT ss.region, {group_col} AS group_key,
                    si.product_code, si.product_name,
-                   SUM(si.sales_qty) AS qty,
+                     SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty,
                    SUM(si.sales_value_pts) AS value
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
@@ -9246,7 +9246,7 @@ def get_ranking_pcpm_tracker(division=None, sales_type="secondary",
         rows = frappe.db.sql(f"""
             SELECT si.product_code, si.product_name,
                    MONTH(ss.statement_month) AS m,
-                   SUM(si.sales_qty) AS qty
+                     SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -9592,8 +9592,8 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
     sec_rows = frappe.db.sql(f"""
         SELECT si.product_code, si.pack,
                MONTH(ss.statement_month) AS m,
-               SUM(si.sales_qty) AS qty,
-               SUM(IFNULL(si.sales_value_pts, si.sales_qty * IFNULL(si.pts, 0))) AS value
+             SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty,
+             SUM(IFNULL(si.sales_value_pts, (si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0))) AS value
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -9802,7 +9802,7 @@ def get_region_wise_stockist_moving_trend(division=None, region=None, financial_
     sales_rows = frappe.db.sql(f"""
         SELECT ss.stockist_code,
                MONTH(ss.statement_month) AS m,
-               SUM(IFNULL(si.sales_value_pts, si.sales_qty * IFNULL(si.pts, 0))) AS sales_value
+             SUM(IFNULL(si.sales_value_pts, (si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0))) AS sales_value
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
