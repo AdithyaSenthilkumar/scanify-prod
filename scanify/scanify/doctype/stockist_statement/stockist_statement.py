@@ -154,8 +154,11 @@ class StockistStatement(Document):
             if not product:
                 continue
 
-            pts = flt(product.pts or 0)
+            # Per-line PTS override: a non-zero item.pts replaces Master PTS
+            # (manual scheme-discount path). Zero/blank falls back to Master.
+            pts = flt(item.pts) or flt(product.pts or 0)
             ptr = flt(product.ptr or 0)
+            item.pts = pts
 
             # -------- UNIT CONVERSION (BOX ➜ STRIP) --------
             conversion_factor = flt(self.get_conversion_factor(product.pack)) or 1

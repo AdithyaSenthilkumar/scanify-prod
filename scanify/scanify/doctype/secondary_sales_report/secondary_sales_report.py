@@ -192,7 +192,8 @@ class SecondarySalesReport(Document):
                     frappe.log_error(f"Product {product_code} not found", "Missing Product")
                     continue
                 
-                pts_rate = flt(product.pts or 0)
+                # Honor per-line PTS override (manual scheme-discount path)
+                pts_rate = flt(item.pts) or flt(product.pts or 0)
                 
                 # Calculate values
                 opening_value += flt(item.opening_qty) * pts_rate

@@ -279,7 +279,7 @@
                                 <label class="ss-chip"><input type="checkbox" value="productcode" checked disabled> Code</label>
                                 <label class="ss-chip"><input type="checkbox" value="productname" checked> Name</label>
                                 <label class="ss-chip"><input type="checkbox" value="pack" checked> Pack</label>
-                                <label class="ss-chip"><input type="checkbox" value="pts"> PTS</label>
+                                <label class="ss-chip"><input type="checkbox" value="pts" checked> PTS</label>
                                 <label class="ss-chip"><input type="checkbox" value="conversion_factor"> Conv</label>
                                 <label class="ss-chip"><input type="checkbox" value="openingqty" checked> Opening</label>
                                 <label class="ss-chip"><input type="checkbox" value="purchaseqty" checked> Purchase</label>
@@ -289,8 +289,8 @@
                                 <label class="ss-chip"><input type="checkbox" value="returnqty"> Return</label>
                                 <label class="ss-chip"><input type="checkbox" value="closingqty" checked> Closing</label>
                                 <label class="ss-chip"><input type="checkbox" value="miscoutqty"> Misc Out</label>
-                                <label class="ss-chip"><input type="checkbox" value="freeqtyscheme"> Free(Sch)</label>
-                                <label class="ss-chip"><input type="checkbox" value="schemedeductedqty"> Sch Ded</label>
+                                <label class="ss-chip"><input type="checkbox" value="freeqtyscheme" checked> Free(Sch)</label>
+                                <label class="ss-chip"><input type="checkbox" value="schemedeductedqty" checked> Sch Ded</label>
                                 <label class="ss-chip"><input type="checkbox" value="openingvalue"> Open Val</label>
                                 <label class="ss-chip"><input type="checkbox" value="purchasevalue"> Purch Val</label>
                                 <label class="ss-chip"><input type="checkbox" value="salesvaluepts"> Sales(PTS)</label>
@@ -1438,7 +1438,7 @@
         { id: 'productcode',       label: 'Code',         readonly: true },
         { id: 'productname',       label: 'Product Name', readonly: true },
         { id: 'pack',              label: 'Pack',         readonly: true },
-        { id: 'pts',               label: 'PTS',          readonly: true, curr: true },
+        { id: 'pts',               label: 'PTS',          readonly: false, curr: true }, // manual scheme-discount override
         { id: 'conversion_factor', label: 'Conv',         readonly: true },
         { id: 'openingqty',        label: 'Opening' },
         { id: 'purchaseqty',       label: 'Purchase' },
@@ -1448,8 +1448,8 @@
         { id: 'returnqty',         label: 'Return' },
         { id: 'closingqty',        label: 'Closing' },
         { id: 'miscoutqty',        label: 'Misc Out' },
-        { id: 'freeqtyscheme',     label: 'Free(Sch)',    readonly: true }, // scheme-managed
-        { id: 'schemedeductedqty', label: 'Sch Ded',      readonly: true }, // set on scheme approval only
+        { id: 'freeqtyscheme',     label: 'Free(Sch)',    readonly: false }, // manual scheme deduction (pre-launch)
+        { id: 'schemedeductedqty', label: 'Sch Ded',      readonly: true }, // derived: sales + free - freeqtyscheme
         { id: 'openingvalue',      label: 'Open Val',     readonly: true, curr: true },
         { id: 'purchasevalue',     label: 'Purch Val',    readonly: true, curr: true },
         { id: 'salesvaluepts',     label: 'Sales(PTS)',   readonly: true, curr: true },
@@ -1628,6 +1628,20 @@
             case 'closingqty':
                 // User explicitly corrected the closing qty: recalc its value only.
                 row.closingvalue = (parseFloat(row.closingqty) / cf) * pts;
+                break;
+            case 'freeqtyscheme':
+                // Manual scheme deduction: shrinks the scheme-deducted qty.
+                row.schemedeductedqty = parseFloat(row.salesqty || 0)
+                                        + parseFloat(row.freeqty || 0)
+                                        - parseFloat(row.freeqtyscheme || 0);
+                break;
+            case 'pts':
+                // Per-line PTS override (manual scheme discount). Re-derive every
+                // PTS-driven value column; PTR-derived sales stays untouched.
+                row.openingvalue  = (parseFloat(row.openingqty  || 0) / cf) * pts;
+                row.purchasevalue = (parseFloat(row.purchaseqty || 0) / cf) * pts;
+                row.salesvaluepts = (parseFloat(row.salesqty    || 0) / cf) * pts;
+                row.closingvalue  = (parseFloat(row.closingqty  || 0) / cf) * pts;
                 break;
             default:
                 break;

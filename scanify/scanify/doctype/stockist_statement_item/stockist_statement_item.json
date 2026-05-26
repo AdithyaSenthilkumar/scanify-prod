@@ -170,7 +170,7 @@
    "fieldname": "pts",
    "fieldtype": "Currency",
    "label": "PTS rate",
-   "read_only": 1
+   "read_only": 0
   },
   {
    "fieldname": "sales_value_pts",

@@ -585,6 +585,7 @@ def save_extracted_statement(doc_name, data):
                 "operational_sales_qty": operational_sales_qty,
                 "free_qty": _parse_numeric_value(_get_first_present_value(row, "freeqty", "free_qty")),
                 "free_qty_scheme": _parse_numeric_value(_get_first_present_value(row, "freeqtyscheme", "free_qty_scheme")),
+                "pts": _parse_numeric_value(_get_first_present_value(row, "pts")),
                 "return_qty": _parse_numeric_value(_get_first_present_value(row, "returnqty", "return_qty")),
                 "misc_out_qty": _parse_numeric_value(_get_first_present_value(row, "miscoutqty", "misc_out_qty")),
                 "closing_qty": _parse_numeric_value(_get_first_present_value(row, "closingqty", "closing_qty")),
