@@ -519,6 +519,13 @@ def _do_extract(doc_name, file_url):
     doc.populate_previous_month_closing()
     doc.calculate_closing_and_totals()
     doc.calculate_qc_confidence()
+
+    # Extract raw printed sales total from the document (non-blocking, isolated)
+    try:
+        doc.ocr_raw_sales_total = _extract_statement_sales_total(file_path, genai_client, model_name)
+    except Exception:
+        doc.ocr_raw_sales_total = "not visible"
+
     doc.save()
     frappe.db.commit()
 
@@ -749,6 +756,7 @@ def get_statement_for_view(doc_name):
                 "total_closing_value": flt(doc.total_closing_value),
                 "total_sales_value_pts": flt(doc.total_sales_value_pts),
                 "total_sales_value_ptr": flt(doc.total_sales_value_ptr),
+                "ocr_raw_sales_total": doc.ocr_raw_sales_total or "not visible",
                 "division": doc.division or "",
             },
             "items": items
@@ -790,6 +798,88 @@ def get_primary_sales_for_stockist(stockist_code, statement_month):
     )
 
     return {"success": True, "rows": rows, "month": month_str}
+
+
+def _extract_statement_sales_total(file_path, genai_client, model_name):
+    """
+    Lightweight, isolated Gemini call that extracts only the printed grand-total
+    sales quantity/value from the statement document.
+
+    Returns the raw value as a string (e.g. "1250" or "45,230.50") or the
+    literal string "not visible" when no printed total is found.
+    Does NOT touch the main item-extraction flow or bulk OCR.
+    """
+    file_ext = os.path.splitext(file_path)[1].lower()
+    mime_type, _ = mimetypes.guess_type(file_path)
+
+    prompt = (
+        "You are looking at a pharmaceutical stockist statement.\n"
+        "Find the PRINTED TOTAL of the Sales column — this is a footer/grand-total row "
+        "that summarises the entire statement (e.g. 'Total Sales', 'Grand Total', "
+        "'Total Qty' in the sales column, 'TOTAL QTY', etc.).\n\n"
+        "Return ONLY a JSON object with ONE key:\n"
+        '{"statement_sales_total": <number or "not visible">}\n\n'
+        "Rules:\n"
+        "- If a printed sales total is clearly visible, return its numeric value "
+        "(strip commas/currency symbols, e.g. 1250 or 45230.50).\n"
+        '- If no sales total is printed or you cannot locate it, return {"statement_sales_total": "not visible"}.\n'
+        "- Return ONLY valid JSON. No markdown, no explanation."
+    )
+
+    generation_config = genai_types.GenerateContentConfig(
+        thinking_config=genai_types.ThinkingConfig(thinking_budget=256)
+    )
+
+    try:
+        if file_ext in [".pdf", ".jpg", ".jpeg", ".png"]:
+            with open(file_path, "rb") as f:
+                file_data = f.read()
+            if file_ext == ".pdf":
+                file_part = genai_types.Part.from_bytes(data=file_data, mime_type="application/pdf")
+            else:
+                file_part = genai_types.Part.from_bytes(data=file_data, mime_type=mime_type or "image/jpeg")
+            response = genai_client.models.generate_content(
+                model=model_name, contents=[prompt, file_part], config=generation_config
+            )
+        elif file_ext in [".csv", ".txt"]:
+            with open(file_path, "r", encoding="utf-8") as f:
+                file_content = f.read()
+            response = genai_client.models.generate_content(
+                model=model_name,
+                contents=f"{prompt}\n\nCONTENT:\n{file_content}",
+                config=generation_config
+            )
+        elif file_ext in [".xls", ".xlsx"]:
+            import pandas as pd
+            df = pd.read_excel(file_path)
+            file_content = df.to_string()
+            response = genai_client.models.generate_content(
+                model=model_name,
+                contents=f"{prompt}\n\nCONTENT:\n{file_content}",
+                config=generation_config
+            )
+        else:
+            return "not visible"
+
+        response_text = response.text.strip()
+        # Strip markdown fences if present
+        if response_text.startswith("```"):
+            response_text = response_text.split("```", 1)[1]
+        if response_text.startswith("json"):
+            response_text = response_text[4:]
+        if response_text.endswith("```"):
+            response_text = response_text.rsplit("```", 1)[0]
+        response_text = response_text.strip()
+
+        data = json.loads(response_text)
+        val = data.get("statement_sales_total")
+        if val is None or str(val).strip().lower() in ("not visible", ""):
+            return "not visible"
+        return str(val).strip()
+
+    except Exception as e:
+        frappe.logger().warning(f"Statement sales total extraction failed (non-critical): {e}")
+        return "not visible"
 
 
 def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalog, products_list, model_name=None, genai_client=None):

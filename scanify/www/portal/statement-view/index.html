@@ -112,6 +112,7 @@
                 <div class="sv-totals-badges">
                     <span class="sv-mini-badge"><i class="fa fa-box"></i> <span id="sv-total-products">0</span> Rows</span>
                     <span class="sv-mini-badge"><i class="fa fa-random"></i> Op Sales: <span id="sv-oper-sales">0</span></span>
+                    <span class="sv-mini-badge sv-mini-badge-stmt-total"><i class="fa fa-file-invoice-dollar"></i> Stmt Total: <span id="sv-ocr-stmt-total">—</span></span>
                 </div>
             </div>
             <div class="card-body p-0">
@@ -400,6 +401,16 @@
     .sv-mini-badge i {
         color: #4d6a8a;
         font-size: 10px;
+    }
+
+    .sv-mini-badge-stmt-total.sv-not-visible {
+        background: #f8fafc;
+        border-color: #e2e8f0;
+        color: #94a3b8;
+    }
+
+    .sv-mini-badge-stmt-total.sv-not-visible i {
+        color: #cbd5e1;
     }
 
     .sv-totals-grid {
@@ -1775,6 +1786,17 @@
         // Top-right badges on the totals card (full numbers populated by sv_refresh_totals)
         $('#sv-total-products').text(sv_items.length);
         $('#sv-oper-sales').text(sv_fmt(sv_doc.total_operational_sales_qty || 0));
+
+        // OCR raw statement sales total badge
+        const rawStmtTotal = (sv_doc.ocr_raw_sales_total || '').trim();
+        const $stmtBadge = $('#sv-ocr-stmt-total').closest('.sv-mini-badge-stmt-total');
+        if (rawStmtTotal && rawStmtTotal.toLowerCase() !== 'not visible') {
+            $('#sv-ocr-stmt-total').text(rawStmtTotal);
+            $stmtBadge.removeClass('sv-not-visible');
+        } else {
+            $('#sv-ocr-stmt-total').text('not visible');
+            $stmtBadge.addClass('sv-not-visible');
+        }
 
         // Preview table — includes Prev Cls column
         const $tbody = $('#sv-preview-tbody');
