@@ -167,12 +167,11 @@ class StockistStatement(Document):
             closing_qty_base = flt(item.closing_qty) / conversion_factor
 
             # Scheme Deducted Sales Qty = (Sales Qty + Free Qty) – Scheme Approved Free Qty
-            # Only populate when free_qty_scheme > 0 (i.e. after a deduction has been applied)
+            # Always populated: defaults to (sales + free) immediately after OCR
+            # (scheme_free is 0 until a scheme deduction is applied), so secondary-sales
+            # reports can rely on this field as the canonical "true sales" figure.
             scheme_free = flt(item.free_qty_scheme)
-            if scheme_free > 0:
-                item.scheme_deducted_qty_calc = flt(item.sales_qty) + flt(item.free_qty) - scheme_free
-            else:
-                item.scheme_deducted_qty_calc = 0
+            item.scheme_deducted_qty_calc = flt(item.sales_qty) + flt(item.free_qty) - scheme_free
 
 
             # -------- VALUE CALCULATIONS (STRIP LEVEL) --------

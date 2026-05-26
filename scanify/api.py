@@ -7148,11 +7148,24 @@ def get_stockist_secondary_sales_report(division=None, region=None,
 
     where = " AND ".join(conditions)
 
+    # Secondary sales = scheme-deducted qty (sales + free − scheme free).
+    # Prefer the persisted scheme_deducted_qty_calc field, fall back to the formula
+    # for legacy rows where it hasn't been backfilled yet.
     rows = frappe.db.sql(f"""
         SELECT ss.stockist_code, ss.stockist_name,
                si.product_code, si.product_name, si.pack,
-               SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS total_qty,
-               SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1) * IFNULL(si.pts, 0)) AS total_value
+               SUM(
+                    COALESCE(
+                        si.scheme_deducted_qty_calc,
+                        (si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0))
+                    ) / IFNULL(NULLIF(si.conversion_factor, 0), 1)
+               ) AS total_qty,
+               SUM(
+                    COALESCE(
+                        si.scheme_deducted_qty_calc,
+                        (si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0))
+                    ) / IFNULL(NULLIF(si.conversion_factor, 0), 1) * IFNULL(si.pts, 0)
+               ) AS total_value
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -7197,10 +7210,18 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
             ORDER BY pcode, y, m
         """, {"division": division, "stockist": stockist_code}, as_dict=True)
     else:
+        # Secondary sales = scheme-deducted qty (sales + free − scheme free), the canonical
+        # "true sales" figure. Falls back to the same formula directly to stay correct even
+        # for older rows where scheme_deducted_qty_calc may not yet be backfilled.
         rows = frappe.db.sql("""
             SELECT si.product_code, si.product_name, si.pack,
                    MONTH(ss.statement_month) AS m, YEAR(ss.statement_month) AS y,
-                     SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty
+                     SUM(
+                        COALESCE(
+                            si.scheme_deducted_qty_calc,
+                            (si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0))
+                        ) / IFNULL(NULLIF(si.conversion_factor, 0), 1)
+                     ) AS qty
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -9702,7 +9723,13 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
     if sales_mode == "before_deduction":
         _qty_expr = "(si.sales_qty + si.free_qty) / IFNULL(NULLIF(si.conversion_factor, 0), 1)"
     else:
-        _qty_expr = "(si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)"
+        # After-deduction → prefer the persisted scheme_deducted_qty_calc; fall back to the
+        # raw formula for older rows where the field is not yet backfilled.
+        _qty_expr = (
+            "COALESCE(si.scheme_deducted_qty_calc, "
+            "(si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0))) "
+            "/ IFNULL(NULLIF(si.conversion_factor, 0), 1)"
+        )
     _val_expr = f"({_qty_expr}) * IFNULL(si.pts, 0)"
     sec_rows = frappe.db.sql(f"""
         SELECT si.product_code, si.pack,
@@ -9918,7 +9945,13 @@ def get_region_wise_stockist_moving_trend(division=None, region=None, financial_
     if sales_mode == "before_deduction":
         _sv_expr = "((si.sales_qty + si.free_qty) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0)"
     else:
-        _sv_expr = "((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0)"
+        # After-deduction → prefer the persisted scheme_deducted_qty_calc; fall back to
+        # the raw formula for legacy rows where the field is not yet backfilled.
+        _sv_expr = (
+            "(COALESCE(si.scheme_deducted_qty_calc, "
+            "(si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0))) "
+            "/ IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0)"
+        )
     sales_rows = frappe.db.sql(f"""
         SELECT ss.stockist_code,
                MONTH(ss.statement_month) AS m,

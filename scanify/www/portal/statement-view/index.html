@@ -17,6 +17,17 @@
             <a href="/portal/stock-statements-list" class="btn btn-secondary btn-sm">
                 <i class="fa fa-arrow-left"></i> Back to List
             </a>
+            <!-- Submission actions moved here so they sit next to "Back to List" -->
+            <button class="btn btn-sm sv-qc-review-btn" id="sv-qc-review-btn" style="display:none;"
+                onclick="sv_mark_qc_reviewed(this)"
+                title="QC team: mark this statement as reviewed. The statement stays in Draft for scheme processing — use Finalise to lock it.">
+                <i class="fa fa-user-check"></i> Mark as QC Reviewed
+            </button>
+            <button class="btn btn-sm sv-finalize-btn" id="sv-finalize-btn" style="display:none;"
+                onclick="sv_finalize_statement(this)"
+                title="Permanently submit and lock this statement (docstatus → 1). Use only after all QC and scheme deductions are complete. This action cannot be undone.">
+                <i class="fa fa-lock"></i> Finalise
+            </button>
         </div>
     </div>
 
@@ -56,33 +67,26 @@
                         <div class="sv-info-value" id="sv-team">—</div>
                     </div>
                 </div>
-                <!-- Row 2: Status Pill Row -->
-                <div class="sv-status-pill-row">
-                    <!-- OCR Extraction Status -->
-                    <div class="sv-status-tile">
-                        <div class="sv-status-tile-label"><i class="fa fa-robot"></i> OCR Status</div>
-                        <div id="sv-status-badge"></div>
+                <!-- Status + utility actions in one tidy row -->
+                <div class="sv-status-actions-row">
+                    <div class="sv-status-chips">
+                        <span class="sv-chip-mini">
+                            <span class="sv-chip-mini-label"><i class="fa fa-robot"></i> OCR</span>
+                            <span id="sv-status-badge"></span>
+                        </span>
+                        <span class="sv-chip-mini">
+                            <span class="sv-chip-mini-label"><i class="fa fa-file-alt"></i> Stmt</span>
+                            <span id="sv-docstatus"></span>
+                        </span>
+                        <span class="sv-chip-mini" id="sv-qc-chip">
+                            <span class="sv-chip-mini-label"><i class="fa fa-search"></i> QC</span>
+                            <span id="sv-qc-confidence"></span>
+                        </span>
+                        <span class="sv-chip-mini" id="sv-accuracy-chip" style="display:none;">
+                            <span class="sv-chip-mini-label"><i class="fa fa-percentage"></i> Ext.</span>
+                            <span id="sv-accuracy-badge"></span>
+                        </span>
                     </div>
-                    <!-- Statement (docstatus) -->
-                    <div class="sv-status-tile">
-                        <div class="sv-status-tile-label"><i class="fa fa-file-alt"></i> Statement</div>
-                        <div id="sv-docstatus"></div>
-                    </div>
-                    <!-- QC Status (auto-computed + manually set by QC team) -->
-                    <div class="sv-status-tile" id="sv-qc-chip">
-                        <div class="sv-status-tile-label"><i class="fa fa-search"></i> QC Status</div>
-                        <div id="sv-qc-confidence"></div>
-                    </div>
-                    <!-- Extraction Confidence % -->
-                    <div class="sv-status-tile" id="sv-accuracy-chip" style="display:none;">
-                        <div class="sv-status-tile-label"><i class="fa fa-percentage"></i> Ext. Confidence</div>
-                        <div id="sv-accuracy-badge"></div>
-                    </div>
-                </div>
-
-                <!-- Row 3: Actions Bar -->
-                <div class="sv-actions-bar-row">
-                    <!-- Secondary utility actions (left) -->
                     <div class="sv-actions-left">
                         <button class="btn btn-sm btn-outline-secondary sv-action-btn" onclick="sv_open_full_table()" title="View the complete extracted table with all columns">
                             <i class="fa fa-table"></i> Full Table
@@ -97,69 +101,44 @@
                             <i class="fa fa-check-double"></i> Mark All Matched
                         </button>
                     </div>
-                    <!-- Primary workflow actions (right) -->
-                    <div class="sv-actions-right" id="sv-workflow-actions">
-                        <!-- Mark as QC Reviewed button -->
-                        <button class="btn btn-sm sv-qc-review-btn" id="sv-qc-review-btn" style="display:none;"
-                            onclick="sv_mark_qc_reviewed(this)"
-                            title="QC team: mark this statement as reviewed. The statement stays in Draft for scheme processing — use Finalise to lock it.">
-                            <i class="fa fa-user-check"></i> Mark as QC Reviewed
-                        </button>
-                        <!-- Finalise button -->
-                        <button class="btn btn-sm sv-finalize-btn" id="sv-finalize-btn" style="display:none;"
-                            onclick="sv_finalize_statement(this)"
-                            title="Permanently submit and lock this statement (docstatus → 1). Use only after all QC and scheme deductions are complete. This action cannot be undone.">
-                            <i class="fa fa-lock"></i> Finalise
-                        </button>
-                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Stat cards -->
-        <div class="sv-stats-row">
-            <div class="sv-stat-card sv-stat-card-primary sv-stat-indigo">
-                <div class="sv-stat-inner">
-                    <div class="sv-stat-icon"><i class="fa fa-cubes"></i></div>
-                    <div>
-                        <div class="sv-stat-value" id="sv-open-val">0</div>
-                        <div class="sv-stat-label">Opening Value</div>
-                    </div>
+        <!-- Statement Totals (moved to top — row count & op-sales as badges on the right) -->
+        <div class="card sv-totals-card" id="sv-totals-section">
+            <div class="card-header sv-totals-header">
+                <span><i class="fa fa-calculator"></i> Statement Totals</span>
+                <div class="sv-totals-badges">
+                    <span class="sv-mini-badge"><i class="fa fa-box"></i> <span id="sv-total-products">0</span> Rows</span>
+                    <span class="sv-mini-badge"><i class="fa fa-random"></i> Op Sales: <span id="sv-oper-sales">0</span></span>
                 </div>
             </div>
-            <div class="sv-stat-card sv-stat-card-primary sv-stat-green">
-                <div class="sv-stat-inner">
-                    <div class="sv-stat-icon"><i class="fa fa-shopping-cart"></i></div>
-                    <div>
-                        <div class="sv-stat-value" id="sv-sales-val">0</div>
-                        <div class="sv-stat-label">Sales Value (PTS)</div>
+            <div class="card-body p-0">
+                <div class="sv-totals-grid">
+                    <div class="sv-total-item sv-total-indigo">
+                        <div class="sv-total-label"><i class="fa fa-cubes"></i> Total Opening Value</div>
+                        <div class="sv-total-value" id="svt-opening">₹0.00</div>
                     </div>
-                </div>
-            </div>
-            <div class="sv-stat-card sv-stat-card-primary sv-stat-purple">
-                <div class="sv-stat-inner">
-                    <div class="sv-stat-icon"><i class="fa fa-warehouse"></i></div>
-                    <div>
-                        <div class="sv-stat-value" id="sv-close-val">0</div>
-                        <div class="sv-stat-label">Closing Value</div>
+                    <div class="sv-total-item sv-total-blue">
+                        <div class="sv-total-label"><i class="fa fa-truck"></i> Total Purchase Value</div>
+                        <div class="sv-total-value" id="svt-purchase">₹0.00</div>
                     </div>
-                </div>
-            </div>
-            <div class="sv-stat-card sv-stat-card-secondary sv-stat-blue">
-                <div class="sv-stat-inner">
-                    <div class="sv-stat-icon"><i class="fa fa-box"></i></div>
-                    <div>
-                        <div class="sv-stat-value" id="sv-total-products">0</div>
-                        <div class="sv-stat-label">Rows</div>
+                    <div class="sv-total-item sv-total-green">
+                        <div class="sv-total-label"><i class="fa fa-shopping-bag"></i> Sales Value (PTS)</div>
+                        <div class="sv-total-value" id="svt-sales-pts">₹0.00</div>
                     </div>
-                </div>
-            </div>
-            <div class="sv-stat-card sv-stat-card-secondary sv-stat-purple">
-                <div class="sv-stat-inner">
-                    <div class="sv-stat-icon"><i class="fa fa-random"></i></div>
-                    <div>
-                        <div class="sv-stat-value" id="sv-oper-sales">0</div>
-                        <div class="sv-stat-label">Operational Sales Qty</div>
+                    <div class="sv-total-item sv-total-orange">
+                        <div class="sv-total-label"><i class="fa fa-shopping-cart"></i> Sales Value (PTR)</div>
+                        <div class="sv-total-value" id="svt-sales-ptr">₹0.00</div>
+                    </div>
+                    <div class="sv-total-item sv-total-teal" title="Sales + Free − Scheme Free Qty (in value terms, at PTS)">
+                        <div class="sv-total-label"><i class="fa fa-balance-scale"></i> Total Sales</div>
+                        <div class="sv-total-value" id="svt-total-sales">₹0.00</div>
+                    </div>
+                    <div class="sv-total-item sv-total-purple">
+                        <div class="sv-total-label"><i class="fa fa-warehouse"></i> Total Closing Value</div>
+                        <div class="sv-total-value" id="svt-closing">₹0.00</div>
                     </div>
                 </div>
             </div>
@@ -193,37 +172,6 @@
                         </thead>
                         <tbody id="sv-preview-tbody"></tbody>
                     </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- Totals Section -->
-        <div class="card sv-totals-card" id="sv-totals-section" style="display:none;">
-            <div class="card-header">
-                <span><i class="fa fa-calculator"></i> Statement Totals</span>
-            </div>
-            <div class="card-body p-0">
-                <div class="sv-totals-grid">
-                    <div class="sv-total-item sv-total-indigo">
-                        <div class="sv-total-label"><i class="fa fa-cubes"></i> Total Opening Value</div>
-                        <div class="sv-total-value" id="svt-opening">₹0.00</div>
-                    </div>
-                    <div class="sv-total-item sv-total-blue">
-                        <div class="sv-total-label"><i class="fa fa-truck"></i> Total Purchase Value</div>
-                        <div class="sv-total-value" id="svt-purchase">₹0.00</div>
-                    </div>
-                    <div class="sv-total-item sv-total-orange">
-                        <div class="sv-total-label"><i class="fa fa-shopping-cart"></i> Total Sales Value (PTR)</div>
-                        <div class="sv-total-value" id="svt-sales-ptr">₹0.00</div>
-                    </div>
-                    <div class="sv-total-item sv-total-green">
-                        <div class="sv-total-label"><i class="fa fa-shopping-bag"></i> Total Sales Value (PTS)</div>
-                        <div class="sv-total-value" id="svt-sales-pts">₹0.00</div>
-                    </div>
-                    <div class="sv-total-item sv-total-purple">
-                        <div class="sv-total-label"><i class="fa fa-warehouse"></i> Total Closing Value</div>
-                        <div class="sv-total-value" id="svt-closing">₹0.00</div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -417,22 +365,62 @@
     }
 
     .sv-totals-card {
-        margin-top: 1.25rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .sv-totals-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .sv-totals-badges {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .sv-mini-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: #eef6ff;
+        border: 1px solid #cfe3ff;
+        color: #0b4f95;
+        font-size: 11px;
+        font-weight: 700;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .sv-mini-badge i {
+        color: #4d6a8a;
+        font-size: 10px;
     }
 
     .sv-totals-grid {
         display: grid;
-        grid-template-columns: repeat(5, 1fr);
+        grid-template-columns: repeat(6, 1fr);
         gap: 0;
     }
 
-    @media(max-width: 992px) {
+    @media(max-width: 1200px) {
+        .sv-totals-grid {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+
+    @media(max-width: 768px) {
         .sv-totals-grid {
             grid-template-columns: repeat(2, 1fr);
         }
     }
 
-    @media(max-width: 576px) {
+    @media(max-width: 480px) {
         .sv-totals-grid {
             grid-template-columns: 1fr;
         }
@@ -508,16 +496,28 @@
         color: #7c3aed;
     }
 
+    .sv-total-teal .sv-total-label {
+        color: #0d9488;
+    }
+
+    .sv-total-teal .sv-total-value {
+        color: #0d9488;
+    }
+
     .sv-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
         margin-bottom: 1.5rem;
+        gap: 12px;
+        flex-wrap: wrap;
     }
 
     .sv-header-actions {
         display: flex;
         gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
     }
 
     .sv-loading-card {
@@ -620,62 +620,55 @@
         border-color: #6ee7b7;
     }
 
-    /* ---- Status Pill Row ---- */
-    .sv-status-pill-row {
+    /* ---- Status + Actions Row (consolidated) ---- */
+    .sv-status-actions-row {
         display: flex;
-        align-items: stretch;
-        border-bottom: 1px solid #e8eef5;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 16px;
+        background: linear-gradient(180deg, #f8fbff 0%, #f3f7fc 100%);
         flex-wrap: wrap;
     }
 
-    .sv-status-tile {
+    .sv-status-chips {
         display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 5px;
-        padding: 10px 18px;
-        border-right: 1px solid #f1f5f9;
-        min-width: 130px;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
     }
 
-    .sv-status-tile:last-child {
-        border-right: none;
+    .sv-chip-mini {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 11px;
     }
 
-    .sv-status-tile-label {
+    .sv-chip-mini-label {
         font-size: 10px;
         font-weight: 700;
         color: #94a3b8;
         text-transform: uppercase;
-        letter-spacing: 0.06em;
-        white-space: nowrap;
-        display: flex;
+        letter-spacing: 0.05em;
+        display: inline-flex;
         align-items: center;
-        gap: 5px;
+        gap: 4px;
     }
 
-    /* ---- Actions Bar Row ---- */
-    .sv-actions-bar-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        padding: 10px 16px;
-        background: linear-gradient(180deg, #f8fbff 0%, #f3f7fc 100%);
-        flex-wrap: wrap;
+    .sv-chip-mini .badge {
+        font-size: 10.5px;
+        padding: 3px 7px;
     }
 
     .sv-actions-left {
         display: flex;
         align-items: center;
         gap: 6px;
-        flex-wrap: wrap;
-    }
-
-    .sv-actions-right {
-        display: flex;
-        align-items: center;
-        gap: 8px;
         flex-wrap: wrap;
     }
 
@@ -754,120 +747,10 @@
     }
 
     @media(max-width: 768px) {
-        .sv-status-pill-row {
-            flex-wrap: wrap;
-        }
-        .sv-status-tile {
-            flex: 1 1 45%;
-            border-bottom: 1px solid #f1f5f9;
-        }
-        .sv-actions-bar-row {
+        .sv-status-actions-row {
             flex-direction: column;
             align-items: flex-start;
         }
-    }
-
-    .sv-stats-row {
-        display: grid;
-        grid-template-columns: repeat(12, minmax(0, 1fr));
-        gap: 12px;
-        margin-bottom: 1.25rem;
-    }
-
-    .sv-stat-card-primary {
-        grid-column: span 4;
-    }
-
-    .sv-stat-card-secondary {
-        grid-column: span 6;
-    }
-
-    @media(max-width: 992px) {
-        .sv-stats-row {
-            grid-template-columns: repeat(2, 1fr);
-        }
-
-        .sv-stat-card-primary,
-        .sv-stat-card-secondary {
-            grid-column: auto;
-        }
-    }
-
-    @media(max-width: 576px) {
-        .sv-stats-row {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    .sv-stat-card {
-        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-        border-radius: 16px;
-        padding: 1rem 1.25rem;
-        border: 1px solid #dbe4f0;
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
-        position: relative;
-        overflow: hidden;
-    }
-
-    .sv-stat-card::before {
-        content: '';
-        position: absolute;
-        inset: 0 0 auto 0;
-        height: 3px;
-        background: linear-gradient(90deg, rgba(37, 99, 235, 0.9), rgba(99, 102, 241, 0.9));
-    }
-
-    .sv-stat-inner {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-
-    .sv-stat-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.1rem;
-        flex-shrink: 0;
-    }
-
-    .sv-stat-blue .sv-stat-icon {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .sv-stat-indigo .sv-stat-icon {
-        background: #e0e7ff;
-        color: #4f46e5;
-    }
-
-    .sv-stat-green .sv-stat-icon {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .sv-stat-purple .sv-stat-icon {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .sv-stat-value {
-        font-size: 1.5rem;
-        font-weight: 800;
-        color: #1e293b;
-        line-height: 1;
-        font-variant-numeric: tabular-nums;
-    }
-
-    .sv-stat-label {
-        font-size: 11px;
-        color: #64748b;
-        margin-top: 4px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
     }
 
     .sv-table-head th {
@@ -1657,7 +1540,7 @@
     }
 
     function sv_calc_totals() {
-        let t_open = 0, t_purch = 0, t_sales_ptr = 0, t_sales_pts = 0, t_close = 0, t_oper = 0;
+        let t_open = 0, t_purch = 0, t_sales_ptr = 0, t_sales_pts = 0, t_close = 0, t_oper = 0, t_total_sales = 0;
         sv_items.forEach(r => {
             t_open += parseFloat(r.openingvalue || 0);
             t_purch += parseFloat(r.purchasevalue || 0);
@@ -1665,8 +1548,13 @@
             t_sales_pts += parseFloat(r.salesvaluepts || 0);
             t_close += parseFloat(r.closingvalue || 0);
             t_oper += parseFloat(r.operationalsalesqty || 0);
+            // Total Sales = scheme-deducted qty (sales + free − scheme free, in base units) × pts
+            const cf = parseFloat(r.conversion_factor) || 1;
+            const pts = parseFloat(r.pts) || 0;
+            const sdq = parseFloat(r.schemedeductedqty || 0);
+            t_total_sales += (sdq / cf) * pts;
         });
-        return { t_open, t_purch, t_sales_ptr, t_sales_pts, t_close, t_oper };
+        return { t_open, t_purch, t_sales_ptr, t_sales_pts, t_close, t_oper, t_total_sales };
     }
 
     // Replicates the normal flow calculation
@@ -1684,8 +1572,11 @@
         row.salesvaluepts = (parseFloat(row.salesqty || 0) / cf) * pts;
         row.salesvalueptr = (parseFloat(row.salesqty || 0) / cf) * ptr;
 
-        // schemedeductedqty: NOT calculated here — set only when a scheme
-        // deduction is applied and approved. Leave the saved DB value as-is.
+        // schemedeductedqty: default to (sales + free) immediately post-OCR;
+        // only the scheme approval flow subtracts free_qty_scheme.
+        row.schemedeductedqty = parseFloat(row.salesqty || 0)
+                                + parseFloat(row.freeqty || 0)
+                                - parseFloat(row.freeqtyscheme || 0);
 
         // Closing value is ALWAYS derived from closing qty (which may have been
         // OCR-extracted or manually corrected). Never recalculate closing from
@@ -1708,12 +1599,20 @@
                 row.purchasevalue = (parseFloat(row.purchaseqty) / cf) * pts;
                 break;
             case 'salesqty':
-                // Only sales qty drives the sales value columns.
+                // Sales qty drives sales-value columns and the scheme-deducted qty.
                 row.salesvaluepts = (parseFloat(row.salesqty || 0) / cf) * pts;
                 row.salesvalueptr = (parseFloat(row.salesqty || 0) / cf) * ptr;
+                row.schemedeductedqty = parseFloat(row.salesqty || 0)
+                                        + parseFloat(row.freeqty || 0)
+                                        - parseFloat(row.freeqtyscheme || 0);
+                break;
+            case 'freeqty':
+                // Free qty contributes to the scheme-deducted qty (the canonical "true sales").
+                row.schemedeductedqty = parseFloat(row.salesqty || 0)
+                                        + parseFloat(row.freeqty || 0)
+                                        - parseFloat(row.freeqtyscheme || 0);
                 break;
             case 'operationalsalesqty':
-            case 'freeqty':
             case 'returnqty':
             case 'miscoutqty':
                 // These fields record physical movements but do not drive any
@@ -1756,16 +1655,14 @@
         $('#svt-purchase').text('₹' + sv_fmt(t.t_purch, true));
         $('#svt-sales-ptr').text('₹' + sv_fmt(t.t_sales_ptr, true));
         $('#svt-sales-pts').text('₹' + sv_fmt(t.t_sales_pts, true));
+        $('#svt-total-sales').text('₹' + sv_fmt(t.t_total_sales, true));
         $('#svt-closing').text('₹' + sv_fmt(t.t_close, true));
         $('#sv-qc-oper-sales').text(sv_fmt(t.t_oper));
         $('#sv-full-oper-sales').text(sv_fmt(t.t_oper));
         $('#sv-totals-section').show();
-        // Update stat cards
+        // Top-right badges on the totals card
         $('#sv-total-products').text(sv_items.length);
-        $('#sv-open-val').text('₹' + sv_fmt(t.t_open, true));
-        $('#sv-sales-val').text('₹' + sv_fmt(t.t_sales_pts, true));
         $('#sv-oper-sales').text(sv_fmt(t.t_oper));
-        $('#sv-close-val').text('₹' + sv_fmt(t.t_close, true));
         $('#sv-item-count').text(sv_items.length + ' rows');
     }
 
@@ -1853,12 +1750,9 @@
             $('#sv-accuracy-chip').hide();
         }
 
-        // Stat cards
+        // Top-right badges on the totals card (full numbers populated by sv_refresh_totals)
         $('#sv-total-products').text(sv_items.length);
-        $('#sv-open-val').text('₹' + sv_fmt(sv_doc.total_opening_value, true));
-        $('#sv-sales-val').text('₹' + sv_fmt(sv_doc.total_sales_value_pts, true));
         $('#sv-oper-sales').text(sv_fmt(sv_doc.total_operational_sales_qty || 0));
-        $('#sv-close-val').text('₹' + sv_fmt(sv_doc.total_closing_value, true));
 
         // Preview table — includes Prev Cls column
         const $tbody = $('#sv-preview-tbody');
