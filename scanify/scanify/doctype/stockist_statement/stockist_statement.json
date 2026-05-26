@@ -121,8 +121,7 @@
       "fieldname": "qc_confidence",
       "fieldtype": "Select",
       "label": "QC Review Status",
-      "options": "\nAll Matched\nVerification Needed\nQC Needed",
-      "read_only": 1,
+      "options": "\nAll Matched\nVerification Needed\nQC Needed\nQC Reviewed",
       "allow_on_submit": 1,
       "in_list_view": 1,
       "description": "Auto-calculated review state based on mapping review: All Matched, Verification Needed, or QC Needed"

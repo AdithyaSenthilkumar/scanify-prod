@@ -43,14 +43,22 @@
                         Clear</button>
                 </div>
             </div>
-            <!-- Row 2: QC Status + Region + Zone + HQ -->
+            <!-- Row 2: QC Confidence + QC Review Status + Region + Zone + HQ -->
             <div class="row align-items-center">
-                <div class="col-md-3 mb-2 mb-md-0">
+                <div class="col-md-2 mb-2 mb-md-0">
                     <select id="qcFilter" class="form-control custom-select stmt-select2">
                         <option value="">All QC Statuses</option>
                         <option value="All Matched">✓ All Matched</option>
                         <option value="Verification Needed">⚠ Verification Needed</option>
                         <option value="QC Needed">✗ QC Needed</option>
+                        <option value="QC Reviewed">✔ QC Reviewed</option>
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2 mb-md-0">
+                    <select id="docstatusFilter" class="form-control custom-select">
+                        <option value=""> All Statement Status</option>
+                        <option value="0">Draft</option>
+                        <option value="1">Submitted</option>
                     </select>
                 </div>
                 <div class="col-md-3 mb-2 mb-md-0">
@@ -69,7 +77,7 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-3 mb-2 mb-md-0">
+                <div class="col-md-2 mb-2 mb-md-0">
                     <select id="hqFilter" class="form-control custom-select stmt-select2">
                         <option value="">All HQs</option>
                         {% for h in hqs %}
@@ -92,9 +100,10 @@
                             <th>Stockist</th>
                             <th>Month</th>
                             <th>Created On</th>
-                            <th>Extraction Status</th>
-                            <th class="text-center">Extraction Confidence</th>
-                            <th>Statement Status</th>
+                            <th>OCR Status</th>
+                            <th class="text-center">Confidence</th>
+                            <th>Statement</th>
+                            <th>QC Status</th>
                             <th class="text-center">Action</th>
                         </tr>
                     </thead>
@@ -106,6 +115,7 @@
                             data-month="{{ row.statement_month and row.statement_month|string|truncate(7, True, '') or '' }}"
                             data-status="{{ row.extracted_data_status }}"
                             data-qc="{{ row.qc_confidence or '' }}"
+                            data-docstatus="{{ row.docstatus }}"
                             data-region="{{ row.region or '' }}"
                             data-zone="{{ row.zone or '' }}"
                             data-hq="{{ row.hq or '' }}">
@@ -152,15 +162,18 @@
                                 {% else %}
                                 <span class="badge badge-secondary">{{ row.docstatus }}</span>
                                 {% endif %}
-                                {% if row.qc_confidence %}
-                                <br>
+                            </td>
+                            <td>
                                 {% if row.qc_confidence == 'All Matched' %}
-                                <span class="badge badge-success qc-badge mt-1"><i class="fa fa-check-circle"></i> All Matched</span>
+                                <span class="badge badge-success qc-badge"><i class="fa fa-check-circle"></i> All Matched</span>
                                 {% elif row.qc_confidence == 'Verification Needed' %}
-                                <span class="badge badge-warning qc-badge mt-1"><i class="fa fa-exclamation-triangle"></i> Verification</span>
+                                <span class="badge badge-warning qc-badge"><i class="fa fa-exclamation-triangle"></i> Verification</span>
                                 {% elif row.qc_confidence == 'QC Needed' %}
-                                <span class="badge badge-danger qc-badge mt-1"><i class="fa fa-times-circle"></i> QC Needed</span>
-                                {% endif %}
+                                <span class="badge badge-danger qc-badge"><i class="fa fa-times-circle"></i> QC Needed</span>
+                                {% elif row.qc_confidence == 'QC Reviewed' %}
+                                <span class="badge badge-success qc-badge"><i class="fa fa-user-check"></i> QC Reviewed</span>
+                                {% else %}
+                                <span class="text-muted">—</span>
                                 {% endif %}
                             </td>
                             <td class="text-center">
@@ -173,7 +186,7 @@
                         {% endfor %}
                         {% else %}
                         <tr id="emptyRow">
-                            <td colspan="8" class="text-center py-5 text-muted">
+                            <td colspan="9" class="text-center py-5 text-muted">
                                 <i class="fa fa-folder-open fa-3x mb-3 text-light"></i>
                                 <h5>No stockist statements found for {{ division }}</h5>
                                 <p>Click 'New Statement' to upload one.</p>
@@ -181,7 +194,7 @@
                         </tr>
                         {% endif %}
                         <tr id="noMatchesRow" style="display: none;">
-                            <td colspan="8" class="text-center py-4 text-muted">No statements matching the filters.</td>
+                            <td colspan="9" class="text-center py-4 text-muted">No statements matching the filters.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -229,6 +242,7 @@
             status: document.getElementById("statusFilter").value,
             month: document.getElementById("monthFilter").value,
             qc: document.getElementById("qcFilter").value,
+            docstatus: document.getElementById("docstatusFilter").value,
             region: document.getElementById("regionFilter").value,
             zone: document.getElementById("zoneFilter").value,
             hq: document.getElementById("hqFilter").value,
@@ -251,6 +265,7 @@
                 $("#hqFilter").val(f.hq || "").trigger("change.select2");
             } else {
                 document.getElementById("qcFilter").value = f.qc || "";
+                document.getElementById("docstatusFilter").value = f.docstatus || "";
                 document.getElementById("regionFilter").value = f.region || "";
                 document.getElementById("zoneFilter").value = f.zone || "";
                 document.getElementById("hqFilter").value = f.hq || "";
@@ -264,6 +279,7 @@
         const statusFilter = document.getElementById("statusFilter");
         const monthFilter = document.getElementById("monthFilter");
         const qcFilter = document.getElementById("qcFilter");
+        const docstatusFilter = document.getElementById("docstatusFilter");
         const regionFilter = document.getElementById("regionFilter");
         const zoneFilter = document.getElementById("zoneFilter");
         const hqFilter = document.getElementById("hqFilter");
@@ -283,6 +299,7 @@
             const statusTerm = statusFilter.value;
             const monthTerm = monthFilter.value;
             const qcTerm = qcFilter.value;
+            const docstatusTerm = docstatusFilter.value;
             const regionTerm = regionFilter.value;
             const zoneTerm = zoneFilter.value;
             const hqTerm = hqFilter.value;
@@ -291,18 +308,20 @@
                 const rowStatus = row.getAttribute("data-status");
                 const rowMonth = row.getAttribute("data-month");
                 const rowQc = row.getAttribute("data-qc");
+                const rowDocstatus = row.getAttribute("data-docstatus");
                 const rowRegion = row.getAttribute("data-region");
                 const rowZone = row.getAttribute("data-zone");
                 const rowHq = row.getAttribute("data-hq");
                 const matchesSearch = stockistData.includes(searchTerm);
                 const matchesStatus = statusTerm === "" || rowStatus === statusTerm;
                 const matchesQc = qcTerm === "" || rowQc === qcTerm;
+                const matchesDocstatus = docstatusTerm === "" || rowDocstatus === docstatusTerm;
                 const matchesRegion = regionTerm === "" || rowRegion === regionTerm;
                 const matchesZone = zoneTerm === "" || rowZone === zoneTerm;
                 const matchesHq = hqTerm === "" || rowHq === hqTerm;
                 let matchesMonth = true;
                 if (monthTerm) matchesMonth = rowMonth.startsWith(monthTerm);
-                return matchesSearch && matchesStatus && matchesMonth && matchesQc && matchesRegion && matchesZone && matchesHq;
+                return matchesSearch && matchesStatus && matchesMonth && matchesQc && matchesDocstatus && matchesRegion && matchesZone && matchesHq;
             });
         }
 
@@ -350,6 +369,7 @@
         statusFilter.addEventListener("change", onFilterChange);
         monthFilter.addEventListener("change", onFilterChange);
         qcFilter.addEventListener("change", onFilterChange);
+        docstatusFilter.addEventListener("change", onFilterChange);
         regionFilter.addEventListener("change", onFilterChange);
         zoneFilter.addEventListener("change", onFilterChange);
         hqFilter.addEventListener("change", onFilterChange);
@@ -360,8 +380,10 @@
             monthFilter.value = "";
             if (typeof $ !== "undefined" && $.fn.select2) {
                 $("#qcFilter, #regionFilter, #zoneFilter, #hqFilter").val("").trigger("change");
+                docstatusFilter.value = "";
             } else {
                 qcFilter.value = "";
+                docstatusFilter.value = "";
                 regionFilter.value = "";
                 zoneFilter.value = "";
                 hqFilter.value = "";

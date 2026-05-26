@@ -73,11 +73,27 @@
             <!-- Region (reports 1,2,4,5,6) -->
             <div class="sr-filter-item filter-field" data-reports="primary_sales,secondary_sales,closing_stock,hq_wise,address">
                 <label class="sr-filter-label">Region</label>
-                <select class="form-control form-control-sm sr-filter-select sr-select2" id="f-region">
+                <select class="form-control form-control-sm sr-filter-select sr-select2" id="f-region" onchange="onRegionChange()">
                     <option value="">All Regions</option>
                     {% for r in regions %}
-                    <option value="{{ r.code }}">{{ r.name }}{% if r.code %} ({{ r.code }}){% endif %}</option>
+                    <option value="{{ r.code }}">{{ r.name }}</option>
                     {% endfor %}
+                </select>
+            </div>
+
+            <!-- Team (cascades from Region; reports 1,2,4,5,6) -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,secondary_sales,closing_stock,hq_wise,address">
+                <label class="sr-filter-label">Team</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-team" onchange="onTeamChange()">
+                    <option value="">All Teams</option>
+                </select>
+            </div>
+
+            <!-- HQ (cascades from Team; reports 1,2,4,5,6) -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,secondary_sales,closing_stock,hq_wise,address">
+                <label class="sr-filter-label">HQ</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-hq">
+                    <option value="">All HQs</option>
                 </select>
             </div>
 
@@ -87,7 +103,7 @@
                 <select class="form-control form-control-sm sr-filter-select sr-select2" id="f-region-trend">
                     <option value="">-- Select Region --</option>
                     {% for r in regions %}
-                    <option value="{{ r.code }}">{{ r.name }}{% if r.code %} ({{ r.code }}){% endif %}</option>
+                    <option value="{{ r.code }}">{{ r.name }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -98,7 +114,7 @@
                 <select class="form-control form-control-sm sr-filter-select sr-select2" id="f-region-pstock">
                     <option value="">-- Select Region --</option>
                     {% for r in regions %}
-                    <option value="{{ r.code }}">{{ r.name }}{% if r.code %} ({{ r.code }}){% endif %}</option>
+                    <option value="{{ r.code }}">{{ r.name }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -162,7 +178,7 @@
                 <select class="form-control form-control-sm sr-filter-select sr-select2" id="f-stockist">
                     <option value="">-- Select Stockist --</option>
                     {% for s in stockists %}
-                    <option value="{{ s.code }}">{{ s.name }}{% if s.code %} ({{ s.code }}){% endif %}</option>
+                    <option value="{{ s.code }}">{{ s.name }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -194,6 +210,14 @@
                 <label class="sr-filter-label">Select <span id="entity-type-label">Team</span></label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-entity-name">
                     <option value="">-- Select --</option>
+                </select>
+            </div>
+            <!-- Sales Mode (Reports 7, 8, 9) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,region_product_stock">
+                <label class="sr-filter-label">Sales Mode</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-sales-mode">
+                    <option value="after_deduction">After Deduction (Sales+Free&minus;Scheme)</option>
+                    <option value="before_deduction">Before Deduction (Sales+Free)</option>
                 </select>
             </div>
         </div>
@@ -558,7 +582,7 @@ let currentReportType = "";
 let currentReportData = null;
 let currentReportMeta = {};
 
-// Pre-loaded context data for Report 7 cascading
+// Pre-loaded context data for cascading and Report 7
 var CTX_ZONES_RAW = {{ zones | tojson }};
 var CTX_ZONES = CTX_ZONES_RAW.map(function(z) { return z.code; });
 var CTX_REGIONS_RAW = {{ regions | tojson }};
@@ -568,6 +592,35 @@ var CTX_TEAMS = CTX_TEAMS_RAW.map(function(t) { return t.code; });
 var CTX_HQS_RAW = {{ hqs | tojson }};
 var CTX_HQS = CTX_HQS_RAW.map(function(h) { return h.code; });
 
+// Build cascade lookup maps
+var CTX_TEAMS_BY_REGION = {};
+CTX_TEAMS_RAW.forEach(function(t) {
+    if (t.region) {
+        if (!CTX_TEAMS_BY_REGION[t.region]) CTX_TEAMS_BY_REGION[t.region] = [];
+        CTX_TEAMS_BY_REGION[t.region].push(t);
+    }
+});
+var CTX_HQS_BY_TEAM = {};
+CTX_HQS_RAW.forEach(function(h) {
+    if (h.team) {
+        if (!CTX_HQS_BY_TEAM[h.team]) CTX_HQS_BY_TEAM[h.team] = [];
+        CTX_HQS_BY_TEAM[h.team].push(h);
+    }
+});
+
+// Helper: rebuild a select element (without Select2 init, for plain dropdowns)
+function rebuildSelect(id, items, placeholder) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    sel.innerHTML = '<option value="">' + placeholder + '</option>';
+    items.forEach(function(item) {
+        var opt = document.createElement("option");
+        opt.value = item.code;
+        opt.textContent = item.name;
+        sel.appendChild(opt);
+    });
+}
+
 // Initialise Select2 on designated dropdowns
 $(document).ready(function() {
     $(".sr-select2").select2({
@@ -576,6 +629,9 @@ $(document).ready(function() {
         allowClear: true,
         dropdownParent: $(".sr-filters-panel"),
     });
+    // Pre-populate team and HQ dropdowns with all options
+    rebuildSelect("f-team", CTX_TEAMS_RAW, "All Teams");
+    rebuildSelect("f-hq", CTX_HQS_RAW, "All HQs");
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -612,6 +668,31 @@ function onReportTypeChange() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Region → Team → HQ cascade handlers
+// ─────────────────────────────────────────────────────────────
+function onRegionChange() {
+    var region = document.getElementById("f-region").value;
+    var teams = region ? (CTX_TEAMS_BY_REGION[region] || []) : CTX_TEAMS_RAW;
+    rebuildSelect("f-team", teams, "All Teams");
+    // Reset HQ cascade too
+    onTeamChange();
+}
+
+function onTeamChange() {
+    var team = document.getElementById("f-team").value;
+    var region = document.getElementById("f-region").value;
+    var hqs;
+    if (team) {
+        hqs = CTX_HQS_BY_TEAM[team] || [];
+    } else if (region) {
+        hqs = CTX_HQS_RAW.filter(function(h) { return h.region === region; });
+    } else {
+        hqs = CTX_HQS_RAW;
+    }
+    rebuildSelect("f-hq", hqs, "All HQs");
+}
+
+// ─────────────────────────────────────────────────────────────
 // Report 7: Entity cascade
 // ─────────────────────────────────────────────────────────────
 function onEntityTypeChange() {
@@ -629,7 +710,7 @@ function onEntityTypeChange() {
     rawList.forEach(function(item) {
         var opt = document.createElement("option");
         opt.value = item.code;
-        opt.textContent = item.name ? item.name + " (" + item.code + ")" : item.code;
+        opt.textContent = item.name || item.code;
         sel.appendChild(opt);
     });
     // Re-init Select2
@@ -693,20 +774,28 @@ function generateReport() {
 function buildParams() {
     const p = { division: DIVISION };
     const region = document.getElementById("f-region").value;
+    const team = document.getElementById("f-team").value;
+    const hq = document.getElementById("f-hq").value;
     const fromDate = document.getElementById("f-from-date").value;
     const toDate = document.getElementById("f-to-date").value;
 
     if (currentReportType === "primary_sales") {
         p.sales_type = document.getElementById("f-sales-type").value;
         if (region) p.region = region;
+        if (team) p.team = team;
+        if (hq) p.hq = hq;
         if (fromDate) p.from_date = fromDate;
         if (toDate) p.to_date = toDate;
     } else if (currentReportType === "secondary_sales") {
         if (region) p.region = region;
+        if (team) p.team = team;
+        if (hq) p.hq = hq;
         if (fromDate) p.from_date = fromDate;
         if (toDate) p.to_date = toDate;
     } else if (currentReportType === "closing_stock") {
         if (region) p.region = region;
+        if (team) p.team = team;
+        if (hq) p.hq = hq;
         if (fromDate) p.from_date = fromDate;
         if (toDate) p.to_date = toDate;
         p.group_by = (document.getElementById("f-closing-group-by") || {}).value || "stockist";
@@ -715,18 +804,24 @@ function buildParams() {
         p.stockist_code = document.getElementById("f-stockist").value;
     } else if (currentReportType === "hq_wise") {
         if (region) p.region = region;
+        if (team) p.team = team;
+        if (hq) p.hq = hq;
     } else if (currentReportType === "address") {
         if (region) p.region = region;
+        if (team) p.team = team;
+        if (hq) p.hq = hq;
         p.criteria = document.getElementById("f-criteria").value;
     } else if (currentReportType === "sec_moving_trend") {
         p.entity_type = document.getElementById("f-entity-type").value;
         p.entity_name = document.getElementById("f-entity-name").value;
         const fy = document.getElementById("f-financial-year").value;
         if (fy) p.financial_year = fy;
+        p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
     } else if (currentReportType === "region_stockist_trend") {
         p.region = document.getElementById("f-region-trend").value;
         const fy = document.getElementById("f-financial-year").value;
         if (fy) p.financial_year = fy;
+        p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
     } else if (currentReportType === "region_product_stock") {
         p.region = document.getElementById("f-region-pstock").value;
         if (!p.region) { showAlert("Please select a Region for this report.", "warning"); return null; }
@@ -735,6 +830,7 @@ function buildParams() {
         const td = document.getElementById("f-pstock-to-date").value;
         if (fd) p.from_date = fd;
         if (td) p.to_date = td;
+        p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
     }
     return p;
 }
@@ -790,7 +886,8 @@ function renderReport(result) {
         region_stockist_trend: "Region-wise Stockist Secondary Sales Moving Trend",
         region_product_stock: "Product Closing Stock – Region Summary",
     };
-    const region = document.getElementById("f-region").value || "All Regions";
+    const regionSel = document.getElementById("f-region");
+    const region = regionSel.options[regionSel.selectedIndex]?.text || "All Regions";
     const fromDate = document.getElementById("f-from-date").value;
     const toDate = document.getElementById("f-to-date").value;
     let subtitle = `Region: ${region}`;
@@ -993,19 +1090,18 @@ function renderAddress(result, thead, tbody) {
 // ─────────────────────────────────────────────────────────────
 function renderSecMovingTrend(result, thead, tbody) {
     const months = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
-    thead.innerHTML = "<tr>" + th("S.No") + th("Product") + th("Pack")
+    thead.innerHTML = "<tr>" + th("Product") + th("Pack")
         + months.map(m => th(m)).join("")
         + th("Target") + th("Total") + th("Average") + th("Per Capita") + th("%") + "</tr>";
 
-    var sno = 0;
     (result.sections || []).forEach(function(sec) {
         // Section header row
-        tbody.innerHTML += '<tr class="section-header-row"><td colspan="20" style="background:#1e293b;color:#fff;font-weight:bold;padding:6px 10px;">' + esc(sec.label) + '</td></tr>';
+        tbody.innerHTML += '<tr class="section-header-row"><td colspan="19" style="background:#1e293b;color:#fff;font-weight:bold;padding:6px 10px;">' + esc(sec.label) + '</td></tr>';
 
         // Value in Lakhs row comes FIRST in each section
         var vl = sec.value_in_lakhs || {};
         var vlMonths = vl.months || [];
-        var vlCells = '<td colspan="3" style="font-weight:bold;">Value in Lakhs</td>';
+        var vlCells = '<td colspan="2" style="font-weight:bold;">Value in Lakhs</td>';
         for (var mi = 0; mi < 12; mi++) {
             vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vlMonths[mi] || 0) + '</td>';
         }
@@ -1017,8 +1113,7 @@ function renderSecMovingTrend(result, thead, tbody) {
         tbody.innerHTML += '<tr class="value-lakhs-row" style="background:#f1f5f9;">' + vlCells + '</tr>';
 
         (sec.products || []).forEach(function(p) {
-            sno++;
-            var cells = td(sno) + td(p.code) + td(p.pack);
+            var cells = td(p.code) + td(p.pack);
             for (var mi = 0; mi < 12; mi++) {
                 cells += '<td class="text-right">' + fmtQty(p.months[mi] || 0) + '</td>';
             }
@@ -1321,6 +1416,7 @@ async function downloadPDF() {
     var doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     var data = currentReportData;
     var startY;
+    var _secTrendSummary = null;
 
     // ═══════════════════════════════════════════════
     // PAGE 1: Consolidated Summary
@@ -1465,6 +1561,7 @@ async function downloadPDF() {
 
     } else if (currentReportType === "sec_moving_trend") {
         var trendSummary = buildSecTrendSummary(data);
+        _secTrendSummary = trendSummary;
         var grandLakhs = trendSummary.reduce(function(s, t) { return s + t.totalLakhs; }, 0);
 
         // Summary stats
@@ -1498,35 +1595,6 @@ async function downloadPDF() {
             },
             margin: { left: 14, right: 14 },
         });
-
-        // Charts page
-        doc.addPage();
-        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
-
-        // Category-wise value pie chart
-        var catPieImg = await renderChartToImage({
-            type: "doughnut",
-            data: {
-                labels: trendSummary.map(function(t) { return t.category; }),
-                datasets: [{ data: trendSummary.map(function(t) { return t.totalLakhs.toFixed(2); }), backgroundColor: ["#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#3b82f6"] }]
-            },
-            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Value Distribution by Category (₹ Lakhs)", font: { size: 16 } }, legend: { position: "right" } } }
-        }, 600, 400);
-        doc.addImage(catPieImg, "PNG", 14, startY, 120, 80);
-
-        // Monthly trend line chart (aggregate across all sections)
-        var mlabels = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
-        var datasets = (data.sections || []).map(function(sec, idx) {
-            var colors = ["#4f46e5", "#10b981", "#f59e0b", "#ef4444"];
-            var vl = sec.value_in_lakhs || {};
-            return { label: sec.label, data: (vl.months || []), borderColor: colors[idx % 4], backgroundColor: colors[idx % 4] + "33", fill: true, tension: 0.3 };
-        });
-        var lineImg = await renderChartToImage({
-            type: "line",
-            data: { labels: mlabels, datasets: datasets },
-            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Monthly Sales Trend (₹ Lakhs)", font: { size: 16 } } }, scales: { y: { beginAtZero: true, title: { display: true, text: "₹ Lakhs" } } } }
-        }, 900, 400);
-        doc.addImage(lineImg, "PNG", 145, startY, 140, 80);
 
     } else if (currentReportType === "moving_trend") {
         // ── Report 3: Moving Trend – Stockist Wise ──
@@ -1958,7 +2026,11 @@ async function downloadPDF() {
         var isGrandTotal = tr.classList.contains("grand-total-row");
         var isSectionHeader = tr.classList.contains("section-header-row");
         var isValueLakhs = tr.classList.contains("value-lakhs-row");
-        tr.querySelectorAll("td").forEach(function(c) { row.push(c.textContent.trim()); });
+        tr.querySelectorAll("td").forEach(function(c) {
+            var span = parseInt(c.getAttribute("colspan") || 1);
+            var val = c.textContent.trim();
+            for (var i = 0; i < span; i++) row.push(i === 0 ? val : "");
+        });
         body.push({ cells: row, isGroup: isGroup, isSubtotal: isSubtotal, isGrandTotal: isGrandTotal, isSectionHeader: isSectionHeader, isValueLakhs: isValueLakhs });
     });
 
@@ -1996,6 +2068,35 @@ async function downloadPDF() {
             }
         }
     });
+
+    // ── Deferred: sec_moving_trend charts placed last per client requirement ──
+    if (_secTrendSummary) {
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+
+        var smtPieImg = await renderChartToImage({
+            type: "doughnut",
+            data: {
+                labels: _secTrendSummary.map(function(t) { return t.category; }),
+                datasets: [{ data: _secTrendSummary.map(function(t) { return t.totalLakhs.toFixed(2); }), backgroundColor: ["#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#3b82f6"] }]
+            },
+            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Value Distribution by Category (₹ Lakhs)", font: { size: 16 } }, legend: { position: "right" } } }
+        }, 600, 400);
+        doc.addImage(smtPieImg, "PNG", 14, startY, 120, 80);
+
+        var smtMonths = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+        var smtDatasets = (data.sections || []).map(function(sec, idx) {
+            var colors = ["#4f46e5", "#10b981", "#f59e0b", "#ef4444"];
+            var vl = sec.value_in_lakhs || {};
+            return { label: sec.label, data: (vl.months || []), borderColor: colors[idx % 4], backgroundColor: colors[idx % 4] + "33", fill: true, tension: 0.3 };
+        });
+        var smtLineImg = await renderChartToImage({
+            type: "line",
+            data: { labels: smtMonths, datasets: smtDatasets },
+            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Monthly Sales Trend (₹ Lakhs)", font: { size: 16 } } }, scales: { y: { beginAtZero: true, title: { display: true, text: "₹ Lakhs" } } } }
+        }, 900, 400);
+        doc.addImage(smtLineImg, "PNG", 145, startY, 140, 80);
+    }
 
     // Add page footers
     addPageFooter(doc);

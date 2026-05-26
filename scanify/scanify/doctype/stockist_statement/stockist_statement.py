@@ -101,7 +101,12 @@ class StockistStatement(Document):
         All Matched  = every item is 'matched'
         Verification Needed = some items are 'auto_mapped', none 'unmapped'
         QC Needed = any item is 'unmapped'
+        QC Reviewed = manually set by QC team; never auto-overridden.
         """
+        # If QC team has already reviewed, preserve the status
+        if self.qc_confidence == "QC Reviewed":
+            return
+
         has_unmapped = False
         has_auto_mapped = False
         for item in self.items:
@@ -161,9 +166,6 @@ class StockistStatement(Document):
             sales_qty_base = flt(item.sales_qty) / conversion_factor
             closing_qty_base = flt(item.closing_qty) / conversion_factor
 
-            if item.closing_value is None or item.closing_value == 0:
-                item.closing_value = closing_qty_base * pts
-            
             # Scheme Deducted Sales Qty = (Sales Qty + Free Qty) – Scheme Approved Free Qty
             # Only populate when free_qty_scheme > 0 (i.e. after a deduction has been applied)
             scheme_free = flt(item.free_qty_scheme)
@@ -179,12 +181,10 @@ class StockistStatement(Document):
             # Sales value based on sales qty directly
             item.sales_value_pts = sales_qty_base * pts
             item.sales_value_ptr = sales_qty_base * ptr
-            if item.closing_value is None or item.closing_value == 0:
-                # Calculate only if not provided from statement
-                item.closing_value = closing_qty_base * pts
-            else:
-                # Use the extracted closing value from statement (no calculation)
-                pass  # Keep the extracted value
+            # Always calculate closing value from closing qty * PTS.
+            # The last column on physical statements is a stockist reference figure
+            # (not a true book value) — never trust the OCR-extracted closing_value.
+            item.closing_value = closing_qty_base * pts
             # -------- TOTALS --------
             total_sales_qty += flt(item.sales_qty)
             total_sales_value_pts += item.sales_value_pts

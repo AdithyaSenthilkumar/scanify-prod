@@ -1082,3 +1082,29 @@ window.save_statement_from_qc = function (event) {
   $('#qc-modal').modal('hide');
   do_save(event && event.currentTarget ? event.currentTarget : document.getElementById('btn-save'));
 };
+
+window.mark_as_qc_reviewed = function (event) {
+  if (!statement_doc) {
+    show_alert('Save the statement first before marking as reviewed.', 'warning');
+    return;
+  }
+  const $btn = $(event && event.currentTarget ? event.currentTarget : document.getElementById('btn-mark-reviewed'));
+  $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Marking…');
+  call_api('scanify.api.mark_statement_qc_reviewed', { doc_name: statement_doc }).then(r => {
+    if (r && r.success) {
+      show_alert('Statement marked as QC Reviewed.', 'success');
+      $btn.html('<i class="fa fa-check"></i> QC Reviewed');
+    } else {
+      $btn.prop('disabled', false).html('<i class="fa fa-user-check"></i> Mark as QC Reviewed');
+      show_alert('Failed: ' + ((r && r.message) || 'Unknown error'), 'danger');
+    }
+  }).catch(e => {
+    $btn.prop('disabled', false).html('<i class="fa fa-user-check"></i> Mark as QC Reviewed');
+    show_alert('Failed: ' + e.message, 'danger');
+  });
+};
+
+window.mark_as_qc_reviewed_from_qc = function (event) {
+  $('#qc-modal').modal('hide');
+  window.mark_as_qc_reviewed(event);
+};

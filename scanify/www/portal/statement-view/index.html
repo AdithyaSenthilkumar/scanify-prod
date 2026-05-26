@@ -56,41 +56,60 @@
                         <div class="sv-info-value" id="sv-team">—</div>
                     </div>
                 </div>
-                <!-- Row 2: Statuses + QC + Actions -->
-                <div class="sv-info-row sv-info-status-row">
-                    <div class="sv-status-group">
-                        <div class="sv-status-chip">
-                            <span class="sv-status-label">OCR Status</span>
-                            <span id="sv-status-badge"></span>
-                        </div>
-                        <div class="sv-status-chip">
-                            <span class="sv-status-label">Statement</span>
-                            <span id="sv-docstatus"></span>
-                        </div>
-                        <div class="sv-status-chip" id="sv-qc-chip" style="display:none;">
-                            <span class="sv-status-label">QC Review Status</span>
-                            <span id="sv-qc-confidence"></span>
-                        </div>
-                        <div class="sv-status-chip" id="sv-accuracy-chip" style="display:none;">
-                            <span class="sv-status-label">Extraction Confidence</span>
-                            <span id="sv-accuracy-badge"></span>
-                        </div>
-                        <button class="btn btn-sm sv-mark-matched-btn" id="sv-mark-matched-btn" style="display:none;" onclick="sv_mark_all_matched()">
-                            <i class="fa fa-check-double"></i> Mark Review Complete
-                        </button>
+                <!-- Row 2: Status Pill Row -->
+                <div class="sv-status-pill-row">
+                    <!-- OCR Extraction Status -->
+                    <div class="sv-status-tile">
+                        <div class="sv-status-tile-label"><i class="fa fa-robot"></i> OCR Status</div>
+                        <div id="sv-status-badge"></div>
                     </div>
-                    <div class="sv-actions-group" id="sv-actions-bar">
-                        <button class="btn btn-outline-primary btn-sm" onclick="sv_open_full_table()">
+                    <!-- Statement (docstatus) -->
+                    <div class="sv-status-tile">
+                        <div class="sv-status-tile-label"><i class="fa fa-file-alt"></i> Statement</div>
+                        <div id="sv-docstatus"></div>
+                    </div>
+                    <!-- QC Status (auto-computed + manually set by QC team) -->
+                    <div class="sv-status-tile" id="sv-qc-chip">
+                        <div class="sv-status-tile-label"><i class="fa fa-search"></i> QC Status</div>
+                        <div id="sv-qc-confidence"></div>
+                    </div>
+                    <!-- Extraction Confidence % -->
+                    <div class="sv-status-tile" id="sv-accuracy-chip" style="display:none;">
+                        <div class="sv-status-tile-label"><i class="fa fa-percentage"></i> Ext. Confidence</div>
+                        <div id="sv-accuracy-badge"></div>
+                    </div>
+                </div>
+
+                <!-- Row 3: Actions Bar -->
+                <div class="sv-actions-bar-row">
+                    <!-- Secondary utility actions (left) -->
+                    <div class="sv-actions-left">
+                        <button class="btn btn-sm btn-outline-secondary sv-action-btn" onclick="sv_open_full_table()" title="View the complete extracted table with all columns">
                             <i class="fa fa-table"></i> Full Table
                         </button>
-                        <button class="btn btn-outline-secondary btn-sm" onclick="sv_open_qc()">
+                        <button class="btn btn-sm btn-outline-secondary sv-action-btn" onclick="sv_open_qc()" title="Open the QC screen to compare original statement vs extracted data">
                             <i class="fa fa-clipboard-check"></i> QC Screen
                         </button>
-                        <button class="btn btn-outline-info btn-sm" onclick="sv_open_primary_sales()">
-                            <i class="fa fa-truck"></i> View Primary Sales
+                        <button class="btn btn-sm btn-outline-secondary sv-action-btn" onclick="sv_open_primary_sales()" title="View primary sales invoices for this stockist and month">
+                            <i class="fa fa-truck"></i> Primary Sales
                         </button>
-                        <button class="btn btn-success btn-sm" id="sv-submit-btn" onclick="sv_submit_statement(this)" style="display:none;">
-                            <i class="fa fa-paper-plane"></i> Submit &amp; Finalise
+                        <button class="btn btn-sm sv-mark-matched-btn" id="sv-mark-matched-btn" style="display:none;" onclick="sv_mark_all_matched()" title="Confirm all auto-mapped products are correctly mapped">
+                            <i class="fa fa-check-double"></i> Mark All Matched
+                        </button>
+                    </div>
+                    <!-- Primary workflow actions (right) -->
+                    <div class="sv-actions-right" id="sv-workflow-actions">
+                        <!-- Mark as QC Reviewed button -->
+                        <button class="btn btn-sm sv-qc-review-btn" id="sv-qc-review-btn" style="display:none;"
+                            onclick="sv_mark_qc_reviewed(this)"
+                            title="QC team: mark this statement as reviewed. The statement stays in Draft for scheme processing — use Finalise to lock it.">
+                            <i class="fa fa-user-check"></i> Mark as QC Reviewed
+                        </button>
+                        <!-- Finalise button -->
+                        <button class="btn btn-sm sv-finalize-btn" id="sv-finalize-btn" style="display:none;"
+                            onclick="sv_finalize_statement(this)"
+                            title="Permanently submit and lock this statement (docstatus → 1). Use only after all QC and scheme deductions are complete. This action cannot be undone.">
+                            <i class="fa fa-lock"></i> Finalise
                         </button>
                     </div>
                 </div>
@@ -317,19 +336,19 @@
                                 <label class="ss-chip"><input type="checkbox" value="openingqty" checked> Opening</label>
                                 <label class="ss-chip"><input type="checkbox" value="purchaseqty" checked> Purchase</label>
                                 <label class="ss-chip"><input type="checkbox" value="salesqty" checked> Sales</label>
-                                <label class="ss-chip"><input type="checkbox" value="operationalsalesqty" checked> Op Sales</label>
-                                <label class="ss-chip"><input type="checkbox" value="freeqty"> Free</label>
+                                <label class="ss-chip"><input type="checkbox" value="operationalsalesqty"> Op Sales</label>
+                                <label class="ss-chip"><input type="checkbox" value="freeqty" checked> Free</label>
                                 <label class="ss-chip"><input type="checkbox" value="returnqty"> Return</label>
                                 <label class="ss-chip"><input type="checkbox" value="closingqty" checked> Closing</label>
                                 <label class="ss-chip"><input type="checkbox" value="miscoutqty"> Misc Out</label>
                                 <label class="ss-chip"><input type="checkbox" value="freeqtyscheme"> Free(Sch)</label>
                                 <label class="ss-chip"><input type="checkbox" value="schemedeductedqty"> Sch Ded</label>
-                                <label class="ss-chip"><input type="checkbox" value="openingvalue" checked> Open Val</label>
+                                <label class="ss-chip"><input type="checkbox" value="openingvalue"> Open Val</label>
                                 <label class="ss-chip"><input type="checkbox" value="purchasevalue"> Purch Val</label>
                                 <label class="ss-chip"><input type="checkbox" value="salesvaluepts"> Sales(PTS)</label>
                                 <label class="ss-chip"><input type="checkbox" value="salesvalueptr"> Sales(PTR)</label>
-                                <label class="ss-chip"><input type="checkbox" value="closingvalue" checked> Cls Val</label>
-                                <label class="ss-chip"><input type="checkbox" value="row_confidence" checked> Ext%</label>
+                                <label class="ss-chip"><input type="checkbox" value="closingvalue"> Cls Val</label>
+                                <label class="ss-chip"><input type="checkbox" value="row_confidence"> Ext%</label>
                             </div>
                         </div>
                     </div>
@@ -561,39 +580,11 @@
     }
 
     .sv-info-status-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        flex-wrap: wrap;
-        background: linear-gradient(180deg, #f8fbff 0%, #f3f7fc 100%);
+        display: none; /* replaced by sv-status-pill-row + sv-actions-bar-row */
     }
 
-    .sv-status-group {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        flex-wrap: wrap;
-    }
-
-    .sv-status-chip {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 7px 12px;
-        border-radius: 999px;
-        background: white;
-        border: 1px solid #dbe7f3;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-    }
-
-    .sv-status-label {
-        font-size: 11px;
-        font-weight: 600;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-    }
+    .sv-status-group { display: none; }
+    .sv-status-chip { display: none; }
 
     .sv-actions-group {
         display: flex;
@@ -618,8 +609,8 @@
         border: 1px solid #a7f3d0;
         font-size: 12px;
         font-weight: 600;
-        padding: 3px 10px;
-        border-radius: 6px;
+        padding: 5px 12px;
+        border-radius: 8px;
         transition: all 0.15s;
     }
 
@@ -629,18 +620,148 @@
         border-color: #6ee7b7;
     }
 
+    /* ---- Status Pill Row ---- */
+    .sv-status-pill-row {
+        display: flex;
+        align-items: stretch;
+        border-bottom: 1px solid #e8eef5;
+        flex-wrap: wrap;
+    }
+
+    .sv-status-tile {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 5px;
+        padding: 10px 18px;
+        border-right: 1px solid #f1f5f9;
+        min-width: 130px;
+    }
+
+    .sv-status-tile:last-child {
+        border-right: none;
+    }
+
+    .sv-status-tile-label {
+        font-size: 10px;
+        font-weight: 700;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    /* ---- Actions Bar Row ---- */
+    .sv-actions-bar-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 16px;
+        background: linear-gradient(180deg, #f8fbff 0%, #f3f7fc 100%);
+        flex-wrap: wrap;
+    }
+
+    .sv-actions-left {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .sv-actions-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .sv-action-btn {
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 6px 13px;
+        transition: all 0.15s;
+        border-color: #cbd5e1;
+        color: #475569;
+    }
+
+    .sv-action-btn:hover {
+        border-color: #94a3b8;
+        background: #f8fafc;
+        color: #1e293b;
+    }
+
+    /* QC Review button — teal/green tone */
+    .sv-qc-review-btn {
+        background: linear-gradient(135deg, #0d9488, #0891b2);
+        color: white;
+        border: none;
+        border-radius: 9px;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 7px 16px;
+        letter-spacing: 0.02em;
+        box-shadow: 0 2px 8px rgba(13, 148, 136, 0.35);
+        transition: all 0.2s;
+    }
+
+    .sv-qc-review-btn:hover:not(:disabled) {
+        background: linear-gradient(135deg, #0f766e, #0e7490);
+        color: white;
+        box-shadow: 0 4px 14px rgba(13, 148, 136, 0.45);
+        transform: translateY(-1px);
+    }
+
+    .sv-qc-review-btn:disabled {
+        opacity: 0.65;
+        cursor: not-allowed;
+    }
+
+    /* Already-reviewed state */
+    .sv-qc-review-btn.sv-reviewed {
+        background: linear-gradient(135deg, #059669, #0d9488);
+        box-shadow: 0 2px 8px rgba(5, 150, 105, 0.3);
+    }
+
+    /* Finalise button — indigo/locked tone */
+    .sv-finalize-btn {
+        background: linear-gradient(135deg, #4f46e5, #6d28d9);
+        color: white;
+        border: none;
+        border-radius: 9px;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 7px 16px;
+        letter-spacing: 0.02em;
+        box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+        transition: all 0.2s;
+    }
+
+    .sv-finalize-btn:hover:not(:disabled) {
+        background: linear-gradient(135deg, #4338ca, #5b21b6);
+        color: white;
+        box-shadow: 0 4px 14px rgba(79, 70, 229, 0.45);
+        transform: translateY(-1px);
+    }
+
+    .sv-finalize-btn:disabled {
+        opacity: 0.65;
+        cursor: not-allowed;
+    }
+
     @media(max-width: 768px) {
-        .sv-info-fields {
+        .sv-status-pill-row {
             flex-wrap: wrap;
         }
-        .sv-info-cell {
+        .sv-status-tile {
             flex: 1 1 45%;
             border-bottom: 1px solid #f1f5f9;
         }
-        .sv-info-cell-wide {
-            flex: 1 1 100%;
-        }
-        .sv-info-status-row {
+        .sv-actions-bar-row {
             flex-direction: column;
             align-items: flex-start;
         }
@@ -879,10 +1000,20 @@
     }
 
     .ss-qc-divider {
-        width: 3px;
+        width: 6px;
         background: linear-gradient(180deg, #6366f1 0%, #8b5cf6 50%, #6366f1 100%);
         flex-shrink: 0;
         position: relative;
+        cursor: col-resize;
+        transition: background 0.15s;
+    }
+
+    .ss-qc-divider:hover {
+        background: linear-gradient(180deg, #818cf8 0%, #a78bfa 50%, #818cf8 100%);
+    }
+
+    .ss-qc-divider.qc-split-active {
+        background: linear-gradient(180deg, #a5b4fc 0%, #c4b5fd 50%, #a5b4fc 100%);
     }
 
     .ss-qc-right {
@@ -1667,17 +1798,18 @@
         };
         $('#sv-docstatus').html(docstatusLabels[sv_doc.docstatus] || `<span class="badge badge-secondary">${sv_doc.docstatus}</span>`);
 
-        // QC Confidence badge
+        // QC Status badge (covers auto-computed states + QC Reviewed)
         const qcConf = sv_doc.qc_confidence || '';
         const qcBadgeMap = {
             'All Matched': '<span class="badge badge-success"><i class="fa fa-check-circle"></i> All Matched</span>',
             'Verification Needed': '<span class="badge badge-warning"><i class="fa fa-exclamation-triangle"></i> Verification Needed</span>',
-            'QC Needed': '<span class="badge badge-danger"><i class="fa fa-times-circle"></i> QC Needed</span>'
+            'QC Needed': '<span class="badge badge-danger"><i class="fa fa-times-circle"></i> QC Needed</span>',
+            'QC Reviewed': '<span class="badge badge-success"><i class="fa fa-user-check"></i> QC Reviewed</span>'
         };
         if (qcConf && qcBadgeMap[qcConf]) {
             $('#sv-qc-chip').show();
             $('#sv-qc-confidence').html(qcBadgeMap[qcConf]);
-            // Show "Mark as All Matched" only for Verification Needed on draft statements
+            // Show "Mark All Matched" only for Verification Needed on draft statements
             if (qcConf === 'Verification Needed' && sv_doc.docstatus === 0) {
                 $('#sv-mark-matched-btn').show();
             } else {
@@ -1686,6 +1818,25 @@
         } else {
             $('#sv-qc-chip').hide();
             $('#sv-mark-matched-btn').hide();
+        }
+
+        // Show workflow action buttons only for draft statements with completed extraction
+        if (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed') {
+            const $qcBtn = $('#sv-qc-review-btn');
+            const $finalBtn = $('#sv-finalize-btn');
+
+            if (qcConf === 'QC Reviewed') {
+                // Already reviewed — show button in "done" state
+                $qcBtn.addClass('sv-reviewed')
+                    .html('<i class="fa fa-check-circle"></i> QC Reviewed')
+                    .prop('disabled', true);
+            } else {
+                $qcBtn.removeClass('sv-reviewed')
+                    .html('<i class="fa fa-user-check"></i> Mark as QC Reviewed')
+                    .prop('disabled', false);
+            }
+            $qcBtn.show();
+            $finalBtn.show();
         }
 
         // Extraction confidence badge
@@ -1700,11 +1851,6 @@
             );
         } else {
             $('#sv-accuracy-chip').hide();
-        }
-
-        // Show Submit button only for draft statements with completed extraction
-        if (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed') {
-            $('#sv-submit-btn').show();
         }
 
         // Stat cards
@@ -1784,49 +1930,53 @@
         $('#sv-content').show();
     }
 
-    // ---- Submit & Finalise (for draft statements) ----
-    window.sv_submit_statement = function (btn) {
+    // ---- Mark as QC Reviewed ----
+    window.sv_mark_qc_reviewed = function (btn) {
         const $btn = $(btn);
-        if (!confirm('Submit this statement? This action cannot be undone.')) return;
-        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Submitting…');
+        if ($btn.prop('disabled')) return;
+        if (!confirm('Mark this statement as QC Reviewed?\nThe statement will remain in Draft — use "Finalise" when all scheme deductions are done.')) return;
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Updating…');
 
-        // Pass current sv_items as the data payload (same format as the entry screen)
-        sv_call('scanify.api.save_extracted_statement', {
-            doc_name: DOC_NAME,
-            data: sv_items.map(r => ({
-                productcode: r.productcode,
-                rawproductname: r.rawproductname || '',
-                rowtype: r.rowtype || 'product',
-                mapping_status: r.mappingstatus || 'matched',
-                openingqty: r.openingqty,
-                purchaseqty: r.purchaseqty,
-                salesqty: r.salesqty,
-                operationalsalesqty: r.operationalsalesqty || 0,
-                freeqty: r.freeqty,
-                freeqtyscheme: r.freeqtyscheme || 0,
-                returnqty: r.returnqty || 0,
-                miscoutqty: r.miscoutqty || 0,
-                closingqty: r.closingqty,
-                closingvalue: r.closingvalue,
-                row_confidence: r.row_confidence || 0
-            }))
-        }).then(r => {
+        sv_call('scanify.api.mark_statement_qc_reviewed', { doc_name: DOC_NAME }).then(function (r) {
             if (r && r.success) {
-                $btn.html('<i class="fa fa-check"></i> Submitted');
-                // Update UI to reflect submitted state
-                sv_doc.docstatus = 1;
-                $('#sv-docstatus').html('<span class="badge badge-success"><i class="fa fa-lock"></i> Submitted</span>');
-                $btn.hide();
-                setTimeout(() => { window.location.href = '/portal/stock-statements-list'; }, 1200);
+                sv_doc.qc_confidence = 'QC Reviewed';
+                render_sv_page();
             } else {
-                $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit & Finalise');
-                alert('Submission failed: ' + ((r && r.message) || 'Unknown error'));
+                $btn.prop('disabled', false).html('<i class="fa fa-user-check"></i> Mark as QC Reviewed');
+                alert('Failed: ' + ((r && r.message) || 'Unknown error'));
             }
-        }).catch(e => {
-            $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit & Finalise');
+        }).catch(function (e) {
+            $btn.prop('disabled', false).html('<i class="fa fa-user-check"></i> Mark as QC Reviewed');
             alert('Error: ' + e.message);
         });
     };
+
+    // ---- Finalise Statement ----
+    window.sv_finalize_statement = function (btn) {
+        const $btn = $(btn);
+        if (!confirm('Finalise this statement?\n\nThis will permanently submit and lock the statement (cannot be edited or deleted after this). Ensure all QC and scheme deductions are complete before proceeding.')) return;
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Finalising…');
+
+        sv_call('scanify.api.finalize_statement', { doc_name: DOC_NAME }).then(function (r) {
+            if (r && r.success) {
+                $btn.html('<i class="fa fa-check"></i> Finalised');
+                sv_doc.docstatus = 1;
+                $('#sv-docstatus').html('<span class="badge badge-success"><i class="fa fa-lock"></i> Submitted</span>');
+                $('#sv-qc-review-btn').hide();
+                $btn.hide();
+                setTimeout(function () { window.location.href = '/portal/stock-statements-list'; }, 1200);
+            } else {
+                $btn.prop('disabled', false).html('<i class="fa fa-lock"></i> Finalise');
+                alert('Finalisation failed: ' + ((r && r.message) || 'Unknown error'));
+            }
+        }).catch(function (e) {
+            $btn.prop('disabled', false).html('<i class="fa fa-lock"></i> Finalise');
+            alert('Error: ' + e.message);
+        });
+    };
+
+    // ---- Legacy sv_submit_statement (kept for backward compat, routes to finalize) ----
+    window.sv_submit_statement = window.sv_finalize_statement;
 
     // ---- Full Table ----
     window.sv_open_full_table = function () {
@@ -2475,5 +2625,55 @@
             else { sv_zoom_at_point(e.clientX - rect.left, e.clientY - rect.top, 1.0); }
         });
     }
+
+    // ============================================================
+    // QC SPLIT PANEL RESIZER
+    // ============================================================
+    (function () {
+        var _splitDragging = false, _splitStartX = 0, _splitStartW = 0;
+        var _splitInit = false;
+
+        function initQCSplitResize() {
+            if (_splitInit) return;
+            _splitInit = true;
+            var divider = document.querySelector('.ss-qc-divider');
+            var leftPanel = document.querySelector('.ss-qc-left');
+            var bodyEl = document.querySelector('.ss-qc-body');
+            if (!divider || !leftPanel || !bodyEl) return;
+
+            divider.addEventListener('mousedown', function (e) {
+                _splitDragging = true;
+                _splitStartX = e.clientX;
+                _splitStartW = leftPanel.offsetWidth;
+                divider.classList.add('qc-split-active');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+                e.stopPropagation();
+            });
+
+            document.addEventListener('mousemove', function (e) {
+                if (!_splitDragging) return;
+                var dx = e.clientX - _splitStartX;
+                var totalW = bodyEl.offsetWidth;
+                var newW = _splitStartW + dx;
+                var clamped = Math.min(Math.max(newW, 200), totalW - 280);
+                leftPanel.style.width = clamped + 'px';
+            });
+
+            document.addEventListener('mouseup', function () {
+                if (!_splitDragging) return;
+                _splitDragging = false;
+                divider.classList.remove('qc-split-active');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            });
+        }
+
+        // Initialise once when QC modal is first shown
+        $('#sv-qc-modal').one('shown.bs.modal', function () {
+            initQCSplitResize();
+        });
+    })();
 </script>
 {% endblock %}

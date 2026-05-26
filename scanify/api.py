@@ -253,6 +253,21 @@ def _build_gemini_generation_config(model_name):
     return genai_types.GenerateContentConfig(thinking_config=thinking_config)
 
 
+_TOTAL_ROW_EXACT = frozenset({
+    "TOTAL", "TOTAL QUANTITY", "TOTAL QTY", "TOTAL VALUE", "TOTAL AMOUNT",
+    "GRAND TOTAL", "SUB TOTAL", "SUBTOTAL", "NET TOTAL",
+})
+
+
+def _is_total_row(raw_name):
+    """Return True if the raw product name is a summary/total line that must be excluded."""
+    if raw_name in _TOTAL_ROW_EXACT:
+        return True
+    if raw_name.startswith("TOTAL ") or raw_name.startswith("GRAND TOTAL"):
+        return True
+    return False
+
+
 def _normalize_row_type(row_type, raw_product_name):
     """Normalize Gemini row type output and backfill known special rows from the raw label."""
     normalized = cstr(row_type).strip().lower().replace(" ", "_")
@@ -260,6 +275,11 @@ def _normalize_row_type(row_type, raw_product_name):
         return normalized
 
     raw_name = cstr(raw_product_name).strip().upper()
+
+    # Summary/total rows must be excluded before any other classification
+    if _is_total_row(raw_name):
+        return "total_row"
+
     if raw_name == "OTHERS" or raw_name.startswith("OTHERS "):
         return "others"
     if raw_name == "BRANCH TRANSFER" or raw_name.startswith("BRANCH TRANSFER"):
@@ -294,6 +314,10 @@ def _build_statement_item_row(item_data, statement_division=None, division_produ
     raw_name = cstr(item_data.get("raw_product_name")).strip().upper()
     row_type = _normalize_row_type(item_data.get("row_type"), raw_name)
     mapping_basis = cstr(item_data.get("mapping_basis")).strip().lower()
+
+    # Exclude total/summary rows — they pollute closing stock calculations
+    if row_type == "total_row":
+        return None, {"unmapped": False, "auto_mapped": False, "special_row": False, "skipped_total_row": True}
 
     is_unmapped = bool(item_data.get("unmapped", False))
     product_code = cstr(item_data.get("product_code")).strip() or None
@@ -374,6 +398,18 @@ def _build_extraction_notes(items_added, confidence_score, unmapped_count=0, aut
     return ". ".join(notes_parts)
 
 
+def _all_quantities_zero(row):
+    """Return True when every movement qty is zero — indicates a phantom/empty row to discard."""
+    return (
+        not row.get("opening_qty")
+        and not row.get("purchase_qty")
+        and not row.get("sales_qty")
+        and not row.get("operational_sales_qty")
+        and not row.get("free_qty")
+        and not row.get("closing_qty")
+    )
+
+
 def _build_statement_rows(extracted_data, statement_division=None, products_list=None):
     """Convert Gemini response rows into statement child rows and summary counts."""
     division_product_codes = _build_division_product_codes(statement_division, products_list)
@@ -393,6 +429,13 @@ def _build_statement_rows(extracted_data, statement_division=None, products_list
         )
         if metadata.get("skipped_division"):
             counts["skipped_division_count"] += 1
+            continue
+
+        # Drop total/summary rows and all-zero phantom rows
+        if metadata.get("skipped_total_row") or row is None:
+            continue
+        if _all_quantities_zero(row):
+            frappe.logger().info(f"All-zero row dropped: {row.get('raw_product_name')}")
             continue
 
         if metadata.get("unmapped"):
@@ -812,6 +855,22 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
     - For special rows, copy the printed movement quantity into "operational_sales_qty" and set "sales_qty" to 0.
     - For normal product rows, set "operational_sales_qty" to 0.
 
+2B. ROWS TO EXCLUDE — *** CRITICAL — DO NOT INCLUDE THESE IN OUTPUT ***:
+    Pharmaceutical stockist statements always print one or more aggregate/footer rows at the bottom (or
+    sometimes mid-table) that summarise the entire statement — e.g. a row for total quantity movement and
+    another for total closing value. These are NOT products. Including them would double-count closing stock.
+    You MUST silently skip (omit from JSON) any row whose label clearly describes an aggregate, total, or
+    summary figure. This includes — but is NOT limited to — the following patterns:
+      • "TOTAL QUANTITY" / "TOTAL QTY" / "TOTAL STOCK" / "TOTAL STKS"
+      • "TOTAL VALUE" / "TOTAL AMOUNT" / "TOTAL VAL" / "TOTAL CLOSING VALUE"
+      • "TOTAL" (standalone)
+      • "GRAND TOTAL" / "GRAND TOTAL QTY" / "GRAND TOTAL VALUE"
+      • "SUB TOTAL" / "SUBTOTAL"
+      • Any row whose first column is blank or dashes and whose numeric columns contain obviously
+        aggregated figures (e.g. the sum of every other row in that column)
+    Rule of thumb: if the row is a footer/summary line rather than an individual stock-keeping unit,
+    EXCLUDE it — regardless of exact wording, language, or abbreviation used.
+
 3. QUANTITY EXTRACTION (CRITICAL):
    - Extract quantities for all identified columns AND closing value if present.
    - ONLY extract values for columns that ACTUALLY EXIST in the statement. Do NOT calculate or infer missing columns.
@@ -1039,6 +1098,11 @@ IMPORTANT:
             mapping_basis = cstr(item.get("mapping_basis")).strip().lower()
             pc = (item.get("product_code") or "").strip() or None
             is_unmapped = item.get("unmapped", False)
+
+            # Discard total/summary rows before any other processing
+            if row_type == "total_row":
+                frappe.logger().info(f"Total/summary row excluded: {raw_name}")
+                continue
 
             if row_type != "product":
                 item["product_code"] = None
@@ -6970,11 +7034,11 @@ def get_stockist_report_filter_options(division=None):
         (division,), as_dict=True,
     )
     teams = frappe.db.sql(
-        "SELECT DISTINCT name, team_name FROM `tabTeam Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        "SELECT DISTINCT name, team_name, region FROM `tabTeam Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_dict=True,
     )
     hqs = frappe.db.sql(
-        "SELECT DISTINCT name, hq_name FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
+        "SELECT DISTINCT name, hq_name, team, region FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
         (division,), as_dict=True,
     )
     zones = frappe.db.sql(
@@ -6996,8 +7060,8 @@ def get_stockist_report_filter_options(division=None):
 
     return {
         "regions": [{"code": r.name, "name": r.region_name} for r in regions],
-        "teams": [{"code": t.name, "name": t.team_name} for t in teams],
-        "hqs": [{"code": h.name, "name": h.hq_name} for h in hqs],
+        "teams": [{"code": t.name, "name": t.team_name, "region": t.region or ""} for t in teams],
+        "hqs": [{"code": h.name, "name": h.hq_name, "team": h.team or "", "region": h.region or ""} for h in hqs],
         "zones": [{"code": z.name, "name": z.zone_name} for z in zones],
         "stockists": [{
             "code": s.name, "name": s.stockist_name} for s in stockists],
@@ -7008,7 +7072,7 @@ def get_stockist_report_filter_options(division=None):
 
 @frappe.whitelist()
 def get_stockist_primary_sales_report(division=None, sales_type="primary", region=None,
-                                       from_date=None, to_date=None):
+                                       from_date=None, to_date=None, team=None, hq=None):
     """Report 1 – Stockist Wise Primary Sales Report.
     sales_type: 'primary' (iscancelled=0) or 'creditnote' (iscancelled=1).
     """
@@ -7022,6 +7086,12 @@ def get_stockist_primary_sales_report(division=None, sales_type="primary", regio
     if region:
         conditions.append("region = %(region)s")
         params["region"] = region
+    if team:
+        conditions.append("team = %(team)s")
+        params["team"] = team
+    if hq:
+        conditions.append("stockist_code IN (SELECT name FROM `tabStockist Master` WHERE hq = %(hq)s)")
+        params["hq"] = hq
     if from_date:
         conditions.append("invoicedate >= %(from_date)s")
         params["from_date"] = from_date
@@ -7052,7 +7122,7 @@ def get_stockist_primary_sales_report(division=None, sales_type="primary", regio
 
 @frappe.whitelist()
 def get_stockist_secondary_sales_report(division=None, region=None,
-                                         from_date=None, to_date=None):
+                                         from_date=None, to_date=None, team=None, hq=None):
     """Report 2 – Stockist Wise Secondary Sales Report (from Draft or submitted Stockist Statements)."""
     if not division:
         division = get_user_division()
@@ -7063,6 +7133,12 @@ def get_stockist_secondary_sales_report(division=None, region=None,
     if region:
         conditions.append("ss.region = %(region)s")
         params["region"] = region
+    if team:
+        conditions.append("ss.team = %(team)s")
+        params["team"] = team
+    if hq:
+        conditions.append("ss.hq = %(hq)s")
+        params["hq"] = hq
     if from_date:
         conditions.append("ss.statement_month >= %(from_date)s")
         params["from_date"] = from_date
@@ -7075,8 +7151,8 @@ def get_stockist_secondary_sales_report(division=None, region=None,
     rows = frappe.db.sql(f"""
         SELECT ss.stockist_code, ss.stockist_name,
                si.product_code, si.product_name, si.pack,
-               SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS total_qty,
-               SUM(si.sales_value_pts) AS total_value
+               SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS total_qty,
+               SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1) * IFNULL(si.pts, 0)) AS total_value
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -7178,7 +7254,7 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
 
 @frappe.whitelist()
 def get_stockist_closing_stock_report(division=None, region=None,
-                                       from_date=None, to_date=None, group_by="stockist"):
+                                       from_date=None, to_date=None, group_by="stockist", team=None, hq=None):
     """Report 4 – Stockist Wise Closing Stock Report (from Draft or submitted Stockist Statements).
     group_by: 'stockist' (default) or 'hq'
     """
@@ -7191,6 +7267,12 @@ def get_stockist_closing_stock_report(division=None, region=None,
     if region:
         conditions.append("ss.region = %(region)s")
         params["region"] = region
+    if team:
+        conditions.append("ss.team = %(team)s")
+        params["team"] = team
+    if hq:
+        conditions.append("ss.hq = %(hq)s")
+        params["hq"] = hq
     if from_date:
         conditions.append("ss.statement_month >= %(from_date)s")
         params["from_date"] = from_date
@@ -7252,7 +7334,7 @@ def get_stockist_closing_stock_report(division=None, region=None,
 
 
 @frappe.whitelist()
-def get_region_product_closing_stock(division=None, region=None, from_date=None, to_date=None, group_by="hq"):
+def get_region_product_closing_stock(division=None, region=None, from_date=None, to_date=None, group_by="hq", sales_mode="after_deduction"):
     """Report 9 – Product Closing Stock for Region, pivoted by HQ or Stockist (grouped by Team).
     Returns products as rows, HQs/Stockists as columns grouped by team, with Team Totals and Region Total.
     group_by: 'hq' (default) or 'stockist'
@@ -7458,7 +7540,7 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
 
 
 @frappe.whitelist()
-def get_hq_wise_stockist_report(division=None, region=None):
+def get_hq_wise_stockist_report(division=None, region=None, team=None, hq=None):
     """Report 5 – HQ Wise Stockist Report (active stockists grouped by HQ)."""
     if not division:
         division = get_user_division()
@@ -7467,18 +7549,28 @@ def get_hq_wise_stockist_report(division=None, region=None):
     params = {"division": division}
 
     if region:
-        conditions.append("hm.region = %(region)s")
+        conditions.append("COALESCE(hm.region, sm.region) = %(region)s")
         params["region"] = region
+    if team:
+        conditions.append("COALESCE(hm.team, sm.team) = %(team)s")
+        params["team"] = team
+    if hq:
+        conditions.append("sm.hq = %(hq)s")
+        params["hq"] = hq
 
     where = " AND ".join(conditions)
 
     rows = frappe.db.sql(f"""
         SELECT sm.name AS stockist_code, sm.stockist_name,
                sm.hq, COALESCE(hm.hq_name, sm.hq) AS hq_name,
-               COALESCE(hm.team, '') AS team,
-               COALESCE(hm.region, sm.region) AS region
+               COALESCE(hm.team, sm.team, '') AS team,
+               COALESCE(tm.team_name, hm.team, sm.team, '') AS team_name,
+               COALESCE(hm.region, sm.region) AS region,
+               COALESCE(rm.region_name, hm.region, sm.region, '') AS region_name
         FROM `tabStockist Master` sm
         LEFT JOIN `tabHQ Master` hm ON hm.name = sm.hq
+        LEFT JOIN `tabTeam Master` tm ON tm.name = COALESCE(hm.team, sm.team)
+        LEFT JOIN `tabRegion Master` rm ON rm.name = COALESCE(hm.region, sm.region)
         WHERE {where}
         ORDER BY hm.hq_name, sm.stockist_name
     """, params, as_dict=True)
@@ -7491,8 +7583,8 @@ def get_hq_wise_stockist_report(division=None, region=None):
             grouped[hq_key] = {
                 "hq_code": r.hq,
                 "hq_name": r.hq_name,
-                "team": r.team,
-                "region": r.region,
+                "team": r.team_name or r.team,
+                "region": r.region_name or r.region,
                 "stockists": [],
             }
         grouped[hq_key]["stockists"].append({
@@ -7504,7 +7596,7 @@ def get_hq_wise_stockist_report(division=None, region=None):
 
 
 @frappe.whitelist()
-def get_stockist_address_report(division=None, region=None, criteria="ALL"):
+def get_stockist_address_report(division=None, region=None, criteria="ALL", team=None, hq=None):
     """Report 6 – Stockist Address Report.
     criteria: ALL, HQ WISE, TEAM WISE, CITY WISE, STOCKIST NAME
     """
@@ -7517,6 +7609,12 @@ def get_stockist_address_report(division=None, region=None, criteria="ALL"):
     if region:
         conditions.append("sm.region = %(region)s")
         params["region"] = region
+    if team:
+        conditions.append("sm.team = %(team)s")
+        params["team"] = team
+    if hq:
+        conditions.append("sm.hq = %(hq)s")
+        params["hq"] = hq
 
     where = " AND ".join(conditions)
 
@@ -7532,8 +7630,13 @@ def get_stockist_address_report(division=None, region=None, criteria="ALL"):
     rows = frappe.db.sql(f"""
         SELECT sm.name AS stockist_code, sm.stockist_name,
                sm.address, sm.city, sm.phone,
-               sm.hq, sm.team, sm.region
+               sm.hq, COALESCE(hm.hq_name, sm.hq, '') AS hq_name,
+               sm.team, COALESCE(tm.team_name, sm.team, '') AS team_name,
+               sm.region, COALESCE(rm.region_name, sm.region, '') AS region_name
         FROM `tabStockist Master` sm
+        LEFT JOIN `tabHQ Master` hm ON hm.name = sm.hq
+        LEFT JOIN `tabTeam Master` tm ON tm.name = sm.team
+        LEFT JOIN `tabRegion Master` rm ON rm.name = sm.region
         WHERE {where}
         ORDER BY {order_by}
     """, params, as_dict=True)
@@ -7541,9 +7644,9 @@ def get_stockist_address_report(division=None, region=None, criteria="ALL"):
     # If grouping is needed, build groups
     group_field = None
     if criteria == "HQ WISE":
-        group_field = "hq"
+        group_field = "hq_name"
     elif criteria == "TEAM WISE":
-        group_field = "team"
+        group_field = "team_name"
     elif criteria == "CITY WISE":
         group_field = "city"
 
@@ -7739,14 +7842,16 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         entity_type = kwargs.get("entity_type", "Team")
         entity_name = kwargs.get("entity_name", "")
         financial_year = kwargs.get("financial_year", "")
+        sales_mode = kwargs.get("sales_mode", "after_deduction")
         ws.title = "Sec Sales Moving Trend"
-        result = get_secondary_sales_moving_trend(division, entity_type, entity_name, financial_year)
+        result = get_secondary_sales_moving_trend(division, entity_type, entity_name, financial_year, sales_mode)
         ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
         fy_label = result.get("fy_label", "")
         entity_display = result.get("entity_display", entity_name)
+        sales_mode_label = "Before Deduction" if sales_mode == "before_deduction" else "After Deduction"
         row = write_title_rows(ws, f"Secondary Sales Moving Trend – {division}",
-                               f"{entity_type}: {entity_display}  |  {fy_label}")
-        headers = ["S.No", "Product", "Pack"] + ml + ["Target", "Total", "Average", "Per Capita", "%"]
+                               f"{entity_type}: {entity_display}  |  {fy_label}  |  {sales_mode_label}")
+        headers = ["Product", "Pack"] + ml + ["Target", "Total", "Average", "Per Capita", "%"]
         write_header_row(ws, row, headers)
         row += 1
 
@@ -7756,7 +7861,6 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         lakhs_fill = PatternFill(start_color="DBE4F3", end_color="DBE4F3", fill_type="solid")
         lakhs_font = Font(bold=True, size=10)
 
-        sno = 0
         for sec in result.get("sections", []):
             # Section header row (merged across all columns)
             for c in range(1, len(headers) + 1):
@@ -7770,7 +7874,7 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
             # Value in Lakhs row comes FIRST in each section
             vl = sec.get("value_in_lakhs", {})
             vl_months = vl.get("months", [0] * 12)
-            vl_vals = ["Value in Lakhs", "", ""] + vl_months + [
+            vl_vals = ["Value in Lakhs", ""] + vl_months + [
                 vl.get("target", 0), vl.get("total", 0),
                 vl.get("average", 0), vl.get("per_capita", 0), vl.get("pct", 0)
             ]
@@ -7779,14 +7883,13 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                 cell.fill = lakhs_fill
                 cell.font = lakhs_font
                 cell.border = thin_border
-                if c > 3:
+                if c > 2:
                     cell.alignment = Alignment(horizontal="right")
             row += 1
 
             # Product rows
             for p in sec.get("products", []):
-                sno += 1
-                vals = [sno, p.get("code", ""), p.get("pack", "")] + list(p.get("months", [0] * 12)) + [
+                vals = [p.get("code", ""), p.get("pack", "")] + list(p.get("months", [0] * 12)) + [
                     p.get("target", 0), p.get("total", 0),
                     p.get("average", 0), p.get("per_capita", 0), p.get("pct", 0)
                 ]
@@ -7796,13 +7899,15 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
     elif report_type == "region_stockist_trend":
         # Report 8 – Region-wise Stockist Secondary Sales Moving Trend
         financial_year = kwargs.get("financial_year", "")
+        sales_mode = kwargs.get("sales_mode", "after_deduction")
         ws.title = "Region Stockist Trend"
-        result = get_region_wise_stockist_moving_trend(division, region, financial_year)
+        result = get_region_wise_stockist_moving_trend(division, region, financial_year, sales_mode)
         ml = result.get("month_labels") or ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
         fy_label = result.get("fy_label", "")
         region_name = result.get("region_name", region)
+        sales_mode_label = "Before Deduction" if sales_mode == "before_deduction" else "After Deduction"
         row = write_title_rows(ws, f"Region-wise Stockist Secondary Sales Moving Trend – {division}",
-                               f"Region: {region_name}  |  {fy_label}  |  Values in ₹ Lakhs")
+                               f"Region: {region_name}  |  {fy_label}  |  {sales_mode_label}  |  Values in ₹ Lakhs")
         headers = ["Customers", "HQ", "Current Month Opening"] + ml + ["Total Sales Value", "Current Month Closing"]
         write_header_row(ws, row, headers)
         row += 1
@@ -9481,7 +9586,7 @@ def export_ranking_report_excel(report_type, division=None, **kwargs):
 
 @frappe.whitelist()
 def get_secondary_sales_moving_trend(division=None, entity_type="Team",
-                                     entity_name=None, financial_year=None):
+                                     entity_name=None, financial_year=None, sales_mode="after_deduction"):
     """Product-wise monthly secondary sales pivot grouped by product category.
 
     Shows MAIN PRODUCTS, HOSPITAL PRODUCTS, NEW PRODUCTS sections with
@@ -9594,11 +9699,16 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
 
     # ── Get secondary sales (Stockist Statement Items) ──
     hq_placeholders = ", ".join(["%s"] * len(hq_list))
+    if sales_mode == "before_deduction":
+        _qty_expr = "(si.sales_qty + si.free_qty) / IFNULL(NULLIF(si.conversion_factor, 0), 1)"
+    else:
+        _qty_expr = "(si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)"
+    _val_expr = f"({_qty_expr}) * IFNULL(si.pts, 0)"
     sec_rows = frappe.db.sql(f"""
         SELECT si.product_code, si.pack,
                MONTH(ss.statement_month) AS m,
-             SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty,
-             SUM(IFNULL(si.sales_value_pts, (si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0))) AS value
+             SUM({_qty_expr}) AS qty,
+             SUM({_val_expr}) AS value
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -9728,6 +9838,7 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
         "active_months": active_months,
         "sections": sections,
         "month_labels": _MONTH_LABELS,
+        "sales_mode": sales_mode,
     }
 
 
@@ -9739,7 +9850,7 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
 # ═══════════════════════════════════════════════════════════════
 
 @frappe.whitelist()
-def get_region_wise_stockist_moving_trend(division=None, region=None, financial_year=None):
+def get_region_wise_stockist_moving_trend(division=None, region=None, financial_year=None, sales_mode="after_deduction"):
     """
     Region-wise stockist sales moving trend with opening and closing values.
     Matches the Orissa Secondary Sales Excel format:
@@ -9804,10 +9915,14 @@ def get_region_wise_stockist_moving_trend(division=None, region=None, financial_
     placeholders = ", ".join(["%s"] * len(stockist_codes))
 
     # ── Monthly secondary sales value (₹) per stockist ──
+    if sales_mode == "before_deduction":
+        _sv_expr = "((si.sales_qty + si.free_qty) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0)"
+    else:
+        _sv_expr = "((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0)"
     sales_rows = frappe.db.sql(f"""
         SELECT ss.stockist_code,
                MONTH(ss.statement_month) AS m,
-             SUM(IFNULL(si.sales_value_pts, (si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0))) AS sales_value
+             SUM({_sv_expr}) AS sales_value
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -9931,6 +10046,7 @@ def get_region_wise_stockist_moving_trend(division=None, region=None, financial_
         "financial_year": financial_year,
         "month_labels": month_labels,
         "teams": teams_list,
+        "sales_mode": sales_mode,
         "grand_total": {
             "opening": round(grand_opening or 0, 2),
             "months": grand_months or [0] * 12,
@@ -10223,6 +10339,63 @@ def apply_mapping_and_save_correction(doc_name, row_idx, mapped_product_code):
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Apply Mapping Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def mark_statement_qc_reviewed(doc_name):
+    """
+    Mark a draft statement as QC-reviewed by the QC team.
+    Sets qc_review_status → 'QC Reviewed' without changing docstatus.
+    Draft auto-save already persists the latest item edits, so no items data needed here.
+    """
+    try:
+        doc = frappe.get_doc("Stockist Statement", doc_name)
+
+        if doc.docstatus == 1:
+            return {"success": False, "message": "Statement is already finalised."}
+
+        doc.qc_confidence = "QC Reviewed"
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {"success": True, "qc_confidence": "QC Reviewed"}
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Mark QC Reviewed Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def finalize_statement(doc_name):
+    """
+    Finalise (submit) a draft statement — sets docstatus → 1 and locks it permanently.
+    The latest items are already persisted by the draft auto-save mechanism.
+    Requires extraction to be Completed before finalising.
+    """
+    try:
+        doc = frappe.get_doc("Stockist Statement", doc_name)
+
+        if doc.docstatus == 1:
+            return {"success": False, "message": "Statement is already finalised."}
+
+        if doc.extracted_data_status != "Completed":
+            return {"success": False, "message": "Statement extraction must be completed before finalising."}
+
+        doc.calculate_closing_and_totals()
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        doc.submit()
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": f"Statement {doc_name} has been finalised successfully.",
+            "doc_name": doc.name
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Finalise Statement Error")
         return {"success": False, "message": str(e)}
 
 

@@ -158,6 +158,8 @@
     .chip-qc-green { background: #dcfce7; color: #16a34a; }
     .chip-qc-yellow { background: #fef3c7; color: #d97706; }
     .chip-qc-red { background: #fee2e2; color: #dc2626; }
+    .chip-qcr-reviewed { background: #ccfbf1; color: #0d9488; }
+    .chip-qcr-pending { background: #f1f5f9; color: #64748b; }
 </style>
 {% endblock %}
 
@@ -272,11 +274,13 @@
                 const qcAll = qcs['All Matched'] || 0;
                 const qcVer = qcs['Verification Needed'] || 0;
                 const qcNeed = qcs['QC Needed'] || 0;
-                const qcChips = (qcAll || qcVer || qcNeed) ? `
+                const qcRev = qcs['QC Reviewed'] || 0;
+                const qcChips = (qcAll || qcVer || qcNeed || qcRev) ? `
                 <div class="bkl-result-chips">
                     ${qcAll ? `<span class="bkl-chip chip-qc-green" title="All Matched"><i class="fa fa-check-circle"></i> ${qcAll}</span>` : ''}
                     ${qcVer ? `<span class="bkl-chip chip-qc-yellow" title="Verification Needed"><i class="fa fa-exclamation-triangle"></i> ${qcVer}</span>` : ''}
                     ${qcNeed ? `<span class="bkl-chip chip-qc-red" title="QC Needed"><i class="fa fa-times-circle"></i> ${qcNeed}</span>` : ''}
+                    ${qcRev ? `<span class="bkl-chip chip-qcr-reviewed" title="QC Reviewed"><i class="fa fa-user-check"></i> ${qcRev}</span>` : ''}
                 </div>` : '<span class="text-muted small">—</span>';
 
                 const jobNameDisplay = job.job_name ? `<small class="text-muted d-block">${job.job_name}</small>` : '';

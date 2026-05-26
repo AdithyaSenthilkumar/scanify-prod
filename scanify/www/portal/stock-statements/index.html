@@ -164,8 +164,13 @@
             <button class="btn btn-outline-primary btn-sm" onclick="open_fullscreen_table()">
               <i class="fa fa-table"></i> Full Table
             </button>
-            <button class="btn btn-success btn-sm" id="btn-save" onclick="save_statement(event)">
-              <i class="fa fa-paper-plane"></i> Submit &amp; Finalise
+            <button class="btn ss-mark-reviewed-btn btn-sm" id="btn-mark-reviewed" onclick="mark_as_qc_reviewed(event)"
+              title="QC team: confirm the extraction data is reviewed. The statement stays in Draft for scheme processing.">
+              <i class="fa fa-user-check"></i> Mark as QC Reviewed
+            </button>
+            <button class="btn ss-finalize-btn btn-sm" id="btn-save" onclick="save_statement(event)"
+              title="Permanently submit and lock this statement (docstatus → 1). Use only after all QC and scheme deductions are complete.">
+              <i class="fa fa-lock"></i> Finalise
             </button>
           </div>
         </div>
@@ -294,8 +299,13 @@
       <div class="ss-modal-header">
         <h5><i class="fa fa-clipboard-check"></i> Quality Check Screen</h5>
         <div class="ss-qc-header-btns">
-          <button class="btn btn-success btn-sm" onclick="save_statement_from_qc(event)">
-            <i class="fa fa-paper-plane"></i> Submit &amp; Finalise
+          <button class="btn ss-mark-reviewed-btn btn-sm" onclick="mark_as_qc_reviewed_from_qc(event)"
+            title="Mark as reviewed without submitting. Statement stays Draft.">
+            <i class="fa fa-user-check"></i> Mark as QC Reviewed
+          </button>
+          <button class="btn ss-finalize-btn btn-sm" onclick="save_statement_from_qc(event)"
+            title="Submit and lock this statement permanently.">
+            <i class="fa fa-lock"></i> Finalise
           </button>
           <button type="button" class="ss-modal-close" data-dismiss="modal">&times;</button>
         </div>
@@ -802,6 +812,22 @@
     gap: 8px;
     flex-wrap: wrap;
   }
+
+  .ss-mark-reviewed-btn {
+    background: linear-gradient(135deg, #0d9488, #0f766e);
+    color: #fff;
+    border: none;
+  }
+  .ss-mark-reviewed-btn:hover { background: linear-gradient(135deg, #0f766e, #115e59); color: #fff; }
+  .ss-mark-reviewed-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+  .ss-finalize-btn {
+    background: linear-gradient(135deg, #4f46e5, #6366f1);
+    color: #fff;
+    border: none;
+  }
+  .ss-finalize-btn:hover { background: linear-gradient(135deg, #4338ca, #4f46e5); color: #fff; }
+  .ss-finalize-btn:disabled { opacity: .55; cursor: not-allowed; }
 
   /* ======== STAT CARDS ======== */
   .ss-stats-row {

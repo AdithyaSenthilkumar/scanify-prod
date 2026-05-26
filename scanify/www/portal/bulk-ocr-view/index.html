@@ -71,10 +71,11 @@
 
                 <!-- QC Confidence summary chips -->
                 <div class="bkv-qc-summary mt-3" id="bkv-qc-summary" style="display:none;">
-                    <strong style="font-size:12px;color:#64748b;margin-right:10px;">QC Confidence:</strong>
+                    <strong style="font-size:12px;color:#64748b;margin-right:10px;">QC Status:</strong>
                     <span class="badge badge-success mr-1" id="bkv-qc-green" style="display:none;"><i class="fa fa-check-circle"></i> All Matched: <span>0</span></span>
                     <span class="badge badge-warning mr-1" id="bkv-qc-yellow" style="display:none;"><i class="fa fa-exclamation-triangle"></i> Verification: <span>0</span></span>
                     <span class="badge badge-danger mr-1" id="bkv-qc-red" style="display:none;"><i class="fa fa-times-circle"></i> QC Needed: <span>0</span></span>
+                    <span class="badge badge-success mr-1" id="bkv-qc-reviewed" style="display:none;"><i class="fa fa-user-check"></i> QC Reviewed: <span>0</span></span>
                 </div>
 
                 <!-- In-progress pulse animation -->
@@ -490,6 +491,7 @@
             if (qc === 'All Matched') qcBadge = '<span class="badge badge-success"><i class="fa fa-check-circle"></i> All Matched</span>';
             else if (qc === 'Verification Needed') qcBadge = '<span class="badge badge-warning"><i class="fa fa-exclamation-triangle"></i> Verification Needed</span>';
             else if (qc === 'QC Needed') qcBadge = '<span class="badge badge-danger"><i class="fa fa-times-circle"></i> QC Needed</span>';
+            else if (qc === 'QC Reviewed') qcBadge = '<span class="badge badge-success"><i class="fa fa-user-check"></i> QC Reviewed</span>';
 
             // Accuracy badge
             const conf = parseFloat(r.confidence_score || 0);
@@ -553,19 +555,21 @@
             renderLog(allLogData);
 
             // Compute QC confidence summary from log entries
-            let qcGreen = 0, qcYellow = 0, qcRed = 0;
+            let qcGreen = 0, qcYellow = 0, qcRed = 0, qcReviewed = 0;
             res.log.forEach(r => {
                 if (r.status === 'Success' && r.qc_confidence) {
                     if (r.qc_confidence === 'All Matched') qcGreen++;
                     else if (r.qc_confidence === 'Verification Needed') qcYellow++;
                     else if (r.qc_confidence === 'QC Needed') qcRed++;
+                    else if (r.qc_confidence === 'QC Reviewed') qcReviewed++;
                 }
             });
-            if (qcGreen || qcYellow || qcRed) {
+            if (qcGreen || qcYellow || qcRed || qcReviewed) {
                 document.getElementById('bkv-qc-summary').style.display = 'flex';
                 if (qcGreen) { const el = document.getElementById('bkv-qc-green'); el.style.display = ''; el.querySelector('span').textContent = qcGreen; }
                 if (qcYellow) { const el = document.getElementById('bkv-qc-yellow'); el.style.display = ''; el.querySelector('span').textContent = qcYellow; }
                 if (qcRed) { const el = document.getElementById('bkv-qc-red'); el.style.display = ''; el.querySelector('span').textContent = qcRed; }
+                if (qcReviewed) { const el = document.getElementById('bkv-qc-reviewed'); el.style.display = ''; el.querySelector('span').textContent = qcReviewed; }
             }
         }
 

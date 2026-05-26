@@ -81,8 +81,8 @@ class SchemeDeduction(Document):
         """
         Deduct free qty from stockist statement
         CORRECTED LOGIC:
-        - Deduct from sales_qty (not free_qty)
-        - Populate free_qty_scheme field
+        - Keep original sales_qty unchanged
+        - Track deducted scheme quantity in free_qty_scheme
         """
         statement = frappe.get_doc("Stockist Statement", self.stockist_statement)
         
@@ -121,11 +121,11 @@ class SchemeDeduction(Document):
             for stmt_item in statement.items:
                 if stmt_item.product_code == deduction_item.product_code:
                     # REVERSE THE DEDUCTION:
-                    # 1. Subtract from free_qty_scheme
-                    stmt_item.free_qty_scheme = flt(stmt_item.free_qty_scheme) - flt(deduction_item.deduct_qty)
-                    
-                    # 2. Add back to sales_qty
-                    stmt_item.sales_qty = flt(stmt_item.sales_qty) + flt(deduction_item.deduct_qty)
+                    # Subtract only from free_qty_scheme; sales_qty was never reduced on apply.
+                    stmt_item.free_qty_scheme = max(
+                        flt(stmt_item.free_qty_scheme) - flt(deduction_item.deduct_qty),
+                        0,
+                    )
                     break
         
         # Recalculate closing balances
