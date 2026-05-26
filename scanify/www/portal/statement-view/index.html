@@ -579,11 +579,9 @@
         text-overflow: ellipsis;
     }
 
-    .sv-info-status-row {
-        display: none; /* replaced by sv-status-pill-row + sv-actions-bar-row */
-    }
-
-    .sv-status-group { display: none; }
+    /* legacy selectors retained as no-ops in case any old template fragment ships them */
+    .sv-info-status-row,
+    .sv-status-group,
     .sv-status-chip { display: none; }
 
     .sv-actions-group {
@@ -1499,6 +1497,15 @@
 
             sv_doc = result.doc;
             sv_items = result.items || [];
+
+            // Normalise scheme-deducted qty on the client — covers legacy rows where
+            // the DB still has 0 because they were saved before the always-populate fix.
+            // Canonical formula: sales + free − scheme_free.
+            sv_items.forEach(r => {
+                r.schemedeductedqty = parseFloat(r.salesqty || 0)
+                                    + parseFloat(r.freeqty || 0)
+                                    - parseFloat(r.freeqtyscheme || 0);
+            });
 
             // Fetch previous month closing and merge into items
             await sv_load_prev_closing();
