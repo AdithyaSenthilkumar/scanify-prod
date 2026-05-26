@@ -657,6 +657,7 @@ def save_draft_statement(doc_name, data):
                 "operational_sales_qty": operational_sales_qty,
                 "free_qty": _parse_numeric_value(_get_first_present_value(row, "freeqty", "free_qty")),
                 "free_qty_scheme": _parse_numeric_value(_get_first_present_value(row, "freeqtyscheme", "free_qty_scheme")),
+                "pts": _parse_numeric_value(_get_first_present_value(row, "pts")),
                 "return_qty": _parse_numeric_value(_get_first_present_value(row, "returnqty", "return_qty")),
                 "misc_out_qty": _parse_numeric_value(_get_first_present_value(row, "miscoutqty", "misc_out_qty")),
                 "closing_qty": _parse_numeric_value(_get_first_present_value(row, "closingqty", "closing_qty")),
@@ -1610,7 +1611,28 @@ def process_bulk_extraction(docname, month, zip_file_url):
                     })
                     
                     # Resolve stockist name for display
-                    stockist_name = frappe.db.get_value("Stockist Master", stockist_code, "stockist_name") or stockist_code
+                    stockist_name, stockist_status = frappe.db.get_value(
+                        "Stockist Master", stockist_code, ["stockist_name", "status"]
+                    ) or (stockist_code, None)
+                    stockist_name = stockist_name or stockist_code
+
+                    # Guard: reject inactive stockists
+                    if stockist_status and stockist_status != "Active":
+                        results.append({
+                            "file": file,
+                            "status": "Failed",
+                            "message": f"Stockist {stockist_name} ({stockist_code}) is inactive. Statement cannot be created for an inactive stockist.",
+                            "stockist": stockist_name
+                        })
+                        failed_count += 1
+                        doc.progress = (idx / len(all_files)) * 100
+                        doc.success_count = success_count
+                        doc.failed_count = failed_count
+                        doc.skipped_count = skipped_count
+                        doc.extraction_log = json.dumps(results)
+                        doc.save(ignore_permissions=True)
+                        frappe.db.commit()
+                        continue
 
                     if existing:
                         results.append({
@@ -5011,6 +5033,7 @@ def get_stockist_details(stockist_code):
     return {
         "stockist_code": st.stockist_code,
         "stockist_name": st.stockist_name,
+        "status": getattr(st, "status", None),
         "division": getattr(st, "division", None),
         "hq": st.hq,
         "team": team,
@@ -10165,6 +10188,15 @@ def create_manual_statement(stockist_code, statement_month, items, uploaded_file
         # Normalise month
         if len(statement_month) == 7:
             statement_month = statement_month + "-01"
+
+        # Check stockist is active
+        stockist_status = frappe.db.get_value(
+            "Stockist Master", {"stockist_code": stockist_code}, "status"
+        )
+        if not stockist_status:
+            return {"success": False, "message": f"Stockist '{stockist_code}' not found."}
+        if stockist_status != "Active":
+            return {"success": False, "message": f"Stockist '{stockist_code}' is inactive. Statement cannot be created for an inactive stockist."}
 
         # Check for duplicates
         existing = frappe.db.exists("Stockist Statement", {

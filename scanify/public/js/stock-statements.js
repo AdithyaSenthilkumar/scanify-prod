@@ -79,6 +79,8 @@ function init_stockist_search() {
       $('#hq,#team,#region,#zone').val('');
       $('#stockist-info').text('');
       $('#stockist-meta-row').hide();
+      $('#inactive-stockist-warning').remove();
+      $('#extract-btn').prop('disabled', false);
     }
 
     search_timeout = setTimeout(() => {
@@ -163,6 +165,20 @@ function render_stockist_results(stockists) {
 async function populate_stockist_details(stockist_code) {
   try {
     const details = await call_api('scanify.api.get_stockist_details', { stockist_code });
+
+    // Guard: inactive stockist
+    $('#inactive-stockist-warning').remove();
+    if (details.status && details.status !== 'Active') {
+      $('#stockist-info').text('');
+      $('#stockist-meta-row').hide();
+      const warn = `<div id="inactive-stockist-warning" class="alert alert-danger mt-2" role="alert">
+        <i class="fa fa-ban"></i> <strong>${details.stockist_name || stockist_code}</strong> is inactive. Statement upload is not allowed for inactive stockists.
+      </div>`;
+      $('#stockist-search').closest('.form-group').after(warn);
+      $('#extract-btn').prop('disabled', true);
+      return;
+    }
+
     $('#hq').val(details.hq || '');
     $('#team').val(details.team || '');
     $('#region').val(details.region || '');

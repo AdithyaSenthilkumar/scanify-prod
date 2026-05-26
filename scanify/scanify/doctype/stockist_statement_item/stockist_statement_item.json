@@ -167,6 +167,7 @@
   },
   {
    "fetch_from": "product_code.pts",
+   "fetch_if_empty": 1,
    "fieldname": "pts",
    "fieldtype": "Currency",
    "label": "PTS rate",

@@ -552,6 +552,8 @@
         $('#me-stockist-info').text('');
         $('#me-meta-row').hide();
         $('#products-section,#me-summary-section').hide();
+        $('#me-inactive-warning').remove();
+        $('#me-submit-btn').prop('disabled', false);
       }
       timeout = setTimeout(function () { me_search_stockists(term); }, 250);
     });
@@ -611,6 +613,21 @@
   async function me_populate_stockist(code) {
     try {
       var d = await me_call('scanify.api.get_stockist_details', { stockist_code: code });
+
+      // Guard: inactive stockist
+      $('#me-inactive-warning').remove();
+      if (d.status && d.status !== 'Active') {
+        $('#me-stockist-info').text('');
+        $('#me-meta-row').hide();
+        $('#products-section,#me-summary-section').hide();
+        var $warn = $('<div id="me-inactive-warning" class="alert alert-danger mt-2">' +
+          '<i class="fa fa-ban"></i> <strong>' + me_escape(d.stockist_name || code) + '</strong>' +
+          ' is inactive. Manual statement entry is not allowed for inactive stockists.</div>');
+        $('#me-stockist-search').closest('.form-group').after($warn);
+        $('#me-submit-btn').prop('disabled', true);
+        return;
+      }
+
       $('#me-hq').val(d.hq || '');
       $('#me-team').val(d.team || '');
       $('#me-region').val(d.region || '');
