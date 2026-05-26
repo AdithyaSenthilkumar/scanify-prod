@@ -5,7 +5,7 @@
 {% block portal_content %}
 <div class="portal-page primary-sales-list-page">
     <!-- Page Header -->
-    <div class="page-header d-flex justify-content-between align-items-center mb-4 flex-wrap" style="gap:10px;">
+    <div class="page-header d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="page-title"><i class="fa fa-table"></i> Primary Sales Data</h1>
             <p class="page-subtitle text-muted mb-0">Viewing primary sales for {{ division }} division</p>
@@ -13,7 +13,7 @@
         <div class="d-flex align-items-center" style="gap:10px;">
             <span class="text-muted" id="row-count-label" style="font-size:13px;"></span>
             <button class="btn btn-success btn-sm text-nowrap" onclick="showAddModal()">
-                <i class="fa fa-plus mr-1"></i> Add New Record
+                <i class="fa fa-plus mr-1"></i> Add Record
             </button>
             <a href="/portal/upload-primary-sales" class="btn btn-primary btn-sm text-nowrap">
                 <i class="fa fa-upload mr-1"></i> Bulk Upload
@@ -22,94 +22,96 @@
     </div>
 
     <!-- Filters -->
-    <div class="card shadow-sm border-0 mb-3 filter-card">
-        <div class="card-header bg-white d-flex justify-content-between align-items-center" style="padding: 0.6rem 1rem; border-bottom: 2px solid #e2e8f0;">
-            <h6 class="mb-0 text-muted font-weight-600" style="font-size: 13px; letter-spacing: 0.3px;">
-                <i class="fa fa-filter mr-1"></i> FILTERS
-            </h6>
-            <div class="d-flex" style="gap:6px;">
-                <button class="btn btn-sm btn-primary px-3" id="btn-search" onclick="loadData(1)">
-                    <i class="fa fa-search mr-1"></i> Search
-                </button>
-                <button class="btn btn-sm btn-outline-secondary px-3" onclick="clearFilters()">
-                    <i class="fa fa-times mr-1"></i> Clear
-                </button>
-            </div>
-        </div>
-        <div class="card-body py-3 px-3">
-            <!-- Row 1: Dropdowns (Geography + Product Group + Status) -->
-            <div class="filter-row d-flex flex-wrap" style="gap: 10px; margin-bottom: 10px;">
-                <div class="filter-item" style="flex: 1; min-width: 140px;">
-                    <label class="filter-label">Month</label>
-                    <select class="form-control form-control-sm" id="f-month">
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body bg-light rounded px-4 py-3 border">
+            <!-- Row 1: Search + Month + Product Group + Status + Search-btn + Clear -->
+            <div class="row align-items-center mb-2">
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <div class="input-group input-group-sm">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text bg-white"><i class="fa fa-search text-muted"></i></span>
+                        </div>
+                        <input type="text" id="f-stockist" class="form-control form-control-sm"
+                            placeholder="Stockist Code/Name…">
+                    </div>
+                </div>
+                <div class="col-md-2 mb-2 mb-md-0">
+                    <select id="f-month" class="form-control form-control-sm custom-select">
                         <option value="">All Months</option>
                         {% for m in available_months %}
                         <option value="{{ m.upload_month }}">{{ m.upload_month }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="filter-item" style="flex: 1; min-width: 140px;">
-                    <label class="filter-label">Zone</label>
-                    <select class="form-control form-control-sm" id="f-zone">
-                        <option value="">All Zones</option>
-                        {% for z in zones %}
-                        <option value="{{ z.zone_name }}">{{ z.zone_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="filter-item" style="flex: 1; min-width: 140px;">
-                    <label class="filter-label">Region</label>
-                    <select class="form-control form-control-sm" id="f-region">
-                        <option value="">All Regions</option>
-                        {% for r in regions %}
-                        <option value="{{ r.region_name }}">{{ r.region_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="filter-item" style="flex: 1; min-width: 140px;">
-                    <label class="filter-label">Team</label>
-                    <select class="form-control form-control-sm" id="f-team">
-                        <option value="">All Teams</option>
-                        {% for t in teams %}
-                        <option value="{{ t.team_name }}">{{ t.team_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="filter-item" style="flex: 1; min-width: 140px;">
-                    <label class="filter-label">Product Group</label>
-                    <select class="form-control form-control-sm" id="f-product-head">
-                        <option value="">All Groups</option>
+                <div class="col-md-2 mb-2 mb-md-0">
+                    <select id="f-product-head" class="form-control form-control-sm custom-select ps-select2">
+                        <option value="">All Product Groups</option>
                         {% for pg in product_groups %}
                         <option value="{{ pg }}">{{ pg }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="filter-item" style="flex: 1; min-width: 140px;">
-                    <label class="filter-label">Status</label>
-                    <select class="form-control form-control-sm" id="f-cancelled">
+                <div class="col-md-2 mb-2 mb-md-0">
+                    <select id="f-cancelled" class="form-control form-control-sm custom-select">
                         <option value="">All Records</option>
                         <option value="0">Active Only</option>
                         <option value="1">Cancelled Only</option>
                     </select>
                 </div>
+                <div class="col-md-3 text-md-right mb-2 mb-md-0">
+                    <button class="btn btn-sm btn-primary px-3" id="btn-search" onclick="loadData(1)">
+                        <i class="fa fa-search mr-1"></i> Search
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary px-3" onclick="clearFilters()" title="Clear filters">
+                        <i class="fa fa-times mr-1"></i> Clear
+                    </button>
+                </div>
             </div>
-            <!-- Row 2: Text search inputs -->
-            <div class="filter-row d-flex flex-wrap" style="gap: 10px;">
-                <div class="filter-item" style="flex: 2; min-width: 180px;">
-                    <label class="filter-label">Stockist</label>
-                    <input type="text" class="form-control form-control-sm" id="f-stockist" placeholder="Code or Name...">
+            <!-- Row 2: Hierarchical Zone → Region → Team → HQ -->
+            <div class="row align-items-center mb-2">
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <select id="f-zone" class="form-control form-control-sm custom-select ps-select2">
+                        <option value="">All Zones</option>
+                        {% for z in zones %}
+                        <option value="{{ z.code }}">{{ z.name }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
-                <div class="filter-item" style="flex: 1; min-width: 140px;">
-                    <label class="filter-label">Product Code</label>
-                    <input type="text" class="form-control form-control-sm" id="f-pcode" placeholder="e.g. PROD001">
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <select id="f-region" class="form-control form-control-sm custom-select ps-select2">
+                        <option value="">All Regions</option>
+                        {% for r in regions %}
+                        <option value="{{ r.code }}" data-zone="{{ r.zone }}">{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
-                <div class="filter-item" style="flex: 1.5; min-width: 160px;">
-                    <label class="filter-label">Product Name</label>
-                    <input type="text" class="form-control form-control-sm" id="f-product" placeholder="Search product...">
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <select id="f-team" class="form-control form-control-sm custom-select ps-select2">
+                        <option value="">All Teams</option>
+                        {% for t in teams %}
+                        <option value="{{ t.code }}" data-zone="{{ t.zone }}" data-region="{{ t.region }}">{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
-                <div class="filter-item" style="flex: 1; min-width: 140px;">
-                    <label class="filter-label">Invoice No</label>
-                    <input type="text" class="form-control form-control-sm" id="f-invoice" placeholder="e.g. INV001">
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <select id="f-hq" class="form-control form-control-sm custom-select ps-select2">
+                        <option value="">All HQs</option>
+                        {% for h in hqs %}
+                        <option value="{{ h.code }}" data-zone="{{ h.zone }}" data-region="{{ h.region }}" data-team="{{ h.team }}">{{ h.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <!-- Row 3: Product / Invoice text search -->
+            <div class="row align-items-center">
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <input type="text" class="form-control form-control-sm" id="f-pcode" placeholder="Product Code…">
+                </div>
+                <div class="col-md-6 mb-2 mb-md-0">
+                    <input type="text" class="form-control form-control-sm" id="f-product" placeholder="Search product name…">
+                </div>
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <input type="text" class="form-control form-control-sm" id="f-invoice" placeholder="Invoice No…">
                 </div>
             </div>
         </div>
@@ -120,7 +122,7 @@
         <div class="card-body p-0 border">
             <div class="table-responsive" style="max-height: 65vh; overflow-y: auto;">
                 <table class="table table-hover table-sm mb-0" id="data-table">
-                    <thead>
+                    <thead class="bg-light">
                         <tr>
                             <th style="min-width:70px;position:sticky;left:0;z-index:11;background:#f8f9fa;">Actions</th>
                             <th style="min-width:90px;">Stockist Code</th>
@@ -231,7 +233,7 @@
                             <select class="form-control form-control-sm" name="zonee">
                                 <option value="">-- Select --</option>
                                 {% for z in zones %}
-                                <option value="{{ z.zone_name }}">{{ z.zone_name }}</option>
+                                <option value="{{ z.name }}">{{ z.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -240,7 +242,7 @@
                             <select class="form-control form-control-sm" name="region">
                                 <option value="">-- Select --</option>
                                 {% for r in regions %}
-                                <option value="{{ r.region_name }}">{{ r.region_name }}</option>
+                                <option value="{{ r.name }}">{{ r.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -249,7 +251,7 @@
                             <select class="form-control form-control-sm" name="team">
                                 <option value="">-- Select --</option>
                                 {% for t in teams %}
-                                <option value="{{ t.team_name }}">{{ t.team_name }}</option>
+                                <option value="{{ t.name }}">{{ t.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -387,33 +389,19 @@
 .primary-sales-list-page .action-col .btn { font-size: 11px; margin: 0 1px; }
 #editModal .modal-body label { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
 #editModal .modal-body h6 { font-size: 13px; font-weight: 700; }
-
-/* Filter card styles */
-.filter-card { border: 1px solid #e2e8f0; }
-.filter-card .card-header { background: #f8fafc !important; }
-.filter-card .filter-label {
-    display: block;
-    font-size: 11px;
-    font-weight: 600;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    margin-bottom: 4px;
+</style>
+<!-- Select2 for searchable dropdowns -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<style>
+.select2-container--default .select2-selection--single {
+    height: 31px; border-radius: 4px;
+    border: 1px solid #ced4da; font-size: 13px;
 }
-.filter-card .form-control-sm {
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    font-size: 13px;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.filter-card .form-control-sm:focus {
-    border-color: #6366f1;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-.filter-card select.form-control-sm {
-    background-color: #fff;
-    cursor: pointer;
-}
+.select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; padding-left: 10px; }
+.select2-container--default .select2-selection--single .select2-selection__arrow { height: 29px; }
+.select2-dropdown { font-size: 13px; z-index: 9999; }
+.select2-results__option--highlighted { background: #4f46e5 !important; }
 </style>
 {% endblock %}
 
@@ -423,7 +411,6 @@ var PAGE_SIZE = 50;
 var currentPage = 1;
 var division = "{{ division }}";
 var currentRows = [];
-var debounceTimer;
 
 function getFilters() {
     return {
@@ -431,6 +418,7 @@ function getFilters() {
         zonee: document.getElementById('f-zone').value,
         region: document.getElementById('f-region').value,
         team: document.getElementById('f-team').value,
+        hq: document.getElementById('f-hq').value,
         product_head: document.getElementById('f-product-head').value,
         iscancelled: document.getElementById('f-cancelled').value,
         stockist_search: document.getElementById('f-stockist').value.trim(),
@@ -442,19 +430,77 @@ function getFilters() {
 
 function clearFilters() {
     document.getElementById('f-month').value = '';
-    document.getElementById('f-zone').value = '';
-    document.getElementById('f-region').value = '';
-    document.getElementById('f-team').value = '';
-    document.getElementById('f-product-head').value = '';
     document.getElementById('f-cancelled').value = '';
     document.getElementById('f-stockist').value = '';
     document.getElementById('f-pcode').value = '';
     document.getElementById('f-product').value = '';
     document.getElementById('f-invoice').value = '';
+    if (typeof $ !== "undefined" && $.fn.select2) {
+        $('#f-zone, #f-region, #f-team, #f-hq, #f-product-head').val('').trigger('change');
+    } else {
+        document.getElementById('f-zone').value = '';
+        document.getElementById('f-region').value = '';
+        document.getElementById('f-team').value = '';
+        document.getElementById('f-hq').value = '';
+        document.getElementById('f-product-head').value = '';
+    }
+    applyZoneCascade(""); applyRegionCascade(""); applyTeamCascade("");
     document.getElementById('data-tbody').innerHTML = '<tr><td colspan="28" class="text-center py-4 text-muted"><i class="fa fa-search mr-1"></i> Use filters above then click Search to load data</td></tr>';
     document.getElementById('pagination-controls').innerHTML = '';
     document.getElementById('pagination-info').textContent = '';
     document.getElementById('row-count-label').textContent = '';
+}
+
+// --- Cascading helpers ---
+function setOptionVisibility(selectId, predicate) {
+    var sel = document.getElementById(selectId);
+    if (!sel) return;
+    var currentValStillValid = (sel.value === "");
+    Array.from(sel.options).forEach(function(opt) {
+        if (!opt.value) { opt.hidden = false; opt.disabled = false; return; }
+        var ok = predicate(opt);
+        opt.hidden = !ok;
+        opt.disabled = !ok;
+        if (opt.value === sel.value && ok) currentValStillValid = true;
+    });
+    if (!currentValStillValid) {
+        sel.value = "";
+        if (typeof $ !== "undefined" && $.fn.select2) {
+            $(sel).trigger("change.select2");
+        }
+    }
+}
+
+function applyZoneCascade(zoneVal) {
+    setOptionVisibility("f-region", function(opt) {
+        return !zoneVal || opt.getAttribute("data-zone") === zoneVal;
+    });
+    setOptionVisibility("f-team", function(opt) {
+        return !zoneVal || opt.getAttribute("data-zone") === zoneVal;
+    });
+    setOptionVisibility("f-hq", function(opt) {
+        return !zoneVal || opt.getAttribute("data-zone") === zoneVal;
+    });
+}
+function applyRegionCascade(regionVal) {
+    var z = document.getElementById("f-zone").value;
+    setOptionVisibility("f-team", function(opt) {
+        if (z && opt.getAttribute("data-zone") !== z) return false;
+        return !regionVal || opt.getAttribute("data-region") === regionVal;
+    });
+    setOptionVisibility("f-hq", function(opt) {
+        if (z && opt.getAttribute("data-zone") !== z) return false;
+        return !regionVal || opt.getAttribute("data-region") === regionVal;
+    });
+}
+function applyTeamCascade(teamVal) {
+    var z = document.getElementById("f-zone").value;
+    var r = document.getElementById("f-region").value;
+    setOptionVisibility("f-hq", function(opt) {
+        if (z && opt.getAttribute("data-zone") !== z) return false;
+        if (r && opt.getAttribute("data-region") !== r) return false;
+        return !teamVal || opt.getAttribute("data-team") === teamVal;
+    });
 }
 
 function loadData(page) {
@@ -590,10 +636,19 @@ function fmtNum(val) {
     return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// Enter key triggers search on text inputs
-document.querySelectorAll('#f-stockist, #f-pcode, #f-product, #f-invoice').forEach(function(el) {
-    el.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') loadData(1);
+// Init searchable dropdowns + cascade handlers + Enter-to-search
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof $ !== "undefined" && $.fn.select2) {
+        $('.ps-select2').select2({ width: '100%', allowClear: true });
+    }
+    $('#f-zone').on('change', function() { applyZoneCascade(this.value); });
+    $('#f-region').on('change', function() { applyRegionCascade(this.value); });
+    $('#f-team').on('change', function() { applyTeamCascade(this.value); });
+
+    document.querySelectorAll('#f-stockist, #f-pcode, #f-product, #f-invoice').forEach(function(el) {
+        el.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') loadData(1);
+        });
     });
 });
 
@@ -620,13 +675,11 @@ function populateForm(data) {
     var numFields = ['quantity','freeqty','expqty','pts','ptsvalue','ptr','ptrvalue','mrp','mrpvalue','nrv','nrvvalue','dsort'];
     var selectFields = ['zonee','region','team','product_head'];
 
-    // Text and number fields
     textFields.concat(numFields).forEach(function(f) {
         var el = document.querySelector('#edit-form [name="' + f + '"]');
         if (el) el.value = (data && data[f] != null) ? data[f] : '';
     });
 
-    // Select fields - add value as option if not present
     selectFields.forEach(function(f) {
         var el = document.querySelector('#edit-form select[name="' + f + '"]');
         if (!el) return;
@@ -644,15 +697,12 @@ function populateForm(data) {
         }
     });
 
-    // Month field
     var monthEl = document.querySelector('#edit-form [name="upload_month"]');
     if (monthEl) monthEl.value = (data && data.upload_month) ? data.upload_month : '';
 
-    // Date field
     var dateEl = document.querySelector('#edit-form [name="invoicedate"]');
     if (dateEl) dateEl.value = (data && data.invoicedate) ? data.invoicedate : '';
 
-    // Checkboxes
     document.getElementById('chk-cancelled').checked = data ? !!data.iscancelled : false;
     document.getElementById('chk-direct').checked = data ? !!data.direct_party : false;
 }

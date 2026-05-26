@@ -1,5 +1,5 @@
 import frappe
-from scanify.api import get_user_division
+from scanify.api import get_user_division, get_stockist_report_filter_options
 
 
 def get_context(context):
@@ -17,27 +17,13 @@ def get_context(context):
     else:
         context.user_role = "User"
 
-    # Filter options for dropdowns
-    div_filter = ["in", [context.division, "Both"]]
+    # Hierarchical filter options (code + name + parent links)
+    opts = get_stockist_report_filter_options(context.division)
+    context.zones = opts.get("zones", [])
+    context.regions = opts.get("regions", [])
+    context.teams = opts.get("teams", [])
+    context.hqs = opts.get("hqs", [])
 
-    context.zones = frappe.get_all(
-        "Zone Master",
-        filters={"division": div_filter, "status": "Active"},
-        fields=["name", "zone_name"],
-        order_by="zone_name asc"
-    )
-    context.regions = frappe.get_all(
-        "Region Master",
-        filters={"division": div_filter, "status": "Active"},
-        fields=["name", "region_name"],
-        order_by="region_name asc"
-    )
-    context.teams = frappe.get_all(
-        "Team Master",
-        filters={"division": div_filter, "status": "Active"},
-        fields=["name", "team_name"],
-        order_by="team_name asc"
-    )
     context.product_groups = [
         "DREZ GROUP", "AMINORICH GROUP", "OTHER PRODUCTS", "JUSDEE GROUP",
         "DREZ 10% GROUP", "HOSPITAL PRODUCTS", "CONTUS GROUP", "XPTUM GROUP",

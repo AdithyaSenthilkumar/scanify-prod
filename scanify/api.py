@@ -4432,18 +4432,45 @@ def searchstockists(searchterm=None, division=None, limit=20):
         order_by="stockist_name asc"
     )
 
-    # Enrich with hierarchy from HQ Master (if available)
+    # Pre-build code → name maps so we send human-readable values to the UI
+    hq_codes = {st.get("hq") for st in stockists if st.get("hq")}
+    hq_info = {}
+    if hq_codes:
+        for h in frappe.db.sql(
+            f"""SELECT name, hq_name, IFNULL(team, '') AS team,
+                       IFNULL(region, '') AS region, IFNULL(zone, '') AS zone
+                  FROM `tabHQ Master`
+                 WHERE name IN ({", ".join(["%s"] * len(hq_codes))})""",
+            tuple(hq_codes), as_dict=True,
+        ):
+            hq_info[h.name] = h
+
+    team_codes = {h.team for h in hq_info.values() if h.team}
+    region_codes = {h.region for h in hq_info.values() if h.region}
+    zone_codes = {h.zone for h in hq_info.values() if h.zone}
+
+    team_names = dict(frappe.db.sql(
+        f"SELECT name, team_name FROM `tabTeam Master` WHERE name IN ({', '.join(['%s']*len(team_codes))})",
+        tuple(team_codes))) if team_codes else {}
+    region_names = dict(frappe.db.sql(
+        f"SELECT name, region_name FROM `tabRegion Master` WHERE name IN ({', '.join(['%s']*len(region_codes))})",
+        tuple(region_codes))) if region_codes else {}
+    zone_names = dict(frappe.db.sql(
+        f"SELECT name, zone_name FROM `tabZone Master` WHERE name IN ({', '.join(['%s']*len(zone_codes))})",
+        tuple(zone_codes))) if zone_codes else {}
+
     for st in stockists:
-        team = region = zone = None
-        if st.get("hq"):
-            team, region, zone = frappe.db.get_value(
-                "HQ Master",
-                st["hq"],
-                ["team", "region", "zone"]
-            ) or (None, None, None)
-        st["team"] = team
-        st["region"] = region
-        st["zone"] = zone
+        h = hq_info.get(st.get("hq")) if st.get("hq") else None
+        team_code = h.team if h else None
+        region_code = h.region if h else None
+        zone_code = h.zone if h else None
+        st["team"] = team_code
+        st["region"] = region_code
+        st["zone"] = zone_code
+        st["hq_name"] = (h.hq_name if h else None) or st.get("hq")
+        st["team_name"] = team_names.get(team_code) or team_code
+        st["region_name"] = region_names.get(region_code) or region_code
+        st["zone_name"] = zone_names.get(zone_code) or zone_code
 
     return stockists
 
@@ -5030,6 +5057,11 @@ def get_stockist_details(stockist_code):
     if st.hq:
         team, region, zone = frappe.db.get_value("HQ Master", st.hq, ["team", "region", "zone"]) or (None, None, None)
 
+    hq_name = frappe.db.get_value("HQ Master", st.hq, "hq_name") if st.hq else None
+    team_name = frappe.db.get_value("Team Master", team, "team_name") if team else None
+    region_name = frappe.db.get_value("Region Master", region, "region_name") if region else None
+    zone_name = frappe.db.get_value("Zone Master", zone, "zone_name") if zone else None
+
     return {
         "stockist_code": st.stockist_code,
         "stockist_name": st.stockist_name,
@@ -5039,6 +5071,10 @@ def get_stockist_details(stockist_code):
         "team": team,
         "region": region,
         "zone": zone,
+        "hq_name": hq_name or st.hq,
+        "team_name": team_name or team,
+        "region_name": region_name or region,
+        "zone_name": zone_name or zone,
     }
 
 
@@ -6776,14 +6812,32 @@ def process_primary_sales_upload(upload_month, file_url):
 @frappe.whitelist()
 def get_primary_sales_data(division, page=1, page_size=50,
                            upload_month=None, zonee=None, region=None,
-                           team=None, product_head=None, iscancelled=None,
+                           team=None, hq=None, product_head=None, iscancelled=None,
                            stockist_search=None, pcode=None, product_search=None,
                            invoiceno=None):
-    """Fetch paginated primary sales data with filters."""
+    """Fetch paginated primary sales data with filters.
+
+    zonee/region/team accept either the master *code* (preferred from the new
+    cascading dropdowns) or the *name* (legacy callers). They are resolved to
+    the stored display value below.
+    hq must be the HQ Master *code* — filtered via Stockist Master.hq.
+    """
 
     page = int(page)
     page_size = min(int(page_size), 200)
     offset = (page - 1) * page_size
+
+    # Resolve code → stored display name for the Data fields in Primary Sales Data.
+    def _resolve(doctype, value, name_field):
+        if not value:
+            return value
+        # If a Master record exists with that code, swap to its display name.
+        actual = frappe.db.get_value(doctype, value, name_field)
+        return actual or value
+
+    zone_filter = _resolve("Zone Master", zonee, "zone_name") if zonee else None
+    region_filter = _resolve("Region Master", region, "region_name") if region else None
+    team_filter = _resolve("Team Master", team, "team_name") if team else None
 
     conditions = ["division = %(division)s"]
     params = {"division": division, "page_size": page_size, "offset": offset}
@@ -6792,17 +6846,21 @@ def get_primary_sales_data(division, page=1, page_size=50,
         conditions.append("upload_month = %(upload_month)s")
         params["upload_month"] = upload_month
 
-    if zonee:
+    if zone_filter:
         conditions.append("zonee = %(zonee)s")
-        params["zonee"] = zonee
+        params["zonee"] = zone_filter
 
-    if region:
+    if region_filter:
         conditions.append("region = %(region)s")
-        params["region"] = region
+        params["region"] = region_filter
 
-    if team:
+    if team_filter:
         conditions.append("team = %(team)s")
-        params["team"] = team
+        params["team"] = team_filter
+
+    if hq:
+        conditions.append("stockist_code IN (SELECT name FROM `tabStockist Master` WHERE hq = %(hq)s)")
+        params["hq"] = hq
 
     if product_head:
         conditions.append("product_head = %(product_head)s")
@@ -7054,15 +7112,21 @@ def get_stockist_report_filter_options(division=None):
         division = get_user_division()
 
     regions = frappe.db.sql(
-        "SELECT DISTINCT name, region_name FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        "SELECT DISTINCT name, region_name, IFNULL(zone, '') AS zone FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_dict=True,
     )
     teams = frappe.db.sql(
-        "SELECT DISTINCT name, team_name, region FROM `tabTeam Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        """SELECT DISTINCT t.name, t.team_name,
+                  IFNULL(t.region, '') AS region,
+                  IFNULL(r.zone, '')   AS zone
+             FROM `tabTeam Master` t
+             LEFT JOIN `tabRegion Master` r ON r.name = t.region
+            WHERE t.status='Active' AND t.division IN (%s, 'Both')
+            ORDER BY t.name""",
         (division,), as_dict=True,
     )
     hqs = frappe.db.sql(
-        "SELECT DISTINCT name, hq_name, team, region FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
+        "SELECT DISTINCT name, hq_name, IFNULL(team, '') AS team, IFNULL(region, '') AS region, IFNULL(zone, '') AS zone FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
         (division,), as_dict=True,
     )
     zones = frappe.db.sql(
@@ -7083,9 +7147,9 @@ def get_stockist_report_filter_options(division=None):
     )
 
     return {
-        "regions": [{"code": r.name, "name": r.region_name} for r in regions],
-        "teams": [{"code": t.name, "name": t.team_name, "region": t.region or ""} for t in teams],
-        "hqs": [{"code": h.name, "name": h.hq_name, "team": h.team or "", "region": h.region or ""} for h in hqs],
+        "regions": [{"code": r.name, "name": r.region_name, "zone": r.zone} for r in regions],
+        "teams": [{"code": t.name, "name": t.team_name, "region": t.region or "", "zone": t.zone or ""} for t in teams],
+        "hqs": [{"code": h.name, "name": h.hq_name, "team": h.team or "", "region": h.region or "", "zone": h.zone or ""} for h in hqs],
         "zones": [{"code": z.name, "name": z.zone_name} for z in zones],
         "stockists": [{
             "code": s.name, "name": s.stockist_name} for s in stockists],

@@ -15,39 +15,32 @@
     <!-- Filters -->
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body bg-light rounded px-4 py-3 border">
-            <!-- Row 1: Search + Month + Extraction Status + Clear -->
+            <!-- Row 1: Search + Month + Extraction Status + QC Status + Statement Status + Clear -->
             <div class="row align-items-center mb-2">
-                <div class="col-md-5 mb-2 mb-md-0">
-                    <div class="input-group">
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <div class="input-group input-group-sm">
                         <div class="input-group-prepend">
                             <span class="input-group-text bg-white"><i class="fa fa-search text-muted"></i></span>
                         </div>
-                        <input type="text" id="searchInput" class="form-control"
-                            placeholder="Search by Stockist Name or Code...">
+                        <input type="text" id="searchInput" class="form-control form-control-sm"
+                            placeholder="Search Stockist…">
                     </div>
                 </div>
                 <div class="col-md-2 mb-2 mb-md-0">
-                    <input type="month" id="monthFilter" class="form-control" placeholder="Filter by Month">
+                    <input type="month" id="monthFilter" class="form-control form-control-sm" placeholder="Filter by Month">
                 </div>
-                <div class="col-md-3 mb-2 mb-md-0">
-                    <select id="statusFilter" class="form-control custom-select">
-                        <option value="">All Extraction Statuses</option>
+                <div class="col-md-2 mb-2 mb-md-0">
+                    <select id="statusFilter" class="form-control form-control-sm custom-select">
+                        <option value="">All Extraction Status</option>
                         <option value="Pending">Pending</option>
                         <option value="In Progress">In Progress</option>
                         <option value="Completed">Completed</option>
                         <option value="Failed">Failed</option>
                     </select>
                 </div>
-                <div class="col-md-2 text-md-right mb-2 mb-md-0">
-                    <button class="btn btn-outline-secondary w-100" onclick="clearFilters()"><i class="fa fa-times"></i>
-                        Clear</button>
-                </div>
-            </div>
-            <!-- Row 2: QC Confidence + QC Review Status + Region + Zone + HQ -->
-            <div class="row align-items-center">
                 <div class="col-md-2 mb-2 mb-md-0">
-                    <select id="qcFilter" class="form-control custom-select stmt-select2">
-                        <option value="">All QC Statuses</option>
+                    <select id="qcFilter" class="form-control form-control-sm custom-select stmt-select2">
+                        <option value="">All QC Status</option>
                         <option value="All Matched">✓ All Matched</option>
                         <option value="Verification Needed">⚠ Verification Needed</option>
                         <option value="QC Needed">✗ QC Needed</option>
@@ -55,33 +48,49 @@
                     </select>
                 </div>
                 <div class="col-md-2 mb-2 mb-md-0">
-                    <select id="docstatusFilter" class="form-control custom-select">
-                        <option value=""> All Statement Status</option>
+                    <select id="docstatusFilter" class="form-control form-control-sm custom-select">
+                        <option value="">All Statement Status</option>
                         <option value="0">Draft</option>
                         <option value="1">Submitted</option>
                     </select>
                 </div>
-                <div class="col-md-3 mb-2 mb-md-0">
-                    <select id="regionFilter" class="form-control custom-select stmt-select2">
-                        <option value="">All Regions</option>
-                        {% for r in regions %}
-                        <option value="{{ r.code }}">{{ r.name }}{% if r.code %} ({{ r.code }}){% endif %}</option>
-                        {% endfor %}
-                    </select>
+                <div class="col-md-1 text-md-right mb-2 mb-md-0">
+                    <button class="btn btn-sm btn-outline-secondary w-100" onclick="clearFilters()" title="Clear filters">
+                        <i class="fa fa-times"></i>
+                    </button>
                 </div>
+            </div>
+            <!-- Row 2: Zone → Region → Team → HQ -->
+            <div class="row align-items-center">
                 <div class="col-md-3 mb-2 mb-md-0">
-                    <select id="zoneFilter" class="form-control custom-select stmt-select2">
+                    <select id="zoneFilter" class="form-control form-control-sm custom-select stmt-select2">
                         <option value="">All Zones</option>
                         {% for z in zones %}
-                        <option value="{{ z.code }}">{{ z.name }}{% if z.code %} ({{ z.code }}){% endif %}</option>
+                        <option value="{{ z.code }}">{{ z.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-2 mb-2 mb-md-0">
-                    <select id="hqFilter" class="form-control custom-select stmt-select2">
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <select id="regionFilter" class="form-control form-control-sm custom-select stmt-select2">
+                        <option value="">All Regions</option>
+                        {% for r in regions %}
+                        <option value="{{ r.code }}" data-zone="{{ r.zone }}">{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <select id="teamFilter" class="form-control form-control-sm custom-select stmt-select2">
+                        <option value="">All Teams</option>
+                        {% for t in teams %}
+                        <option value="{{ t.code }}" data-zone="{{ t.zone }}" data-region="{{ t.region }}">{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <select id="hqFilter" class="form-control form-control-sm custom-select stmt-select2">
                         <option value="">All HQs</option>
                         {% for h in hqs %}
-                        <option value="{{ h.code }}">{{ h.name }}{% if h.code %} ({{ h.code }}){% endif %}</option>
+                        <option value="{{ h.code }}" data-zone="{{ h.zone }}" data-region="{{ h.region }}" data-team="{{ h.team }}">{{ h.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -98,6 +107,7 @@
                         <tr>
                             <th>Statement ID</th>
                             <th>Stockist</th>
+                            <th>HQ</th>
                             <th>Month</th>
                             <th>Created On</th>
                             <th>OCR Status</th>
@@ -118,12 +128,14 @@
                             data-docstatus="{{ row.docstatus }}"
                             data-region="{{ row.region or '' }}"
                             data-zone="{{ row.zone or '' }}"
+                            data-team="{{ row.team or '' }}"
                             data-hq="{{ row.hq or '' }}">
                             <td><strong>{{ row.name }}</strong></td>
                             <td>
                                 <div>{{ row.stockist_name }}</div>
                                 <small class="text-muted">{{ row.stockist_code }}</small>
                             </td>
+                            <td>{{ row.hq_name or '—' }}</td>
                             <td>{{ frappe.utils.formatdate(row.statement_month, "MM-yyyy") }}</td>
                             <td>{{ frappe.utils.formatdate(row.creation) }}</td>
                             <td>
@@ -186,7 +198,7 @@
                         {% endfor %}
                         {% else %}
                         <tr id="emptyRow">
-                            <td colspan="9" class="text-center py-5 text-muted">
+                            <td colspan="10" class="text-center py-5 text-muted">
                                 <i class="fa fa-folder-open fa-3x mb-3 text-light"></i>
                                 <h5>No stockist statements found for {{ division }}</h5>
                                 <p>Click 'New Statement' to upload one.</p>
@@ -194,7 +206,7 @@
                         </tr>
                         {% endif %}
                         <tr id="noMatchesRow" style="display: none;">
-                            <td colspan="9" class="text-center py-4 text-muted">No statements matching the filters.</td>
+                            <td colspan="10" class="text-center py-4 text-muted">No statements matching the filters.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -219,12 +231,12 @@
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <style>
 .select2-container--default .select2-selection--single {
-    height: 38px; border-radius: 4px;
-    border: 1px solid #ced4da; font-size: 14px;
+    height: 31px; border-radius: 4px;
+    border: 1px solid #ced4da; font-size: 13px;
 }
-.select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 36px; padding-left: 10px; }
-.select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
-.select2-dropdown { font-size: 14px; z-index: 9999; }
+.select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; padding-left: 10px; }
+.select2-container--default .select2-selection--single .select2-selection__arrow { height: 29px; }
+.select2-dropdown { font-size: 13px; z-index: 9999; }
 .select2-results__option--highlighted { background: #4f46e5 !important; }
 </style>
 {% endblock %}
@@ -243,8 +255,9 @@
             month: document.getElementById("monthFilter").value,
             qc: document.getElementById("qcFilter").value,
             docstatus: document.getElementById("docstatusFilter").value,
-            region: document.getElementById("regionFilter").value,
             zone: document.getElementById("zoneFilter").value,
+            region: document.getElementById("regionFilter").value,
+            team: document.getElementById("teamFilter").value,
             hq: document.getElementById("hqFilter").value,
             page: stmtCurrentPage
         }));
@@ -258,20 +271,78 @@
             document.getElementById("searchInput").value = f.search || "";
             document.getElementById("statusFilter").value = f.status || "";
             document.getElementById("monthFilter").value = f.month || "";
+            document.getElementById("docstatusFilter").value = f.docstatus || "";
             if (typeof $ !== "undefined" && $.fn.select2) {
                 $("#qcFilter").val(f.qc || "").trigger("change.select2");
-                $("#regionFilter").val(f.region || "").trigger("change.select2");
                 $("#zoneFilter").val(f.zone || "").trigger("change.select2");
+                applyZoneCascade(f.zone || "");
+                $("#regionFilter").val(f.region || "").trigger("change.select2");
+                applyRegionCascade(f.region || "");
+                $("#teamFilter").val(f.team || "").trigger("change.select2");
+                applyTeamCascade(f.team || "");
                 $("#hqFilter").val(f.hq || "").trigger("change.select2");
             } else {
                 document.getElementById("qcFilter").value = f.qc || "";
-                document.getElementById("docstatusFilter").value = f.docstatus || "";
-                document.getElementById("regionFilter").value = f.region || "";
                 document.getElementById("zoneFilter").value = f.zone || "";
+                document.getElementById("regionFilter").value = f.region || "";
+                document.getElementById("teamFilter").value = f.team || "";
                 document.getElementById("hqFilter").value = f.hq || "";
             }
             stmtCurrentPage = parseInt(f.page) || 1;
         } catch(e) { /* corrupt data – ignore */ }
+    }
+
+    // --- Cascading helpers ---
+    function setOptionVisibility(selectId, predicate) {
+        const sel = document.getElementById(selectId);
+        if (!sel) return;
+        let currentValStillValid = (sel.value === "");
+        Array.from(sel.options).forEach(function(opt) {
+            if (!opt.value) { opt.hidden = false; opt.disabled = false; return; }
+            const ok = predicate(opt);
+            opt.hidden = !ok;
+            opt.disabled = !ok;
+            if (opt.value === sel.value && ok) currentValStillValid = true;
+        });
+        if (!currentValStillValid) {
+            sel.value = "";
+            if (typeof $ !== "undefined" && $.fn.select2) {
+                $(sel).trigger("change.select2");
+            }
+        }
+    }
+
+    function applyZoneCascade(zoneVal) {
+        setOptionVisibility("regionFilter", function(opt) {
+            return !zoneVal || opt.getAttribute("data-zone") === zoneVal;
+        });
+        setOptionVisibility("teamFilter", function(opt) {
+            return !zoneVal || opt.getAttribute("data-zone") === zoneVal;
+        });
+        setOptionVisibility("hqFilter", function(opt) {
+            return !zoneVal || opt.getAttribute("data-zone") === zoneVal;
+        });
+    }
+    function applyRegionCascade(regionVal) {
+        setOptionVisibility("teamFilter", function(opt) {
+            const z = document.getElementById("zoneFilter").value;
+            if (z && opt.getAttribute("data-zone") !== z) return false;
+            return !regionVal || opt.getAttribute("data-region") === regionVal;
+        });
+        setOptionVisibility("hqFilter", function(opt) {
+            const z = document.getElementById("zoneFilter").value;
+            if (z && opt.getAttribute("data-zone") !== z) return false;
+            return !regionVal || opt.getAttribute("data-region") === regionVal;
+        });
+    }
+    function applyTeamCascade(teamVal) {
+        setOptionVisibility("hqFilter", function(opt) {
+            const z = document.getElementById("zoneFilter").value;
+            const r = document.getElementById("regionFilter").value;
+            if (z && opt.getAttribute("data-zone") !== z) return false;
+            if (r && opt.getAttribute("data-region") !== r) return false;
+            return !teamVal || opt.getAttribute("data-team") === teamVal;
+        });
     }
 
     document.addEventListener("DOMContentLoaded", function () {
@@ -280,8 +351,9 @@
         const monthFilter = document.getElementById("monthFilter");
         const qcFilter = document.getElementById("qcFilter");
         const docstatusFilter = document.getElementById("docstatusFilter");
-        const regionFilter = document.getElementById("regionFilter");
         const zoneFilter = document.getElementById("zoneFilter");
+        const regionFilter = document.getElementById("regionFilter");
+        const teamFilter = document.getElementById("teamFilter");
         const hqFilter = document.getElementById("hqFilter");
         const allRows = Array.from(document.querySelectorAll(".statement-row"));
         const noMatchesRow = document.getElementById("noMatchesRow");
@@ -292,6 +364,11 @@
             $(".stmt-select2").on("change", onFilterChange);
         }
 
+        // Cascading change handlers
+        $("#zoneFilter").on("change", function() { applyZoneCascade(this.value); });
+        $("#regionFilter").on("change", function() { applyRegionCascade(this.value); });
+        $("#teamFilter").on("change", function() { applyTeamCascade(this.value); });
+
         restoreFilters();
 
         function getVisibleRows() {
@@ -300,8 +377,9 @@
             const monthTerm = monthFilter.value;
             const qcTerm = qcFilter.value;
             const docstatusTerm = docstatusFilter.value;
-            const regionTerm = regionFilter.value;
             const zoneTerm = zoneFilter.value;
+            const regionTerm = regionFilter.value;
+            const teamTerm = teamFilter.value;
             const hqTerm = hqFilter.value;
             return allRows.filter(function(row) {
                 const stockistData = row.getAttribute("data-stockist");
@@ -309,19 +387,21 @@
                 const rowMonth = row.getAttribute("data-month");
                 const rowQc = row.getAttribute("data-qc");
                 const rowDocstatus = row.getAttribute("data-docstatus");
-                const rowRegion = row.getAttribute("data-region");
                 const rowZone = row.getAttribute("data-zone");
+                const rowRegion = row.getAttribute("data-region");
+                const rowTeam = row.getAttribute("data-team");
                 const rowHq = row.getAttribute("data-hq");
                 const matchesSearch = stockistData.includes(searchTerm);
                 const matchesStatus = statusTerm === "" || rowStatus === statusTerm;
                 const matchesQc = qcTerm === "" || rowQc === qcTerm;
                 const matchesDocstatus = docstatusTerm === "" || rowDocstatus === docstatusTerm;
-                const matchesRegion = regionTerm === "" || rowRegion === regionTerm;
                 const matchesZone = zoneTerm === "" || rowZone === zoneTerm;
+                const matchesRegion = regionTerm === "" || rowRegion === regionTerm;
+                const matchesTeam = teamTerm === "" || rowTeam === teamTerm;
                 const matchesHq = hqTerm === "" || rowHq === hqTerm;
                 let matchesMonth = true;
                 if (monthTerm) matchesMonth = rowMonth.startsWith(monthTerm);
-                return matchesSearch && matchesStatus && matchesMonth && matchesQc && matchesDocstatus && matchesRegion && matchesZone && matchesHq;
+                return matchesSearch && matchesStatus && matchesMonth && matchesQc && matchesDocstatus && matchesZone && matchesRegion && matchesTeam && matchesHq;
             });
         }
 
@@ -370,24 +450,29 @@
         monthFilter.addEventListener("change", onFilterChange);
         qcFilter.addEventListener("change", onFilterChange);
         docstatusFilter.addEventListener("change", onFilterChange);
-        regionFilter.addEventListener("change", onFilterChange);
         zoneFilter.addEventListener("change", onFilterChange);
+        regionFilter.addEventListener("change", onFilterChange);
+        teamFilter.addEventListener("change", onFilterChange);
         hqFilter.addEventListener("change", onFilterChange);
 
         window.clearFilters = function () {
             searchInput.value = "";
             statusFilter.value = "";
             monthFilter.value = "";
+            docstatusFilter.value = "";
             if (typeof $ !== "undefined" && $.fn.select2) {
-                $("#qcFilter, #regionFilter, #zoneFilter, #hqFilter").val("").trigger("change");
-                docstatusFilter.value = "";
+                $("#qcFilter, #zoneFilter, #regionFilter, #teamFilter, #hqFilter").val("").trigger("change");
             } else {
                 qcFilter.value = "";
-                docstatusFilter.value = "";
-                regionFilter.value = "";
                 zoneFilter.value = "";
+                regionFilter.value = "";
+                teamFilter.value = "";
                 hqFilter.value = "";
             }
+            // Reset cascades
+            applyZoneCascade("");
+            applyRegionCascade("");
+            applyTeamCascade("");
             sessionStorage.removeItem(SS_KEY);
             stmtCurrentPage = 1;
             paginateRows();

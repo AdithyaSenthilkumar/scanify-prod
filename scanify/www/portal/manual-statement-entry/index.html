@@ -585,10 +585,10 @@
     var $menu = $('<div class="me-autocomplete"></div>');
 
     stockists.forEach(function (st) {
-      var label = st.stockist_code + ' - ' + st.stockist_name;
-      var meta = [st.hq, st.team, st.region, st.zone].filter(Boolean).join(' | ');
+      var label = st.stockist_name;
+      var meta = [st.hq_name, st.team_name, st.region_name, st.zone_name].filter(Boolean).join(' | ');
       var $item = $('<div class="autocomplete-item">' +
-        '<div class="font-weight-bold">' + me_escape(st.stockist_code) + ' — ' + me_escape(st.stockist_name) + '</div>' +
+        '<div class="font-weight-bold">' + me_escape(st.stockist_name) + '</div>' +
         '<small class="text-muted">' + me_escape(meta) + '</small></div>');
 
       $item.on('click', function () {
@@ -628,10 +628,10 @@
         return;
       }
 
-      $('#me-hq').val(d.hq || '');
-      $('#me-team').val(d.team || '');
-      $('#me-region').val(d.region || '');
-      $('#me-zone').val(d.zone || '');
+      $('#me-hq').val(d.hq_name || d.hq || '');
+      $('#me-team').val(d.team_name || d.team || '');
+      $('#me-region').val(d.region_name || d.region || '');
+      $('#me-zone').val(d.zone_name || d.zone || '');
       $('#me-stockist-info').text('Selected: ' + (d.stockist_name || code));
       $('#me-meta-row').show();
       me_check_duplicate();

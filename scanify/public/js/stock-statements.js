@@ -123,12 +123,12 @@ function render_stockist_results(stockists) {
   const $menu = $('<div class="link-dropdown"></div>');
 
   stockists.forEach(st => {
-    const label = `${st.stockist_code} - ${st.stockist_name}`;
-    const meta = [st.hq, st.team, st.region, st.zone].filter(Boolean).join(' | ');
+    const label = st.stockist_name;
+    const meta = [st.hq_name, st.team_name, st.region_name, st.zone_name].filter(Boolean).join(' | ');
 
     const $item = $(`
       <div class="autocomplete-item">
-        <div class="font-weight-bold">${escape_html(st.stockist_code)} — ${escape_html(st.stockist_name)}</div>
+        <div class="font-weight-bold">${escape_html(st.stockist_name)}</div>
         <small class="text-muted">${escape_html(meta)}</small>
       </div>
     `);
@@ -179,10 +179,10 @@ async function populate_stockist_details(stockist_code) {
       return;
     }
 
-    $('#hq').val(details.hq || '');
-    $('#team').val(details.team || '');
-    $('#region').val(details.region || '');
-    $('#zone').val(details.zone || '');
+    $('#hq').val(details.hq_name || details.hq || '');
+    $('#team').val(details.team_name || details.team || '');
+    $('#region').val(details.region_name || details.region || '');
+    $('#zone').val(details.zone_name || details.zone || '');
     $('#stockist-info').text(`Selected: ${details.stockist_name || stockist_code}`);
     $('#stockist-meta-row').show();
   } catch (e) {
