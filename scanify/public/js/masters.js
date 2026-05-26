@@ -4,6 +4,7 @@ let allRecords = [];
 let filteredRecords = [];
 let currentPage = 1;
 const PAGE_SIZE = 25;
+let currentStatusFilter = '';
 
 // Single master mode: when this page only shows one master type (e.g. Division Master page)
 let singleMasterMode = (typeof window.MASTERS_SINGLE_MODE !== 'undefined') ? window.MASTERS_SINGLE_MODE : null;
@@ -261,6 +262,7 @@ window.addEventListener('load', function () {
     if (masterTypeEl) {
         masterTypeEl.addEventListener('change', function () {
             currentMasterType = this.value;
+            currentStatusFilter = '';
             loadMasterData();
         });
     }
@@ -432,8 +434,28 @@ function buildTableHeader(config) {
 
 // Build filter controls
 function buildFilterControls(config) {
-    // Filters removed: division is session-controlled and search is sufficient.
-    $('#filter-controls').empty().hide();
+    const hasStatus = config.fields && config.fields.some(f => f.name === 'status');
+    if (!hasStatus) {
+        $('#filter-controls').empty().hide();
+        return;
+    }
+
+    const html = `
+        <div class="col-md-3">
+            <label><strong>Status</strong></label>
+            <select class="form-control" id="status-filter">
+                <option value="">All</option>
+                <option value="Active" ${currentStatusFilter === 'Active' ? 'selected' : ''}>Active</option>
+                <option value="Inactive" ${currentStatusFilter === 'Inactive' ? 'selected' : ''}>Inactive</option>
+            </select>
+        </div>
+    `;
+    $('#filter-controls').html(html).show();
+
+    $('#status-filter').on('change', function () {
+        currentStatusFilter = this.value;
+        filterRecords();
+    });
 }
 
 // Render table with pagination
@@ -535,6 +557,11 @@ function filterRecords() {
             if (!matches) return false;
         }
 
+        // Status filter
+        if (currentStatusFilter) {
+            if ((record.status || '') !== currentStatusFilter) return false;
+        }
+
         return true;
     });
 
@@ -546,6 +573,9 @@ function filterRecords() {
 // Reset filters
 function resetFilters() {
     $('#search-input').val('');
+    currentStatusFilter = '';
+    const statusFilter = document.getElementById('status-filter');
+    if (statusFilter) statusFilter.value = '';
     filterRecords();
 }
 

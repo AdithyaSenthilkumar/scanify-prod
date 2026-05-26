@@ -6547,7 +6547,7 @@ def process_primary_sales_upload(upload_month, file_url):
                 headers.append(str(h).strip().lower())
 
         # Validate required columns exist
-        required_cols = {"stockistcode", "iscancelled"}
+        required_cols = {"stockistname", "iscancelled"}
         found_cols = set(h for h in headers if h)
         missing = required_cols - found_cols
         if missing:
@@ -6558,12 +6558,14 @@ def process_primary_sales_upload(upload_month, file_url):
             return {"success": False, "error": f"Missing required columns: {', '.join(missing)}"}
 
         # Build caches for validation
-        stockist_cache = {}
+        # Keyed by lowercase stockist_name -> stockist_code from master
+        stockist_name_cache = {}
         for s in frappe.get_all("Stockist Master",
                                 filters={"division": ["in", [user_division, "Both"]]},
-                                fields=["stockist_code", "name"],
+                                fields=["stockist_code", "stockist_name"],
                                 limit_page_length=0):
-            stockist_cache[s.stockist_code] = s.name
+            if s.stockist_name:
+                stockist_name_cache[s.stockist_name.strip().lower()] = s.stockist_code
 
         product_cache = {}
         for p in frappe.get_all("Product Master",
@@ -6606,11 +6608,18 @@ def process_primary_sales_upload(upload_month, file_url):
 
             is_cancelled = row_data.get("iscancelled", 0)
 
-            # Validate stockist_code (always required)
-            stockist_code = row_data.get("stockist_code", "")
-            if not stockist_code:
-                errors.append(f"Row {row_idx}: Missing stockist code")
+            # Resolve stockist by name (required)
+            excel_stockist_name = (row_data.get("stockist_name") or "").strip()
+            if not excel_stockist_name:
+                errors.append(f"Row {row_idx}: Missing stockist name")
                 continue
+
+            matched_code = stockist_name_cache.get(excel_stockist_name.lower())
+            if matched_code:
+                row_data["stockist_code"] = matched_code
+            else:
+                errors.append(f"Row {row_idx}: Stockist name '{excel_stockist_name}' not found in Stockist Master (data saved anyway)")
+                # Keep whatever stockist_code came from Excel, or leave blank
 
             # For non-cancelled rows, validate product code if present
             pcode = row_data.get("pcode", "")
@@ -6618,10 +6627,6 @@ def process_primary_sales_upload(upload_month, file_url):
                 # Warn if product not found but still store the data
                 if pcode not in product_cache:
                     errors.append(f"Row {row_idx}: Product code '{pcode}' not found in Product Master (data saved anyway)")
-
-            # Warn if stockist not found but still store the data
-            if stockist_code not in stockist_cache:
-                errors.append(f"Row {row_idx}: Stockist code '{stockist_code}' not found in Stockist Master (data saved anyway)")
 
             # Build the record
             row_data["upload_month"] = upload_month
