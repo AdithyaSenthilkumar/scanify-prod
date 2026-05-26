@@ -10176,7 +10176,7 @@ def create_manual_statement(stockist_code, statement_month, items, uploaded_file
         doc = frappe.new_doc("Stockist Statement")
         doc.stockist_code = stockist_code
         doc.statement_month = statement_month
-        doc.extracted_data_status = "Draft"
+        doc.extracted_data_status = "Completed"
         if uploaded_file:
             doc.uploaded_file = uploaded_file
         if remarks:
