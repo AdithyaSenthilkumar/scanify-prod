@@ -151,16 +151,28 @@
                 </select>
             </div>
 
-            <!-- From Date -->
-            <div class="sr-filter-item filter-field" data-reports="primary_sales,secondary_sales,closing_stock">
+            <!-- From Date (Reports 1, 4) -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,closing_stock">
                 <label class="sr-filter-label">From Date</label>
                 <input type="date" class="form-control form-control-sm sr-filter-select" id="f-from-date">
             </div>
 
-            <!-- To Date -->
-            <div class="sr-filter-item filter-field" data-reports="primary_sales,secondary_sales,closing_stock">
+            <!-- To Date (Reports 1, 4) -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,closing_stock">
                 <label class="sr-filter-label">To Date</label>
                 <input type="date" class="form-control form-control-sm sr-filter-select" id="f-to-date">
+            </div>
+
+            <!-- From Month (Report 2) -->
+            <div class="sr-filter-item filter-field" data-reports="secondary_sales">
+                <label class="sr-filter-label">From Month</label>
+                <input type="month" class="form-control form-control-sm sr-filter-select" id="f-from-month">
+            </div>
+
+            <!-- To Month (Report 2) -->
+            <div class="sr-filter-item filter-field" data-reports="secondary_sales">
+                <label class="sr-filter-label">To Month</label>
+                <input type="month" class="form-control form-control-sm sr-filter-select" id="f-to-month">
             </div>
 
             <!-- Group By (Report 4) -->
@@ -578,9 +590,55 @@
 
 <script>
 const DIVISION = "{{ division }}";
+const STEDMAN_LOGO_URL = "/assets/scanify/images/stedman_logo.jpeg";
 let currentReportType = "";
 let currentReportData = null;
 let currentReportMeta = {};
+let STEDMAN_LOGO_DATA_URL = null;
+
+// Preload the Stedman logo and cache its base64 data URL for jsPDF
+(function preloadLogo() {
+    var img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = function () {
+        try {
+            var c = document.createElement("canvas");
+            c.width = img.naturalWidth || img.width;
+            c.height = img.naturalHeight || img.height;
+            var ctx = c.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            STEDMAN_LOGO_DATA_URL = c.toDataURL("image/png");
+        } catch (e) { /* CORS or canvas tainted – skip silently */ }
+    };
+    img.src = STEDMAN_LOGO_URL;
+})();
+
+// Blank-zero formatters: show empty string when value is 0/null for cleaner reports.
+function nz(n) { var x = Number(n); return n != null && x !== 0 ? n : ""; }
+function fmtNZ(n) {
+    var x = Number(n);
+    if (n == null || !isFinite(x) || x === 0) return "";
+    return x.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+function fmtQtyNZ(n) {
+    var x = Number(n);
+    if (n == null || !isFinite(x) || x === 0) return "";
+    return x.toLocaleString("en-IN", {minimumFractionDigits: 0, maximumFractionDigits: 2});
+}
+// Sanitise text for jsPDF: its default Helvetica encoding lacks ₹, em/en dashes,
+// fancy quotes and the ellipsis glyph — they all render as gibberish (e.g. "&&V")
+// in autoTable cells. Substitute ASCII equivalents.
+function ascii(s) {
+    if (s == null) return "";
+    return String(s)
+        .replace(/₹/g, "Rs.")
+        .replace(/[–—]/g, "-")  // en/em dash
+        .replace(/[‘’]/g, "'")    // curly single quotes
+        .replace(/[“”]/g, '"')    // curly double quotes
+        .replace(/…/g, "...")           // ellipsis
+        .replace(/·/g, "*")             // middle dot
+        .replace(/−/g, "-");            // minus sign
+}
 
 // Pre-loaded context data for cascading and Report 7
 var CTX_ZONES_RAW = {{ zones | tojson }};
@@ -790,8 +848,15 @@ function buildParams() {
         if (region) p.region = region;
         if (team) p.team = team;
         if (hq) p.hq = hq;
-        if (fromDate) p.from_date = fromDate;
-        if (toDate) p.to_date = toDate;
+        // From/To Month inputs are YYYY-MM; convert to first-of-month / last-of-month.
+        var fm = document.getElementById("f-from-month").value;
+        var tm = document.getElementById("f-to-month").value;
+        if (fm) p.from_date = fm + "-01";
+        if (tm) {
+            var parts = tm.split("-");
+            var lastDay = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10), 0).getDate();
+            p.to_date = tm + "-" + String(lastDay).padStart(2, "0");
+        }
     } else if (currentReportType === "closing_stock") {
         if (region) p.region = region;
         if (team) p.team = team;
@@ -946,6 +1011,9 @@ function getDataLength(result) {
     if (currentReportType === "region_product_stock") {
         return (result.products || []).length;
     }
+    if (currentReportType === "secondary_sales") {
+        return (result.products || []).length;
+    }
     return (result.data || []).length;
 }
 
@@ -957,14 +1025,14 @@ function fmtLakhs(n) { return (n != null ? (Number(n) / 100000) : 0).toFixed(2);
 
 // ---------- Report 1: Primary Sales ----------
 function renderPrimarySales(result, thead, tbody) {
-    thead.innerHTML = `<tr>${th("Stockist Code")}${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Quantity")}${th("Value (PTS)")}${th("Value (₹ Lakhs)")}</tr>`;
+    thead.innerHTML = `<tr>${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Quantity")}${th("Value (PTS)")}${th("Value (Rs. Lakhs)")}</tr>`;
     let currentStk = null;
     let stkQty = 0, stkVal = 0, grandQty = 0, grandVal = 0;
     const data = result.data || [];
 
     function flushStockistSubtotal() {
         if (currentStk !== null) {
-            tbody.innerHTML += `<tr class="subtotal-row"><td colspan="5" class="text-right font-weight-bold">Stockist Total</td><td class="text-right font-weight-bold">${fmtQty(stkQty)}</td><td class="text-right font-weight-bold">${fmt(stkVal)}</td><td class="text-right font-weight-bold">${fmtLakhs(stkVal)}</td></tr>`;
+            tbody.innerHTML += `<tr class="subtotal-row"><td colspan="4" class="text-right font-weight-bold">Stockist Total</td><td class="text-right font-weight-bold">${fmtQtyNZ(stkQty)}</td><td class="text-right font-weight-bold">${fmtNZ(stkVal)}</td><td class="text-right font-weight-bold">${fmtNZ(stkVal / 100000)}</td></tr>`;
         }
     }
 
@@ -973,50 +1041,70 @@ function renderPrimarySales(result, thead, tbody) {
             flushStockistSubtotal();
             currentStk = r.stockist_code;
             stkQty = 0; stkVal = 0;
-            tbody.innerHTML += `<tr class="group-row"><td colspan="8">${esc(r.stockist_name)} (${esc(r.stockist_code)})</td></tr>`;
+            tbody.innerHTML += `<tr class="group-row"><td colspan="7">${esc(r.stockist_name)}</td></tr>`;
         }
         stkQty += Number(r.total_qty) || 0;
         stkVal += Number(r.total_value) || 0;
         grandQty += Number(r.total_qty) || 0;
         grandVal += Number(r.total_value) || 0;
-        tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQty(r.total_qty), "text-right")}${td(fmt(r.total_value), "text-right")}${td(fmtLakhs(r.total_value), "text-right")}</tr>`;
+        tbody.innerHTML += `<tr>${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQtyNZ(r.total_qty), "text-right")}${td(fmtNZ(r.total_value), "text-right")}${td(fmtNZ((Number(r.total_value)||0) / 100000), "text-right")}</tr>`;
     });
     flushStockistSubtotal();
     if (data.length > 0) {
-        tbody.innerHTML += `<tr class="grand-total-row"><td colspan="5" class="text-right font-weight-bold">Grand Total</td><td class="text-right font-weight-bold">${fmtQty(grandQty)}</td><td class="text-right font-weight-bold">${fmt(grandVal)}</td><td class="text-right font-weight-bold">${fmtLakhs(grandVal)}</td></tr>`;
+        tbody.innerHTML += `<tr class="grand-total-row"><td colspan="4" class="text-right font-weight-bold">Grand Total</td><td class="text-right font-weight-bold">${fmtQtyNZ(grandQty)}</td><td class="text-right font-weight-bold">${fmtNZ(grandVal)}</td><td class="text-right font-weight-bold">${fmtNZ(grandVal / 100000)}</td></tr>`;
     }
 }
 
-// ---------- Report 2: Secondary Sales ----------
+// ---------- Report 2: Secondary Sales (pivot) ----------
+// Rows = products (code + pack). Columns = stockists, each split into "Before" and "After"
+// scheme-deduction sub-columns. Trailing total column (Before / After) and a grand-total row.
 function renderSecondarySales(result, thead, tbody) {
-    thead.innerHTML = `<tr>${th("Stockist Code")}${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Quantity")}${th("Value (PTS)")}${th("Value (₹ Lakhs)")}</tr>`;
-    let currentStk = null;
-    let stkQty = 0, stkVal = 0, grandQty = 0, grandVal = 0;
-    const data = result.data || [];
+    var stockists = result.stockists || [];
+    var products = result.products || [];
+    var colTotals = result.col_totals || {};
+    var grand = result.grand || {};
 
-    function flushStockistSubtotal() {
-        if (currentStk !== null) {
-            tbody.innerHTML += `<tr class="subtotal-row"><td colspan="5" class="text-right font-weight-bold">Stockist Total</td><td class="text-right font-weight-bold">${fmtQty(stkQty)}</td><td class="text-right font-weight-bold">${fmt(stkVal)}</td><td class="text-right font-weight-bold">${fmtLakhs(stkVal)}</td></tr>`;
-        }
-    }
-
-    data.forEach(r => {
-        if (r.stockist_code !== currentStk) {
-            flushStockistSubtotal();
-            currentStk = r.stockist_code;
-            stkQty = 0; stkVal = 0;
-            tbody.innerHTML += `<tr class="group-row"><td colspan="8">${esc(r.stockist_name)} (${esc(r.stockist_code)})</td></tr>`;
-        }
-        stkQty += Number(r.total_qty) || 0;
-        stkVal += Number(r.total_value) || 0;
-        grandQty += Number(r.total_qty) || 0;
-        grandVal += Number(r.total_value) || 0;
-        tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQty(r.total_qty), "text-right")}${td(fmt(r.total_value), "text-right")}${td(fmtLakhs(r.total_value), "text-right")}</tr>`;
+    // Two-row header
+    var hRow1 = "<tr>"
+        + "<th rowspan='2' style='vertical-align:middle;'>Product Code</th>"
+        + "<th rowspan='2' style='vertical-align:middle;'>Pack</th>";
+    var hRow2 = "<tr>";
+    stockists.forEach(function (s) {
+        hRow1 += "<th colspan='2' style='text-align:center;'>" + esc(s.name) + "</th>";
+        hRow2 += "<th style='font-weight:600;'>Before</th><th style='font-weight:600;'>After</th>";
     });
-    flushStockistSubtotal();
-    if (data.length > 0) {
-        tbody.innerHTML += `<tr class="grand-total-row"><td colspan="5" class="text-right font-weight-bold">Grand Total</td><td class="text-right font-weight-bold">${fmtQty(grandQty)}</td><td class="text-right font-weight-bold">${fmt(grandVal)}</td><td class="text-right font-weight-bold">${fmtLakhs(grandVal)}</td></tr>`;
-    }
+    hRow1 += "<th colspan='2' style='text-align:center;background:#1e293b;'>Total</th></tr>";
+    hRow2 += "<th style='background:#1e293b;color:#fff;'>Before</th><th style='background:#1e293b;color:#fff;'>After</th></tr>";
+    thead.innerHTML = hRow1 + hRow2;
+
+    if (!products.length) { tbody.innerHTML = ""; return; }
+
+    var html = "";
+    products.forEach(function (p) {
+        var row = "<tr>"
+            + td(p.code, "font-weight-bold")
+            + td(p.pack);
+        stockists.forEach(function (s) {
+            var c = (p.cells || {})[s.code] || {};
+            row += "<td class='text-right'>" + fmtQtyNZ(c.before) + "</td>"
+                 + "<td class='text-right'>" + fmtQtyNZ(c.after) + "</td>";
+        });
+        row += "<td class='text-right font-weight-bold'>" + fmtQtyNZ(p.total_before) + "</td>"
+             + "<td class='text-right font-weight-bold'>" + fmtQtyNZ(p.total_after) + "</td></tr>";
+        html += row;
+    });
+
+    // Grand-total row
+    var gtRow = "<tr class='grand-total-row'>"
+        + "<td colspan='2' class='text-right font-weight-bold'>Total</td>";
+    stockists.forEach(function (s) {
+        var ct = colTotals[s.code] || {};
+        gtRow += "<td class='text-right font-weight-bold'>" + fmtQtyNZ(ct.before) + "</td>"
+              +  "<td class='text-right font-weight-bold'>" + fmtQtyNZ(ct.after) + "</td>";
+    });
+    gtRow += "<td class='text-right font-weight-bold'>" + fmtQtyNZ(grand.before) + "</td>"
+          +  "<td class='text-right font-weight-bold'>" + fmtQtyNZ(grand.after) + "</td></tr>";
+    tbody.innerHTML = html + gtRow;
 }
 
 // ---------- Report 3: Moving Trend ----------
@@ -1025,8 +1113,8 @@ function renderMovingTrend(result, thead, tbody) {
     thead.innerHTML = `<tr>${th("Product Code")}${th("Product Name")}${th("Pack")}${ml.map(m => th(m)).join("")}${th("Total")}</tr>`;
     (result.data || []).forEach(r => {
         let row = `${td(r.product_code)}${td(r.product_name)}${td(r.pack)}`;
-        r.months.forEach(v => { row += td(fmtQty(v), "text-right"); });
-        row += td(fmtQty(r.total), "text-right font-weight-bold");
+        r.months.forEach(v => { row += td(fmtQtyNZ(v), "text-right"); });
+        row += td(fmtQtyNZ(r.total), "text-right font-weight-bold");
         tbody.innerHTML += `<tr>${row}</tr>`;
     });
 }
@@ -1034,54 +1122,55 @@ function renderMovingTrend(result, thead, tbody) {
 // ---------- Report 4: Closing Stock ----------
 function renderClosingStock(result, thead, tbody) {
     if (result.group_by === "hq") {
-        thead.innerHTML = `<tr>${th("HQ Code")}${th("HQ Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Opening")}${th("Purchase")}${th("Sales")}${th("Free")}${th("Scheme Free")}${th("Closing")}</tr>`;
+        thead.innerHTML = `<tr>${th("HQ Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Opening")}${th("Purchase")}${th("Sales")}${th("Free")}${th("Scheme Free")}${th("Closing")}</tr>`;
         let currentHQ = null;
         (result.data || []).forEach(r => {
             if (r.hq_code !== currentHQ) {
                 currentHQ = r.hq_code;
-                tbody.innerHTML += `<tr class="group-row"><td colspan="11">${esc(r.hq_name || r.hq_code)}</td></tr>`;
+                tbody.innerHTML += `<tr class="group-row"><td colspan="10">${esc(r.hq_name || r.hq_code)}</td></tr>`;
             }
-            tbody.innerHTML += `<tr>${td(r.hq_code)}${td(r.hq_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQty(r.opening_qty), "text-right")}${td(fmtQty(r.purchase_qty), "text-right")}${td(fmtQty(r.sales_qty), "text-right")}${td(fmtQty(r.free_qty), "text-right")}${td(fmtQty(r.scheme_free_qty), "text-right")}${td(fmtQty(r.closing_qty), "text-right")}</tr>`;
+            tbody.innerHTML += `<tr>${td(r.hq_name || r.hq_code)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQtyNZ(r.opening_qty), "text-right")}${td(fmtQtyNZ(r.purchase_qty), "text-right")}${td(fmtQtyNZ(r.sales_qty), "text-right")}${td(fmtQtyNZ(r.free_qty), "text-right")}${td(fmtQtyNZ(r.scheme_free_qty), "text-right")}${td(fmtQtyNZ(r.closing_qty), "text-right")}</tr>`;
         });
     } else {
-        thead.innerHTML = `<tr>${th("Stockist Code")}${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Opening")}${th("Purchase")}${th("Sales")}${th("Free")}${th("Scheme Free")}${th("Closing")}</tr>`;
+        thead.innerHTML = `<tr>${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Opening")}${th("Purchase")}${th("Sales")}${th("Free")}${th("Scheme Free")}${th("Closing")}</tr>`;
         let currentStk = null;
         (result.data || []).forEach(r => {
             if (r.stockist_code !== currentStk) {
                 currentStk = r.stockist_code;
-                tbody.innerHTML += `<tr class="group-row"><td colspan="11">${esc(r.stockist_name)} (${esc(r.stockist_code)})</td></tr>`;
+                tbody.innerHTML += `<tr class="group-row"><td colspan="10">${esc(r.stockist_name)}</td></tr>`;
             }
-            tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQty(r.opening_qty), "text-right")}${td(fmtQty(r.purchase_qty), "text-right")}${td(fmtQty(r.sales_qty), "text-right")}${td(fmtQty(r.free_qty), "text-right")}${td(fmtQty(r.scheme_free_qty), "text-right")}${td(fmtQty(r.closing_qty), "text-right")}</tr>`;
+            tbody.innerHTML += `<tr>${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQtyNZ(r.opening_qty), "text-right")}${td(fmtQtyNZ(r.purchase_qty), "text-right")}${td(fmtQtyNZ(r.sales_qty), "text-right")}${td(fmtQtyNZ(r.free_qty), "text-right")}${td(fmtQtyNZ(r.scheme_free_qty), "text-right")}${td(fmtQtyNZ(r.closing_qty), "text-right")}</tr>`;
         });
     }
 }
 
-// ---------- Report 5: HQ Wise Stockist ----------
+// ---------- Report 5: HQ Wise Stockist (swapped X/Y) ----------
+// One row per HQ with team/region/count + stockist names in a single wrap cell.
 function renderHQWise(result, thead, tbody) {
-    thead.innerHTML = `<tr>${th("HQ")}${th("HQ Name")}${th("Team")}${th("Region")}${th("Stockist Code")}${th("Stockist Name")}</tr>`;
+    thead.innerHTML = `<tr>${th("HQ Name")}${th("Team")}${th("Region")}${th("No. of Stockists")}${th("Stockists")}</tr>`;
     (result.data || []).forEach(g => {
-        tbody.innerHTML += `<tr class="group-row"><td colspan="6">${esc(g.hq_name)} (${esc(g.hq_code)})</td></tr>`;
-        g.stockists.forEach(s => {
-            tbody.innerHTML += `<tr>${td(g.hq_code)}${td(g.hq_name)}${td(g.team)}${td(g.region)}${td(s.stockist_code)}${td(s.stockist_name)}</tr>`;
-        });
+        var names = (g.stockists || []).map(function (s) { return s.stockist_name; }).join(", ");
+        var count = (g.stockists || []).length;
+        tbody.innerHTML += `<tr>${td(g.hq_name)}${td(g.team)}${td(g.region)}${td(count ? count : "", "text-right")}<td style="white-space:normal;word-break:break-word;">${esc(names)}</td></tr>`;
     });
 }
 
 // ---------- Report 6: Address ----------
 function renderAddress(result, thead, tbody) {
-    thead.innerHTML = `<tr>${th("Stockist Code")}${th("Stockist Name")}${th("Address")}${th("City")}${th("Phone")}${th("HQ")}${th("Team")}${th("Region")}</tr>`;
+    thead.innerHTML = `<tr>${th("Stockist Name")}${th("Address")}${th("City")}${th("Phone")}${th("HQ")}${th("Team")}${th("Region")}</tr>`;
+
+    function _row(r) {
+        return `<tr>${td(r.stockist_name)}${td(r.address)}${td(r.city)}${td(r.phone)}${td(r.hq_name || r.hq)}${td(r.team_name || r.team)}${td(r.region_name || r.region)}</tr>`;
+    }
+
     const groups = result.groups;
     if (groups && typeof groups === "object") {
         Object.keys(groups).forEach(grpName => {
-            tbody.innerHTML += `<tr class="group-row"><td colspan="8">${esc(grpName)}</td></tr>`;
-            groups[grpName].forEach(r => {
-                tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.address)}${td(r.city)}${td(r.phone)}${td(r.hq)}${td(r.team)}${td(r.region)}</tr>`;
-            });
+            tbody.innerHTML += `<tr class="group-row"><td colspan="7">${esc(grpName)}</td></tr>`;
+            groups[grpName].forEach(r => { tbody.innerHTML += _row(r); });
         });
     } else {
-        (result.data || []).forEach(r => {
-            tbody.innerHTML += `<tr>${td(r.stockist_code)}${td(r.stockist_name)}${td(r.address)}${td(r.city)}${td(r.phone)}${td(r.hq)}${td(r.team)}${td(r.region)}</tr>`;
-        });
+        (result.data || []).forEach(r => { tbody.innerHTML += _row(r); });
     }
 }
 
@@ -1090,38 +1179,39 @@ function renderAddress(result, thead, tbody) {
 // ─────────────────────────────────────────────────────────────
 function renderSecMovingTrend(result, thead, tbody) {
     const months = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
-    thead.innerHTML = "<tr>" + th("Product") + th("Pack")
+    thead.innerHTML = "<tr>" + th("Code") + th("Pack")
+        + th("Target")
         + months.map(m => th(m)).join("")
-        + th("Target") + th("Total") + th("Average") + th("Per Capita") + th("%") + "</tr>";
+        + th("Total") + th("Average") + th("Per Capita") + th("%") + "</tr>";
 
     (result.sections || []).forEach(function(sec) {
-        // Section header row
+        // Section header row (colspan = code + pack + target + 12 months + total + average + per capita + % = 19)
         tbody.innerHTML += '<tr class="section-header-row"><td colspan="19" style="background:#1e293b;color:#fff;font-weight:bold;padding:6px 10px;">' + esc(sec.label) + '</td></tr>';
 
         // Value in Lakhs row comes FIRST in each section
         var vl = sec.value_in_lakhs || {};
         var vlMonths = vl.months || [];
         var vlCells = '<td colspan="2" style="font-weight:bold;">Value in Lakhs</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vl.target) + '</td>';
         for (var mi = 0; mi < 12; mi++) {
-            vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vlMonths[mi] || 0) + '</td>';
+            vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vlMonths[mi]) + '</td>';
         }
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.target || 0) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.total || 0) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.average || 0) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.per_capita || 0) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmt(vl.pct || 0) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vl.total) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vl.average) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vl.per_capita) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vl.pct) + '</td>';
         tbody.innerHTML += '<tr class="value-lakhs-row" style="background:#f1f5f9;">' + vlCells + '</tr>';
 
         (sec.products || []).forEach(function(p) {
             var cells = td(p.code) + td(p.pack);
+            cells += '<td class="text-right">' + fmtQtyNZ(p.target) + '</td>';
             for (var mi = 0; mi < 12; mi++) {
-                cells += '<td class="text-right">' + fmtQty(p.months[mi] || 0) + '</td>';
+                cells += '<td class="text-right">' + fmtQtyNZ((p.months || [])[mi]) + '</td>';
             }
-            cells += '<td class="text-right">' + fmtQty(p.target || 0) + '</td>';
-            cells += '<td class="text-right">' + fmtQty(p.total || 0) + '</td>';
-            cells += '<td class="text-right">' + fmtQty(p.average || 0) + '</td>';
-            cells += '<td class="text-right">' + fmtQty(p.per_capita || 0) + '</td>';
-            cells += '<td class="text-right">' + fmt(p.pct || 0) + '</td>';
+            cells += '<td class="text-right">' + fmtQtyNZ(p.total) + '</td>';
+            cells += '<td class="text-right">' + fmtQtyNZ(p.average) + '</td>';
+            cells += '<td class="text-right">' + fmtQtyNZ(p.per_capita) + '</td>';
+            cells += '<td class="text-right">' + fmtNZ(p.pct) + '</td>';
             tbody.innerHTML += '<tr>' + cells + '</tr>';
         });
     });
@@ -1157,14 +1247,14 @@ function renderRegionStockistTrend(result, thead, tbody) {
             + '</td></tr>';
 
         (team.stockists || []).forEach(function(s) {
-            var cells = td(esc(s.stockist_name) + ' / HQ: ' + esc(s.hq))
+            var cells = td(esc(s.stockist_name))
                       + td(esc(s.hq))
-                      + '<td class="text-right">' + fmt(s.opening) + '</td>';
+                      + '<td class="text-right">' + fmtNZ(s.opening) + '</td>';
             (s.months || []).forEach(function(v) {
-                cells += '<td class="text-right">' + (v ? fmt(v) : '') + '</td>';
+                cells += '<td class="text-right">' + fmtNZ(v) + '</td>';
             });
-            cells += '<td class="text-right font-weight-bold">' + fmt(s.total_sales) + '</td>';
-            cells += '<td class="text-right">' + fmt(s.closing) + '</td>';
+            cells += '<td class="text-right font-weight-bold">' + fmtNZ(s.total_sales) + '</td>';
+            cells += '<td class="text-right">' + fmtNZ(s.closing) + '</td>';
             tbody.innerHTML += '<tr>' + cells + '</tr>';
         });
 
@@ -1172,12 +1262,12 @@ function renderRegionStockistTrend(result, thead, tbody) {
         var tt = team.total || {};
         var tCells = '<td style="font-weight:700;">' + esc(team.team_name || team.team) + ' Team Total</td>'
                    + '<td></td>'
-                   + '<td class="text-right font-weight-700">' + fmt(tt.opening || 0) + '</td>';
+                   + '<td class="text-right font-weight-700">' + fmtNZ(tt.opening) + '</td>';
         (tt.months || []).forEach(function(v) {
-            tCells += '<td class="text-right font-weight-700">' + fmt(v || 0) + '</td>';
+            tCells += '<td class="text-right font-weight-700">' + fmtNZ(v) + '</td>';
         });
-        tCells += '<td class="text-right font-weight-700">' + fmt(tt.total_sales || 0) + '</td>';
-        tCells += '<td class="text-right font-weight-700">' + fmt(tt.closing || 0) + '</td>';
+        tCells += '<td class="text-right font-weight-700">' + fmtNZ(tt.total_sales) + '</td>';
+        tCells += '<td class="text-right font-weight-700">' + fmtNZ(tt.closing) + '</td>';
         tbody.innerHTML += '<tr class="subtotal-row">' + tCells + '</tr>';
         tbody.innerHTML += '<tr><td colspan="' + teamColspan + '" style="height:6px;background:#f8fafc;border:none;"></td></tr>';
     });
@@ -1185,12 +1275,12 @@ function renderRegionStockistTrend(result, thead, tbody) {
     // Grand Total
     var gCells = '<td style="font-weight:700;">' + esc(result.region_name || result.region) + ' Total</td>'
                + '<td></td>'
-               + '<td class="text-right">' + fmt(grand.opening || 0) + '</td>';
+               + '<td class="text-right">' + fmtNZ(grand.opening) + '</td>';
     (grand.months || []).forEach(function(v) {
-        gCells += '<td class="text-right">' + fmt(v || 0) + '</td>';
+        gCells += '<td class="text-right">' + fmtNZ(v) + '</td>';
     });
-    gCells += '<td class="text-right">' + fmt(grand.total_sales || 0) + '</td>';
-    gCells += '<td class="text-right">' + fmt(grand.closing || 0) + '</td>';
+    gCells += '<td class="text-right">' + fmtNZ(grand.total_sales) + '</td>';
+    gCells += '<td class="text-right">' + fmtNZ(grand.closing) + '</td>';
     tbody.innerHTML += '<tr class="grand-total-row">' + gCells + '</tr>';
 }
 
@@ -1298,35 +1388,60 @@ function renderChartToImage(chartConfig, width, height) {
 }
 
 function addPDFHeader(doc, title, subtitle) {
-    // Dark header bar
-    doc.setFillColor(30, 41, 59);
-    doc.rect(0, 0, 297, 20, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(14);
-    doc.text(title || "Stockist Report", 14, 13);
+    // White header band with Stedman logo on the left, title + subtitle centred,
+    // and Generated/Division line on the right. Leaves a thin accent rule below.
+    var pageW = doc.internal.pageSize.getWidth();
+    var bandH = 22;
+
+    // White background band
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, pageW, bandH, "F");
+
+    // Logo on the left
+    if (STEDMAN_LOGO_DATA_URL) {
+        try { doc.addImage(STEDMAN_LOGO_DATA_URL, "PNG", 10, 3, 26, 16); } catch (e) {}
+    }
+
+    // Title (centred)
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(13);
+    doc.setFont(undefined, "bold");
+    doc.text(ascii(title || "Stockist Report"), pageW / 2, 9, { align: "center" });
+    doc.setFont(undefined, "normal");
     doc.setFontSize(9);
-    doc.setTextColor(200, 200, 200);
-    doc.text(subtitle || "", 14, 18);
-    doc.setTextColor(0, 0, 0);
-    // Date/division line
+    doc.setTextColor(75, 85, 99);
+    doc.text(ascii(subtitle || ""), pageW / 2, 14, { align: "center" });
+
+    // Generated / Division (right)
     doc.setFontSize(8);
     doc.setTextColor(100);
-    doc.text("Generated: " + new Date().toLocaleDateString("en-IN") + "  |  Division: " + DIVISION, 297 - 14, 18, { align: "right" });
+    doc.text("Generated: " + new Date().toLocaleDateString("en-IN"),
+        pageW - 10, 9, { align: "right" });
+    doc.text("Division: " + DIVISION, pageW - 10, 14, { align: "right" });
+
+    // Accent rule
+    doc.setDrawColor(30, 41, 59);
+    doc.setLineWidth(0.5);
+    doc.line(10, bandH, pageW - 10, bandH);
+    doc.setDrawColor(0);
     doc.setTextColor(0);
-    return 26; // startY after header
+    return bandH + 4;
 }
 
 function addPageFooter(doc) {
     var pageCount = doc.internal.getNumberOfPages();
+    var pageW = doc.internal.pageSize.getWidth();
+    var pageH = doc.internal.pageSize.getHeight();
     for (var i = 1; i <= pageCount; i++) {
         doc.setPage(i);
         doc.setFontSize(7);
         doc.setTextColor(150);
-        doc.text("Stedman Pharmaceuticals – Scanify Portal  |  Page " + i + " of " + pageCount, 148.5, 205, { align: "center" });
+        doc.text("Stedman Pharmaceuticals - Scanify Portal  |  Page " + i + " of " + pageCount,
+                 pageW / 2, pageH - 6, { align: "center" });
     }
 }
 
-// Build consolidated summary for Reports 1 & 2 (Stockist-wise sales)
+// Build consolidated summary for Report 1 (Primary Sales – row shape)
 function buildSalesSummary(data) {
     var stockists = {};
     (data || []).forEach(function(r) {
@@ -1341,6 +1456,25 @@ function buildSalesSummary(data) {
     var arr = Object.values(stockists);
     arr.sort(function(a, b) { return b.totalVal - a.totalVal; });
     return arr;
+}
+
+// Build consolidated summary for Report 2 (Secondary Sales – pivot shape)
+function buildSecondarySummary(result) {
+    var stockists = result.stockists || [];
+    var products = result.products || [];
+    var colTotals = result.col_totals || {};
+    return stockists.map(function (s) {
+        var ct = colTotals[s.code] || { before: 0, after: 0 };
+        return {
+            code: s.code,
+            name: s.name,
+            totalBefore: Number(ct.before) || 0,
+            totalAfter: Number(ct.after) || 0,
+            products: products.reduce(function (n, p) {
+                return n + (((p.cells || {})[s.code] || {}).after ? 1 : 0);
+            }, 0),
+        };
+    }).sort(function (a, b) { return b.totalAfter - a.totalAfter; });
 }
 
 // Build summary for Report 5 (HQ Wise)
@@ -1416,14 +1550,85 @@ async function downloadPDF() {
     var doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     var data = currentReportData;
     var startY;
-    var _secTrendSummary = null;
 
     // ═══════════════════════════════════════════════
-    // PAGE 1: Consolidated Summary
+    // PAGE 1+: DETAIL — full detailed report table (FIRST per client requirement)
     // ═══════════════════════════════════════════════
     startY = addPDFHeader(doc, currentReportMeta.title, currentReportMeta.subtitle);
 
-    if (currentReportType === "primary_sales" || currentReportType === "secondary_sales") {
+    var table = document.getElementById("report-table");
+    var dHead = [];
+    var dBody = [];
+
+    table.querySelectorAll("thead tr").forEach(function(tr) {
+        var row = [];
+        tr.querySelectorAll("th").forEach(function(c) {
+            var colspan = parseInt(c.getAttribute("colspan") || 1);
+            var rowspan = parseInt(c.getAttribute("rowspan") || 1);
+            row.push({ content: ascii(c.textContent.trim()), colSpan: colspan, rowSpan: rowspan });
+        });
+        dHead.push(row);
+    });
+
+    table.querySelectorAll("tbody tr").forEach(function(tr) {
+        var row = [];
+        var isGroup = tr.classList.contains("group-row");
+        var isSubtotal = tr.classList.contains("subtotal-row");
+        var isGrandTotal = tr.classList.contains("grand-total-row");
+        var isSectionHeader = tr.classList.contains("section-header-row");
+        var isValueLakhs = tr.classList.contains("value-lakhs-row");
+        tr.querySelectorAll("td").forEach(function(c) {
+            var span = parseInt(c.getAttribute("colspan") || 1);
+            row.push({ content: ascii(c.textContent.trim()), colSpan: span });
+        });
+        dBody.push({ cells: row, isGroup: isGroup, isSubtotal: isSubtotal, isGrandTotal: isGrandTotal, isSectionHeader: isSectionHeader, isValueLakhs: isValueLakhs });
+    });
+
+    doc.autoTable({
+        head: dHead,
+        body: dBody.map(function(r) { return r.cells; }),
+        startY: startY,
+        styles: {
+            fontSize: 7, cellPadding: 1.5,
+            lineColor: [120, 120, 120], lineWidth: 0.15,
+            valign: "middle",
+        },
+        headStyles: {
+            fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold",
+            fontSize: 7, lineColor: [120, 120, 120], lineWidth: 0.2,
+            halign: "center",
+        },
+        didParseCell: function(d) {
+            if (d.section === "body" && dBody[d.row]) {
+                var r = dBody[d.row];
+                if (r.isGrandTotal) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                } else if (r.isSectionHeader) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                } else if (r.isGroup) {
+                    d.cell.styles.fillColor = [232, 237, 243]; d.cell.styles.fontStyle = "bold";
+                } else if (r.isSubtotal) {
+                    d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = "bold";
+                } else if (r.isValueLakhs) {
+                    d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = "bold";
+                }
+            }
+        },
+        margin: { left: 8, right: 8, top: 30 },
+        didDrawPage: function(d) {
+            if (d.pageNumber > 1) {
+                addPDFHeader(doc, currentReportMeta.title, "Detailed Report Data (contd.)");
+            }
+        }
+    });
+
+    // ═══════════════════════════════════════════════
+    // FINAL PAGES: Consolidated Summary + Charts (LAST per client requirement)
+    // ═══════════════════════════════════════════════
+    doc.addPage();
+    startY = addPDFHeader(doc, currentReportMeta.title, "Consolidated Summary");
+
+    if (currentReportType === "primary_sales") {
         var summary = buildSalesSummary(data.data);
         var grandQty = 0, grandVal = 0;
         summary.forEach(function(s) { grandQty += s.totalQty; grandVal += s.totalVal; });
@@ -1435,7 +1640,7 @@ async function downloadPDF() {
         doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
         doc.setFontSize(8); doc.setTextColor(100);
         doc.text("Total Stockists", 18, startY + 6);
-        doc.text("Total Value (₹ Lakhs)", 86, startY + 6);
+        doc.text("Total Value (Rs. Lakhs)", 86, startY + 6);
         doc.text("Total Qty", 154, startY + 6);
         doc.setFontSize(16); doc.setTextColor(30, 41, 59);
         doc.text(String(summary.length), 18, startY + 14);
@@ -1447,18 +1652,17 @@ async function downloadPDF() {
         doc.setFontSize(10);
         doc.text("Consolidated Stockist-wise Summary", 14, startY + 26);
 
-        var summaryHead = [["#", "Stockist Code", "Stockist Name", "Products", "Total Qty", "Value (PTS)", "Value (₹ Lakhs)", "% Share"]];
+        var summaryHead = [["#", "Stockist Name", "Products", "Total Qty", "Value (PTS)", "Value (Rs. Lakhs)", "% Share"]];
         var summaryBody = summary.map(function(s, i) {
-            return [i + 1, s.code, s.name, s.products, fmtQty(s.totalQty), fmt(s.totalVal), (s.totalVal / 100000).toFixed(2), grandVal > 0 ? ((s.totalVal / grandVal) * 100).toFixed(1) + "%" : "0%"];
+            return [i + 1, s.name, s.products, fmtQty(s.totalQty), fmt(s.totalVal), (s.totalVal / 100000).toFixed(2), grandVal > 0 ? ((s.totalVal / grandVal) * 100).toFixed(1) + "%" : "0%"];
         });
-        // Grand total row
-        summaryBody.push(["", "", "GRAND TOTAL", "", fmtQty(grandQty), fmt(grandVal), (grandVal / 100000).toFixed(2), "100%"]);
+        summaryBody.push(["", "GRAND TOTAL", "", fmtQty(grandQty), fmt(grandVal), (grandVal / 100000).toFixed(2), "100%"]);
 
         doc.autoTable({
             head: summaryHead,
             body: summaryBody,
             startY: startY + 30,
-            styles: { fontSize: 7, cellPadding: 1.5 },
+            styles: { fontSize: 7, cellPadding: 1.5, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
                 if (d.section === "body" && d.row === summaryBody.length - 1) {
@@ -1470,35 +1674,29 @@ async function downloadPDF() {
             margin: { left: 14, right: 14 },
         });
 
-        // ═══════════════════════════════════════════════
-        // PAGE 2: Charts
-        // ═══════════════════════════════════════════════
+        // Charts page
         doc.addPage();
         startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
 
-        // Top 10 Stockists Bar Chart
         var top10 = summary.slice(0, 10);
         var barImg = await renderChartToImage({
             type: "bar",
             data: {
                 labels: top10.map(function(s) { return s.name.length > 18 ? s.name.substring(0, 18) + "…" : s.name; }),
                 datasets: [{
-                    label: "Value (₹ Lakhs)",
+                    label: "Value (Rs. Lakhs)",
                     data: top10.map(function(s) { return (s.totalVal / 100000).toFixed(2); }),
                     backgroundColor: ["#4f46e5", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"],
                 }]
             },
             options: {
-                indexAxis: "y",
-                responsive: false,
-                animation: false,
-                plugins: { legend: { display: false }, title: { display: true, text: "Top 10 Stockists by Value (₹ Lakhs)", font: { size: 16 } } },
-                scales: { x: { beginAtZero: true, title: { display: true, text: "₹ Lakhs" } } }
+                indexAxis: "y", responsive: false, animation: false,
+                plugins: { legend: { display: false }, title: { display: true, text: "Top 10 Stockists by Value (Rs. Lakhs)", font: { size: 16 } } },
+                scales: { x: { beginAtZero: true, title: { display: true, text: "Rs. Lakhs" } } }
             }
         }, 900, 450);
         doc.addImage(barImg, "PNG", 14, startY, 170, 85);
 
-        // Pie chart: top 5 + others
         var top5 = summary.slice(0, 5);
         var othersVal = summary.slice(5).reduce(function(sum, s) { return sum + s.totalVal; }, 0);
         var pieLabels = top5.map(function(s) { return s.name.length > 20 ? s.name.substring(0, 20) + "…" : s.name; });
@@ -1507,35 +1705,106 @@ async function downloadPDF() {
 
         var pieImg = await renderChartToImage({
             type: "doughnut",
-            data: {
-                labels: pieLabels,
-                datasets: [{
-                    data: pieData,
-                    backgroundColor: ["#4f46e5", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#94a3b8"],
-                }]
-            },
-            options: {
-                responsive: false,
-                animation: false,
-                plugins: {
-                    title: { display: true, text: "Value Distribution – Top Stockists", font: { size: 16 } },
-                    legend: { position: "right", labels: { font: { size: 11 } } }
-                }
-            }
+            data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: ["#4f46e5", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#94a3b8"] }] },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Value Distribution - Top Stockists", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
         }, 600, 400);
         doc.addImage(pieImg, "PNG", 190, startY, 95, 63);
+
+    } else if (currentReportType === "secondary_sales") {
+        // Report 2: pivot shape. Summary by stockist (totals before/after).
+        var ssSummary = buildSecondarySummary(data);
+        var grandBefore = (data.grand && data.grand.before) || 0;
+        var grandAfter = (data.grand && data.grand.after) || 0;
+
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(218, startY, 62, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Total Stockists", 18, startY + 6);
+        doc.text("Total Products", 86, startY + 6);
+        doc.text("Total Qty (Before)", 154, startY + 6);
+        doc.text("Total Qty (After)", 222, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(ssSummary.length), 18, startY + 14);
+        doc.text(String((data.products || []).length), 86, startY + 14);
+        doc.text(fmtQty(grandBefore), 154, startY + 14);
+        doc.text(fmtQty(grandAfter), 222, startY + 14);
+        doc.setTextColor(0);
+
+        doc.setFontSize(10);
+        doc.text("Stockist-wise Quantity Summary (Before / After Scheme Deduction)", 14, startY + 26);
+
+        var ssHead = [["#", "Stockist", "Products", "Qty Before", "Qty After", "Scheme Deducted", "% Share (After)"]];
+        var ssBody = ssSummary.map(function(s, i) {
+            var deducted = (Number(s.totalBefore) || 0) - (Number(s.totalAfter) || 0);
+            var share = grandAfter > 0 ? ((s.totalAfter / grandAfter) * 100).toFixed(1) + "%" : "0%";
+            return [i + 1, s.name, s.products, fmtQty(s.totalBefore), fmtQty(s.totalAfter), fmtQty(deducted), share];
+        });
+        ssBody.push(["", "GRAND TOTAL", "", fmtQty(grandBefore), fmtQty(grandAfter), fmtQty(grandBefore - grandAfter), "100%"]);
+
+        doc.autoTable({
+            head: ssHead, body: ssBody, startY: startY + 30,
+            styles: { fontSize: 7, cellPadding: 1.5, lineColor: [120, 120, 120], lineWidth: 0.15 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === ssBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // Charts
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+
+        var ssTop10 = ssSummary.slice(0, 10);
+        var ssBarImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: ssTop10.map(function(s) { return s.name.length > 18 ? s.name.substring(0, 18) + "…" : s.name; }),
+                datasets: [
+                    { label: "Before Deduction", data: ssTop10.map(function(s) { return s.totalBefore; }), backgroundColor: "#3b82f6" },
+                    { label: "After Deduction", data: ssTop10.map(function(s) { return s.totalAfter; }), backgroundColor: "#10b981" }
+                ]
+            },
+            options: { indexAxis: "y", responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Top 10 Stockists - Quantity (Before vs After Scheme)", font: { size: 16 } }, legend: { position: "top" } },
+                scales: { x: { beginAtZero: true } }
+            }
+        }, 900, 450);
+        doc.addImage(ssBarImg, "PNG", 14, startY, 170, 85);
+
+        var ssPieImg = await renderChartToImage({
+            type: "doughnut",
+            data: {
+                labels: ssTop10.slice(0, 5).map(function(s) { return s.name.length > 20 ? s.name.substring(0, 20) + "…" : s.name; })
+                    .concat(ssSummary.length > 5 ? ["Others"] : []),
+                datasets: [{
+                    data: ssTop10.slice(0, 5).map(function(s) { return s.totalAfter; })
+                        .concat(ssSummary.length > 5 ? [ssSummary.slice(5).reduce(function(n, s) { return n + s.totalAfter; }, 0)] : []),
+                    backgroundColor: ["#4f46e5", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#94a3b8"]
+                }]
+            },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Stockist Distribution - After Deduction", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
+        }, 600, 400);
+        doc.addImage(ssPieImg, "PNG", 190, startY, 95, 63);
 
     } else if (currentReportType === "hq_wise") {
         var hqSummary = buildHQSummary(data.data);
         doc.setFontSize(10);
         doc.text("Consolidated HQ-wise Stockist Summary", 14, startY + 4);
-        var hqHead = [["#", "HQ Code", "HQ Name", "Team", "Region", "No. of Stockists"]];
-        var hqBody = hqSummary.map(function(h, i) { return [i + 1, h.hq, h.name, h.team, h.region, h.count]; });
+        var hqHead = [["#", "HQ Name", "Team", "Region", "No. of Stockists"]];
+        var hqBody = hqSummary.map(function(h, i) { return [i + 1, h.name, h.team, h.region, h.count]; });
         var totalStockists = hqSummary.reduce(function(s, h) { return s + h.count; }, 0);
-        hqBody.push(["", "", "TOTAL", "", "", totalStockists]);
+        hqBody.push(["", "TOTAL", "", "", totalStockists]);
         doc.autoTable({
             head: hqHead, body: hqBody, startY: startY + 8,
-            styles: { fontSize: 8, cellPadding: 1.5 },
+            styles: { fontSize: 8, cellPadding: 1.5, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
                 if (d.section === "body" && d.row === hqBody.length - 1) {
@@ -1552,7 +1821,7 @@ async function downloadPDF() {
         var hqBarImg = await renderChartToImage({
             type: "bar",
             data: {
-                labels: top15.map(function(h) { return h.name ? (h.name.length > 15 ? h.name.substring(0, 15) + "…" : h.name) : h.hq; }),
+                labels: top15.map(function(h) { return h.name ? (h.name.length > 15 ? h.name.substring(0, 15) + "…" : h.name) : (h.hq || ""); }),
                 datasets: [{ label: "Stockists", data: top15.map(function(h) { return h.count; }), backgroundColor: "#4f46e5" }]
             },
             options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Stockist Count by HQ", font: { size: 16 } }, legend: { display: false } }, scales: { y: { beginAtZero: true } } }
@@ -1561,7 +1830,6 @@ async function downloadPDF() {
 
     } else if (currentReportType === "sec_moving_trend") {
         var trendSummary = buildSecTrendSummary(data);
-        _secTrendSummary = trendSummary;
         var grandLakhs = trendSummary.reduce(function(s, t) { return s + t.totalLakhs; }, 0);
 
         // Summary stats
@@ -1571,7 +1839,7 @@ async function downloadPDF() {
         doc.roundedRect(150, startY, 82, 18, 3, 3, "F");
         doc.setFontSize(8); doc.setTextColor(100);
         doc.text("Sanctioned Strength", 18, startY + 6);
-        doc.text("Total Value (₹ Lakhs)", 86, startY + 6);
+        doc.text("Total Value (Rs. Lakhs)", 86, startY + 6);
         doc.text("Categories", 154, startY + 6);
         doc.setFontSize(16); doc.setTextColor(30, 41, 59);
         doc.text(String(data.sanctioned_strength || 0), 18, startY + 14);
@@ -1581,12 +1849,14 @@ async function downloadPDF() {
 
         doc.setFontSize(10);
         doc.text("Category-wise Summary", 14, startY + 26);
-        var tHead = [["Category", "Products", "Value (₹ Lakhs)", "Target (₹ Lakhs)", "Achievement %"]];
+        // Use "Rs." instead of "₹" — jsPDF's default Helvetica doesn't ship the rupee
+        // glyph and renders it as gibberish (e.g. "&&V") in autoTable cells.
+        var tHead = [["Category", "Products", "Value in Lakhs", "Target in Lakhs", "Achievement %"]];
         var tBody = trendSummary.map(function(t) { return [t.category, t.products, t.totalLakhs.toFixed(2), t.target.toFixed(2), t.pct.toFixed(1) + "%"]; });
         tBody.push(["TOTAL", "", grandLakhs.toFixed(2), "", ""]);
         doc.autoTable({
             head: tHead, body: tBody, startY: startY + 30,
-            styles: { fontSize: 8, cellPadding: 2 },
+            styles: { fontSize: 8, cellPadding: 2, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
                 if (d.section === "body" && d.row === tBody.length - 1) {
@@ -1595,6 +1865,36 @@ async function downloadPDF() {
             },
             margin: { left: 14, right: 14 },
         });
+
+        // Charts page (was deferred to end; now follows summary directly)
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+
+        var smtPieImg = await renderChartToImage({
+            type: "doughnut",
+            data: {
+                labels: trendSummary.map(function(t) { return t.category; }),
+                datasets: [{ data: trendSummary.map(function(t) { return Number(t.totalLakhs.toFixed(2)); }), backgroundColor: ["#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#3b82f6"] }]
+            },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Value Distribution by Category (Rs. Lakhs)", font: { size: 16 } }, legend: { position: "right" } } }
+        }, 600, 400);
+        doc.addImage(smtPieImg, "PNG", 14, startY, 120, 80);
+
+        var smtMonths = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+        var smtDatasets = (data.sections || []).map(function(sec, idx) {
+            var colors = ["#4f46e5", "#10b981", "#f59e0b", "#ef4444"];
+            var vl = sec.value_in_lakhs || {};
+            return { label: sec.label, data: (vl.months || []), borderColor: colors[idx % 4], backgroundColor: colors[idx % 4] + "33", fill: true, tension: 0.3 };
+        });
+        var smtLineImg = await renderChartToImage({
+            type: "line",
+            data: { labels: smtMonths, datasets: smtDatasets },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Monthly Sales Trend (Rs. Lakhs)", font: { size: 16 } } },
+                scales: { y: { beginAtZero: true, title: { display: true, text: "Rs. Lakhs" } } } }
+        }, 900, 400);
+        doc.addImage(smtLineImg, "PNG", 145, startY, 140, 80);
 
     } else if (currentReportType === "moving_trend") {
         // ── Report 3: Moving Trend – Stockist Wise ──
@@ -1702,17 +2002,16 @@ async function downloadPDF() {
         doc.setFontSize(10);
         var csGroupLabel = csGroupBy === "hq" ? "HQ-wise" : "Stockist-wise";
         doc.text(csGroupLabel + " Closing Stock Summary", 14, startY + 26);
-        var csCodeCol = csGroupBy === "hq" ? "HQ Code" : "Stockist Code";
         var csNameCol = csGroupBy === "hq" ? "HQ Name" : "Stockist Name";
-        var csHead = [["#", csCodeCol, csNameCol, "Products", "Opening", "Purchase", "Sales", "Closing"]];
+        var csHead = [["#", csNameCol, "Products", "Opening", "Purchase", "Sales", "Closing"]];
         var csBody = csSummary.map(function(s, i) {
-            return [i + 1, s.code, s.name, s.products, fmtQty(s.totalOpening), fmtQty(s.totalPurchase), fmtQty(s.totalSales), fmtQty(s.totalClosing)];
+            return [i + 1, s.name, s.products, fmtQty(s.totalOpening), fmtQty(s.totalPurchase), fmtQty(s.totalSales), fmtQty(s.totalClosing)];
         });
-        csBody.push(["", "", "GRAND TOTAL", "", fmtQty(grandOpening), fmtQty(grandPurchase), fmtQty(grandSales), fmtQty(grandClosing)]);
+        csBody.push(["", "GRAND TOTAL", "", fmtQty(grandOpening), fmtQty(grandPurchase), fmtQty(grandSales), fmtQty(grandClosing)]);
 
         doc.autoTable({
             head: csHead, body: csBody, startY: startY + 30,
-            styles: { fontSize: 7, cellPadding: 1.5 },
+            styles: { fontSize: 7, cellPadding: 1.5, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
                 if (d.section === "body" && d.row === csBody.length - 1) {
@@ -1834,9 +2133,9 @@ async function downloadPDF() {
         doc.roundedRect(218, startY, 62, 18, 3, 3, "F");
         doc.setFontSize(8); doc.setTextColor(100);
         doc.text("Total Stockists", 18, startY + 6);
-        doc.text("Total Sales (\u20b9 Lakhs)", 86, startY + 6);
-        doc.text("Total Opening (\u20b9 L)", 154, startY + 6);
-        doc.text("Total Closing (\u20b9 L)", 222, startY + 6);
+        doc.text("Total Sales (Rs. Lakhs)", 86, startY + 6);
+        doc.text("Total Opening (Rs. L)", 154, startY + 6);
+        doc.text("Total Closing (Rs. L)", 222, startY + 6);
         doc.setFontSize(16); doc.setTextColor(30, 41, 59);
         doc.text(String(totalStockists), 18, startY + 14);
         doc.text(fmt(grand.total_sales || 0), 86, startY + 14);
@@ -1846,24 +2145,24 @@ async function downloadPDF() {
 
         // Team-wise summary table
         doc.setFontSize(10);
-        doc.text("Team-wise Sales Summary (\u20b9 Lakhs)", 14, startY + 26);
+        doc.text("Team-wise Sales Summary (Rs. Lakhs)", 14, startY + 26);
         var tHead = [["Team", "Stockists", "Opening"].concat(ml).concat(["Total Sales", "Closing"])];
         var tBody = teams.map(function(t) {
-            var row = [t.team_name || t.team, String((t.stockists || []).length), fmt(t.total && t.total.opening || 0)];
-            (t.total && t.total.months || []).forEach(function(v) { row.push(fmt(v)); });
-            row.push(fmt(t.total && t.total.total_sales || 0));
-            row.push(fmt(t.total && t.total.closing || 0));
+            var row = [t.team_name || t.team, String((t.stockists || []).length), fmtNZ(t.total && t.total.opening)];
+            (t.total && t.total.months || []).forEach(function(v) { row.push(fmtNZ(v)); });
+            row.push(fmtNZ(t.total && t.total.total_sales));
+            row.push(fmtNZ(t.total && t.total.closing));
             return row;
         });
-        var gtRow = ["TOTAL", String(totalStockists), fmt(grand.opening || 0)];
-        (grand.months || []).forEach(function(v) { gtRow.push(fmt(v)); });
-        gtRow.push(fmt(grand.total_sales || 0));
-        gtRow.push(fmt(grand.closing || 0));
+        var gtRow = ["TOTAL", String(totalStockists), fmtNZ(grand.opening)];
+        (grand.months || []).forEach(function(v) { gtRow.push(fmtNZ(v)); });
+        gtRow.push(fmtNZ(grand.total_sales));
+        gtRow.push(fmtNZ(grand.closing));
         tBody.push(gtRow);
 
         doc.autoTable({
             head: tHead, body: tBody, startY: startY + 30,
-            styles: { fontSize: 6.5, cellPadding: 1.2 },
+            styles: { fontSize: 6.5, cellPadding: 1.2, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
                 if (d.section === "body" && d.row === tBody.length - 1) {
@@ -1895,8 +2194,8 @@ async function downloadPDF() {
                 })
             },
             options: { responsive: false, animation: false,
-                plugins: { title: { display: true, text: "Team-wise Monthly Sales Trend (\u20b9 Lakhs)", font: { size: 16 } }, legend: { position: "top" } },
-                scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, title: { display: true, text: "\u20b9 Lakhs" } } }
+                plugins: { title: { display: true, text: "Team-wise Monthly Sales Trend (Rs. Lakhs)", font: { size: 16 } }, legend: { position: "top" } },
+                scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, title: { display: true, text: "Rs. Lakhs" } } }
             }
         }, 900, 420);
         doc.addImage(trendLineImg, "PNG", 14, startY, 175, 90);
@@ -1909,11 +2208,11 @@ async function downloadPDF() {
             type: "bar",
             data: {
                 labels: top10s.map(function(s) { var n = s.stockist_name || ""; return n.length > 18 ? n.substring(0, 18) + "\u2026" : n; }),
-                datasets: [{ label: "Total Sales (\u20b9 Lakhs)", data: top10s.map(function(s) { return s.total_sales || 0; }), backgroundColor: "#4f46e5" }]
+                datasets: [{ label: "Total Sales (Rs. Lakhs)", data: top10s.map(function(s) { return s.total_sales || 0; }), backgroundColor: "#4f46e5" }]
             },
             options: { indexAxis: "y", responsive: false, animation: false,
-                plugins: { title: { display: true, text: "Top 10 Stockists by Sales (\u20b9 Lakhs)", font: { size: 16 } }, legend: { display: false } },
-                scales: { x: { beginAtZero: true, title: { display: true, text: "\u20b9 Lakhs" } } }
+                plugins: { title: { display: true, text: "Top 10 Stockists by Sales (Rs. Lakhs)", font: { size: 16 } }, legend: { display: false } },
+                scales: { x: { beginAtZero: true, title: { display: true, text: "Rs. Lakhs" } } }
             }
         }, 900, 420);
         doc.addImage(stkBarImg, "PNG", 14, startY + 96, 175, 90);
@@ -1936,7 +2235,7 @@ async function downloadPDF() {
         doc.setFontSize(8); doc.setTextColor(100);
         doc.text("Products", 18, startY + 6);
         doc.text(pstockGB, 86, startY + 6);
-        doc.text("Total Value (\u20b9 Lakhs)", 154, startY + 6);
+        doc.text("Total Value (Rs. Lakhs)", 154, startY + 6);
         doc.text("Teams", 222, startY + 6);
         doc.setFontSize(16); doc.setTextColor(30, 41, 59);
         doc.text(String(pstockProds.length), 18, startY + 14);
@@ -1947,8 +2246,8 @@ async function downloadPDF() {
 
         // Team-wise summary table
         doc.setFontSize(10);
-        doc.text("Team-wise Closing Stock Value Summary (\u20b9 Lakhs)", 14, startY + 26);
-        var psHead = [["Team", pstockGB + " Units", "Value (\u20b9 Lakhs)", "% Share"]];
+        doc.text("Team-wise Closing Stock Value Summary (Rs. Lakhs)", 14, startY + 26);
+        var psHead = [["Team", pstockGB + " Units", "Value (Rs. Lakhs)", "% Share"]];
         var psBody = pstockTeams.map(function(t) {
             var tv = (pstockVil.team_values || {})[t.team_code] || 0;
             return [t.team_name || t.team_code, String(t.hqs.length), tv.toFixed(2), psTotal > 0 ? ((tv / psTotal) * 100).toFixed(1) + "%" : "0%"];
@@ -1956,7 +2255,7 @@ async function downloadPDF() {
         psBody.push(["TOTAL", String(totalCols), psTotal.toFixed(2), "100%"]);
         doc.autoTable({
             head: psHead, body: psBody, startY: startY + 30,
-            styles: { fontSize: 8, cellPadding: 2 },
+            styles: { fontSize: 8, cellPadding: 2, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
                 if (d.section === "body" && d.row === psBody.length - 1) {
@@ -1974,9 +2273,9 @@ async function downloadPDF() {
             type: "bar",
             data: {
                 labels: pstockTeams.map(function(t) { var n = t.team_name || t.team_code; return n.length > 18 ? n.substring(0, 18) + "\u2026" : n; }),
-                datasets: [{ label: "Value (\u20b9 Lakhs)", data: pstockTeams.map(function(t) { return (pstockVil.team_values || {})[t.team_code] || 0; }), backgroundColor: ["#4f46e5","#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6"] }]
+                datasets: [{ label: "Value (Rs. Lakhs)", data: pstockTeams.map(function(t) { return (pstockVil.team_values || {})[t.team_code] || 0; }), backgroundColor: ["#4f46e5","#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6"] }]
             },
-            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Team-wise Closing Stock Value (\u20b9 Lakhs)", font: { size: 16 } }, legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: "\u20b9 Lakhs" } } } }
+            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Team-wise Closing Stock Value (Rs. Lakhs)", font: { size: 16 } }, legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: "Rs. Lakhs" } } } }
         }, 900, 400);
         doc.addImage(psTeamBarImg, "PNG", 14, startY, 165, 82);
 
@@ -2002,103 +2301,6 @@ async function downloadPDF() {
         doc.setTextColor(0);
     }
 
-    // ═══════════════════════════════════════════════
-    // DETAIL PAGE: Full detailed report table
-    // ═══════════════════════════════════════════════
-    doc.addPage();
-    startY = addPDFHeader(doc, currentReportMeta.title, "Detailed Report Data");
-
-    // Extract table from rendered HTML
-    var table = document.getElementById("report-table");
-    var head = [];
-    var body = [];
-
-    table.querySelectorAll("thead tr").forEach(function(tr) {
-        var row = [];
-        tr.querySelectorAll("th").forEach(function(c) { row.push(c.textContent.trim()); });
-        head.push(row);
-    });
-
-    table.querySelectorAll("tbody tr").forEach(function(tr) {
-        var row = [];
-        var isGroup = tr.classList.contains("group-row");
-        var isSubtotal = tr.classList.contains("subtotal-row");
-        var isGrandTotal = tr.classList.contains("grand-total-row");
-        var isSectionHeader = tr.classList.contains("section-header-row");
-        var isValueLakhs = tr.classList.contains("value-lakhs-row");
-        tr.querySelectorAll("td").forEach(function(c) {
-            var span = parseInt(c.getAttribute("colspan") || 1);
-            var val = c.textContent.trim();
-            for (var i = 0; i < span; i++) row.push(i === 0 ? val : "");
-        });
-        body.push({ cells: row, isGroup: isGroup, isSubtotal: isSubtotal, isGrandTotal: isGrandTotal, isSectionHeader: isSectionHeader, isValueLakhs: isValueLakhs });
-    });
-
-    doc.autoTable({
-        head: head,
-        body: body.map(function(r) { return r.cells; }),
-        startY: startY,
-        styles: { fontSize: 7, cellPadding: 1.2 },
-        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold", fontSize: 7 },
-        didParseCell: function(d) {
-            if (d.section === "body" && body[d.row]) {
-                var r = body[d.row];
-                if (r.isGrandTotal) {
-                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
-                } else if (r.isSectionHeader) {
-                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
-                } else if (r.isGroup) {
-                    d.cell.styles.fillColor = [232, 237, 243]; d.cell.styles.fontStyle = "bold";
-                } else if (r.isSubtotal) {
-                    d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = "bold";
-                } else if (r.isValueLakhs) {
-                    d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = "bold";
-                }
-            }
-        },
-        margin: { left: 10, right: 10 },
-        didDrawPage: function(d) {
-            // Re-add header on each new page of the detail table
-            if (d.pageNumber > 1) {
-                doc.setFillColor(30, 41, 59);
-                doc.rect(0, 0, 297, 12, "F");
-                doc.setTextColor(255); doc.setFontSize(9);
-                doc.text(currentReportMeta.title + " – Detail (contd.)", 14, 8);
-                doc.setTextColor(0);
-            }
-        }
-    });
-
-    // ── Deferred: sec_moving_trend charts placed last per client requirement ──
-    if (_secTrendSummary) {
-        doc.addPage();
-        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
-
-        var smtPieImg = await renderChartToImage({
-            type: "doughnut",
-            data: {
-                labels: _secTrendSummary.map(function(t) { return t.category; }),
-                datasets: [{ data: _secTrendSummary.map(function(t) { return t.totalLakhs.toFixed(2); }), backgroundColor: ["#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#3b82f6"] }]
-            },
-            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Value Distribution by Category (₹ Lakhs)", font: { size: 16 } }, legend: { position: "right" } } }
-        }, 600, 400);
-        doc.addImage(smtPieImg, "PNG", 14, startY, 120, 80);
-
-        var smtMonths = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
-        var smtDatasets = (data.sections || []).map(function(sec, idx) {
-            var colors = ["#4f46e5", "#10b981", "#f59e0b", "#ef4444"];
-            var vl = sec.value_in_lakhs || {};
-            return { label: sec.label, data: (vl.months || []), borderColor: colors[idx % 4], backgroundColor: colors[idx % 4] + "33", fill: true, tension: 0.3 };
-        });
-        var smtLineImg = await renderChartToImage({
-            type: "line",
-            data: { labels: smtMonths, datasets: smtDatasets },
-            options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Monthly Sales Trend (₹ Lakhs)", font: { size: 16 } } }, scales: { y: { beginAtZero: true, title: { display: true, text: "₹ Lakhs" } } } }
-        }, 900, 400);
-        doc.addImage(smtLineImg, "PNG", 145, startY, 140, 80);
-    }
-
-    // Add page footers
     addPageFooter(doc);
 
     var filename = currentReportType + "_" + DIVISION + "_" + new Date().toISOString().slice(0, 10) + ".pdf";

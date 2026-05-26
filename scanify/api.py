@@ -7301,7 +7301,12 @@ def get_stockist_primary_sales_report(division=None, sales_type="primary", regio
 @frappe.whitelist()
 def get_stockist_secondary_sales_report(division=None, region=None,
                                          from_date=None, to_date=None, team=None, hq=None):
-    """Report 2 – Stockist Wise Secondary Sales Report (from Draft or submitted Stockist Statements)."""
+    """Report 2 – Stockist Wise Secondary Sales Report.
+
+    Pivoted: products as rows, stockists as columns (each stockist column shows
+    Before-Deduction and After-Deduction quantities).
+    from_date / to_date are first-of-month dates (e.g. 2026-04-01).
+    """
     if not division:
         division = get_user_division()
 
@@ -7326,14 +7331,11 @@ def get_stockist_secondary_sales_report(division=None, region=None,
 
     where = " AND ".join(conditions)
 
-    # Secondary sales = (sales + free − scheme free). Computed inline so the report is
-    # correct even for legacy rows where scheme_deducted_qty_calc may have been saved as 0
-    # before the always-populate fix on the doctype.
     rows = frappe.db.sql(f"""
         SELECT ss.stockist_code, ss.stockist_name,
                si.product_code, si.product_name, si.pack,
-               SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS total_qty,
-               SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1) * IFNULL(si.pts, 0)) AS total_value
+               SUM((si.sales_qty + si.free_qty) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty_before,
+               SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty_after
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -7343,13 +7345,62 @@ def get_stockist_secondary_sales_report(division=None, region=None,
         ORDER BY ss.stockist_name, si.product_code
     """, params, as_dict=True)
 
+    # Stockist order (alphabetical by name) and product order (master sequence)
+    stockists = {}
+    products = {}
+    for r in rows:
+        if r.stockist_code and r.stockist_code not in stockists:
+            stockists[r.stockist_code] = {"code": r.stockist_code, "name": r.stockist_name or r.stockist_code}
+        if r.product_code and r.product_code not in products:
+            products[r.product_code] = {
+                "code": r.product_code,
+                "name": r.product_name or "",
+                "pack": r.pack or "",
+                "cells": {},
+                "total_before": 0.0,
+                "total_after": 0.0,
+            }
+        if r.stockist_code and r.product_code:
+            cell = products[r.product_code]["cells"].setdefault(
+                r.stockist_code, {"before": 0.0, "after": 0.0}
+            )
+            cell["before"] += flt(r.qty_before)
+            cell["after"] += flt(r.qty_after)
+            products[r.product_code]["total_before"] += flt(r.qty_before)
+            products[r.product_code]["total_after"] += flt(r.qty_after)
+
     seq_map = {r[0]: (r[1] if r[1] is not None else 9999) for r in frappe.db.sql(
         "SELECT product_code, COALESCE(sequence, 9999) FROM `tabProduct Master` WHERE division=%s AND status='Active'",
         (division,)
     )}
-    rows.sort(key=lambda r: (r.stockist_name or "", seq_map.get(r.product_code, 9999), r.product_code or ""))
 
-    return {"success": True, "data": rows}
+    stockist_list = sorted(stockists.values(), key=lambda s: (s["name"] or "").lower())
+    product_list = sorted(
+        products.values(),
+        key=lambda p: (seq_map.get(p["code"], 9999), p["code"] or "")
+    )
+
+    # Per-stockist column totals + grand totals
+    col_totals = {s["code"]: {"before": 0.0, "after": 0.0} for s in stockist_list}
+    grand_before = 0.0
+    grand_after = 0.0
+    for p in product_list:
+        for sc, vals in p["cells"].items():
+            if sc in col_totals:
+                col_totals[sc]["before"] += vals["before"]
+                col_totals[sc]["after"] += vals["after"]
+        grand_before += p["total_before"]
+        grand_after += p["total_after"]
+
+    return {
+        "success": True,
+        "stockists": stockist_list,
+        "products": product_list,
+        "col_totals": col_totals,
+        "grand": {"before": grand_before, "after": grand_after},
+        "from_date": from_date,
+        "to_date": to_date,
+    }
 
 
 @frappe.whitelist()
@@ -7909,37 +7960,117 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         type_label = "Credit Note" if sales_type == "creditnote" else "Primary"
         row = write_title_rows(ws, f"Stockist Wise {type_label} Sales Report – {division}",
                                f"Region: {region_label}  |  Period: {period_label}")
-        headers = ["Stockist Code", "Stockist Name", "Product Code", "Product Name", "Pack", "Quantity", "Value (PTS)"]
+        headers = ["Stockist Name", "Product Code", "Product Name", "Pack", "Quantity", "Value (PTS)"]
         write_header_row(ws, row, headers)
         row += 1
         current_stockist = None
         for d in data:
             if d.stockist_code != current_stockist:
                 current_stockist = d.stockist_code
-                write_group_row(ws, row, f"{d.stockist_name} ({d.stockist_code})", len(headers))
+                write_group_row(ws, row, d.stockist_name or "", len(headers))
                 row += 1
-            write_data_row(ws, row, [d.stockist_code, d.stockist_name, d.product_code,
-                                     d.product_name, d.pack, flt(d.total_qty), flt(d.total_value)])
+            qty = flt(d.total_qty)
+            val = flt(d.total_value)
+            write_data_row(ws, row, [d.stockist_name, d.product_code, d.product_name, d.pack,
+                                     qty if qty else None, val if val else None])
             row += 1
 
     elif report_type == "secondary_sales":
+        # Pivot: Products as rows, Stockists as columns (each with Before / After sub-cols).
         ws.title = "Secondary Sales"
-        result = get_stockist_secondary_sales_report(division, region, from_date, to_date)
-        data = result.get("data", [])
+        team_kw = kwargs.get("team", "")
+        hq_kw = kwargs.get("hq", "")
+        result = get_stockist_secondary_sales_report(division, region, from_date, to_date, team_kw or None, hq_kw or None)
+        stockist_list = result.get("stockists", []) or []
+        product_list = result.get("products", []) or []
+        col_totals = result.get("col_totals", {}) or {}
+        grand = result.get("grand", {}) or {}
+
         row = write_title_rows(ws, f"Stockist Wise Secondary Sales Report – {division}",
                                f"Region: {region_label}  |  Period: {period_label}")
-        headers = ["Stockist Code", "Stockist Name", "Product Code", "Product Name", "Pack", "Quantity", "Value (PTS)"]
-        write_header_row(ws, row, headers)
-        row += 1
-        current_stockist = None
-        for d in data:
-            if d.stockist_code != current_stockist:
-                current_stockist = d.stockist_code
-                write_group_row(ws, row, f"{d.stockist_name} ({d.stockist_code})", len(headers))
-                row += 1
-            write_data_row(ws, row, [d.stockist_code, d.stockist_name, d.product_code,
-                                     d.product_name, d.pack, flt(d.total_qty), flt(d.total_value)])
+
+        # Two-row header: Row 1 = "Product | Pack | <Stockist1 spans 2> ... | Total spans 2"
+        # Row 2 = "Before | After" sub-columns repeated under each stockist
+        hdr_row1 = row
+        hdr_row2 = row + 1
+        ws.cell(row=hdr_row1, column=1, value="Product").font = header_font
+        ws.cell(row=hdr_row1, column=1).fill = header_fill
+        ws.cell(row=hdr_row1, column=1).alignment = header_align
+        ws.cell(row=hdr_row1, column=1).border = thin_border
+        ws.merge_cells(start_row=hdr_row1, start_column=1, end_row=hdr_row2, end_column=1)
+
+        ws.cell(row=hdr_row1, column=2, value="Pack").font = header_font
+        ws.cell(row=hdr_row1, column=2).fill = header_fill
+        ws.cell(row=hdr_row1, column=2).alignment = header_align
+        ws.cell(row=hdr_row1, column=2).border = thin_border
+        ws.merge_cells(start_row=hdr_row1, start_column=2, end_row=hdr_row2, end_column=2)
+
+        col_cursor = 3
+        for s in stockist_list:
+            cell = ws.cell(row=hdr_row1, column=col_cursor, value=s["name"])
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+            ws.merge_cells(start_row=hdr_row1, start_column=col_cursor,
+                           end_row=hdr_row1, end_column=col_cursor + 1)
+            ws.cell(row=hdr_row2, column=col_cursor, value="Before").font = header_font
+            ws.cell(row=hdr_row2, column=col_cursor).fill = header_fill
+            ws.cell(row=hdr_row2, column=col_cursor).alignment = header_align
+            ws.cell(row=hdr_row2, column=col_cursor).border = thin_border
+            ws.cell(row=hdr_row2, column=col_cursor + 1, value="After").font = header_font
+            ws.cell(row=hdr_row2, column=col_cursor + 1).fill = header_fill
+            ws.cell(row=hdr_row2, column=col_cursor + 1).alignment = header_align
+            ws.cell(row=hdr_row2, column=col_cursor + 1).border = thin_border
+            col_cursor += 2
+
+        # Total column (Before / After)
+        cell = ws.cell(row=hdr_row1, column=col_cursor, value="Total")
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+        ws.merge_cells(start_row=hdr_row1, start_column=col_cursor,
+                       end_row=hdr_row1, end_column=col_cursor + 1)
+        ws.cell(row=hdr_row2, column=col_cursor, value="Before").font = header_font
+        ws.cell(row=hdr_row2, column=col_cursor).fill = header_fill
+        ws.cell(row=hdr_row2, column=col_cursor).alignment = header_align
+        ws.cell(row=hdr_row2, column=col_cursor).border = thin_border
+        ws.cell(row=hdr_row2, column=col_cursor + 1, value="After").font = header_font
+        ws.cell(row=hdr_row2, column=col_cursor + 1).fill = header_fill
+        ws.cell(row=hdr_row2, column=col_cursor + 1).alignment = header_align
+        ws.cell(row=hdr_row2, column=col_cursor + 1).border = thin_border
+
+        row = hdr_row2 + 1
+
+        def _z(v):
+            return v if v else None
+
+        for p in product_list:
+            vals = [p["code"], p["pack"]]
+            for s in stockist_list:
+                cell_val = (p["cells"] or {}).get(s["code"], {"before": 0, "after": 0})
+                vals.append(_z(round(flt(cell_val.get("before")), 2)))
+                vals.append(_z(round(flt(cell_val.get("after")), 2)))
+            vals.append(_z(round(flt(p["total_before"]), 2)))
+            vals.append(_z(round(flt(p["total_after"]), 2)))
+            write_data_row(ws, row, vals)
             row += 1
+
+        # Grand total row
+        tot_vals = ["TOTAL", ""]
+        for s in stockist_list:
+            ct = col_totals.get(s["code"], {"before": 0, "after": 0})
+            tot_vals.append(_z(round(flt(ct.get("before")), 2)))
+            tot_vals.append(_z(round(flt(ct.get("after")), 2)))
+        tot_vals.append(_z(round(flt(grand.get("before", 0)), 2)))
+        tot_vals.append(_z(round(flt(grand.get("after", 0)), 2)))
+        for c, v in enumerate(tot_vals, 1):
+            cell = ws.cell(row=row, column=c, value=v)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+            cell.border = thin_border
+        row += 1
 
     elif report_type == "moving_trend":
         ws.title = "Moving Trend"
@@ -7960,23 +8091,36 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
 
     elif report_type == "closing_stock":
         ws.title = "Closing Stock"
-        result = get_stockist_closing_stock_report(division, region, from_date, to_date)
+        group_by_cs = kwargs.get("group_by", "stockist")
+        result = get_stockist_closing_stock_report(division, region, from_date, to_date, group_by_cs)
         data = result.get("data", [])
         row = write_title_rows(ws, f"Stockist Wise Closing Stock Report – {division}",
                                f"Region: {region_label}  |  Period: {period_label}")
-        headers = ["Stockist Code", "Stockist Name", "Product Code", "Product Name", "Pack",
+        name_label = "HQ Name" if group_by_cs == "hq" else "Stockist Name"
+        headers = [name_label, "Product Code", "Product Name", "Pack",
                     "Opening Qty", "Purchase Qty", "Sales Qty", "Free Qty", "Scheme Free Qty", "Closing Qty"]
         write_header_row(ws, row, headers)
         row += 1
-        current_stockist = None
+        current_key = None
+
+        def _z(v):
+            v = flt(v)
+            return v if v else None
+
         for d in data:
-            if d.stockist_code != current_stockist:
-                current_stockist = d.stockist_code
-                write_group_row(ws, row, f"{d.stockist_name} ({d.stockist_code})", len(headers))
+            if group_by_cs == "hq":
+                key = d.hq_code
+                name = d.hq_name or d.hq_code or ""
+            else:
+                key = d.stockist_code
+                name = d.stockist_name or ""
+            if key != current_key:
+                current_key = key
+                write_group_row(ws, row, name, len(headers))
                 row += 1
-            write_data_row(ws, row, [d.stockist_code, d.stockist_name, d.product_code, d.product_name,
-                                     d.pack, flt(d.opening_qty), flt(d.purchase_qty), flt(d.sales_qty),
-                                     flt(d.free_qty), flt(d.scheme_free_qty), flt(d.closing_qty)])
+            write_data_row(ws, row, [name, d.product_code, d.product_name, d.pack,
+                                     _z(d.opening_qty), _z(d.purchase_qty), _z(d.sales_qty),
+                                     _z(d.free_qty), _z(d.scheme_free_qty), _z(d.closing_qty)])
             row += 1
 
     elif report_type == "hq_wise":
@@ -7985,17 +8129,16 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         data = result.get("data", [])
         row = write_title_rows(ws, f"HQ Wise Stockist Report – {division}",
                                f"Region: {region_label}")
-        headers = ["HQ", "HQ Name", "Team", "Region", "Stockist Code", "Stockist Name"]
+        headers = ["HQ Name", "Team", "Region", "No. of Stockists", "Stockists"]
         write_header_row(ws, row, headers)
         row += 1
         for hq_group in data:
-            write_group_row(ws, row, f"{hq_group['hq_name']} ({hq_group['hq_code']})", len(headers))
+            stockist_names = ", ".join(s.get("stockist_name", "") for s in hq_group.get("stockists", []))
+            count = len(hq_group.get("stockists", []))
+            write_data_row(ws, row, [hq_group["hq_name"], hq_group["team"], hq_group["region"],
+                                     count if count else None, stockist_names])
+            ws.cell(row=row, column=5).alignment = Alignment(wrap_text=True, vertical="top")
             row += 1
-            for s in hq_group["stockists"]:
-                write_data_row(ws, row, [hq_group["hq_code"], hq_group["hq_name"],
-                                         hq_group["team"], hq_group["region"],
-                                         s["stockist_code"], s["stockist_name"]])
-                row += 1
 
     elif report_type == "address":
         ws.title = "Stockist Address"
@@ -8004,21 +8147,24 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         groups = result.get("groups")
         row = write_title_rows(ws, f"Stockist Address Report – {division}",
                                f"Region: {region_label}  |  Criteria: {criteria}")
-        headers = ["Stockist Code", "Stockist Name", "Address", "City", "Phone", "HQ", "Team", "Region"]
+        headers = ["Stockist Name", "Address", "City", "Phone", "HQ", "Team", "Region"]
         write_header_row(ws, row, headers)
         row += 1
+
+        def _row_vals(d):
+            return [d.stockist_name or "", d.address or "", d.city or "", d.phone or "",
+                    d.hq_name or "", d.team_name or "", d.region_name or ""]
+
         if groups:
             for grp_name, grp_rows in groups.items():
                 write_group_row(ws, row, str(grp_name), len(headers))
                 row += 1
                 for d in grp_rows:
-                    write_data_row(ws, row, [d.stockist_code, d.stockist_name, d.address or "",
-                                             d.city or "", d.phone or "", d.hq or "", d.team or "", d.region or ""])
+                    write_data_row(ws, row, _row_vals(d))
                     row += 1
         else:
             for d in data:
-                write_data_row(ws, row, [d.stockist_code, d.stockist_name, d.address or "",
-                                         d.city or "", d.phone or "", d.hq or "", d.team or "", d.region or ""])
+                write_data_row(ws, row, _row_vals(d))
                 row += 1
 
     elif report_type == "sec_moving_trend":
@@ -8058,9 +8204,13 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
             # Value in Lakhs row comes FIRST in each section
             vl = sec.get("value_in_lakhs", {})
             vl_months = vl.get("months", [0] * 12)
-            vl_vals = ["Value in Lakhs", ""] + vl_months + [
-                vl.get("target", 0), vl.get("total", 0),
-                vl.get("average", 0), vl.get("per_capita", 0), vl.get("pct", 0)
+
+            def _bz(v):
+                return v if v else None
+
+            vl_vals = ["Value in Lakhs", ""] + [_bz(m) for m in vl_months] + [
+                _bz(vl.get("target", 0)), _bz(vl.get("total", 0)),
+                _bz(vl.get("average", 0)), _bz(vl.get("per_capita", 0)), _bz(vl.get("pct", 0))
             ]
             for c, v in enumerate(vl_vals, 1):
                 cell = ws.cell(row=row, column=c, value=v)
@@ -8073,9 +8223,10 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
 
             # Product rows
             for p in sec.get("products", []):
-                vals = [p.get("code", ""), p.get("pack", "")] + list(p.get("months", [0] * 12)) + [
-                    p.get("target", 0), p.get("total", 0),
-                    p.get("average", 0), p.get("per_capita", 0), p.get("pct", 0)
+                months = [_bz(v) for v in (p.get("months") or [0] * 12)]
+                vals = [p.get("code", ""), p.get("pack", "")] + months + [
+                    _bz(p.get("target", 0)), _bz(p.get("total", 0)),
+                    _bz(p.get("average", 0)), _bz(p.get("per_capita", 0)), _bz(p.get("pct", 0))
                 ]
                 write_data_row(ws, row, vals)
                 row += 1
@@ -8103,6 +8254,9 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         grand_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
         grand_font = Font(bold=True, size=11, color="FFFFFF")
 
+        def _bz(v):
+            return v if v else None
+
         for team in result.get("teams", []):
             # Team header (merged)
             for c in range(1, len(headers) + 1):
@@ -8115,15 +8269,17 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
             row += 1
 
             for s in team.get("stockists", []):
-                vals = [s.get("stockist_name", ""), s.get("hq", ""), s.get("opening", 0)] + \
-                       list(s.get("months", [0] * 12)) + [s.get("total_sales", 0), s.get("closing", 0)]
+                months = [_bz(v) for v in (s.get("months") or [0] * 12)]
+                vals = [s.get("stockist_name", ""), s.get("hq", ""), _bz(s.get("opening", 0))] + \
+                       months + [_bz(s.get("total_sales", 0)), _bz(s.get("closing", 0))]
                 write_data_row(ws, row, vals)
                 row += 1
 
             # Team subtotal
             tt = team.get("total", {})
-            sub_vals = [f"{team.get('team_name', team.get('team', ''))} Team Total", "", tt.get("opening", 0)] + \
-                       list(tt.get("months", [0] * 12)) + [tt.get("total_sales", 0), tt.get("closing", 0)]
+            tt_months = [_bz(v) for v in (tt.get("months") or [0] * 12)]
+            sub_vals = [f"{team.get('team_name', team.get('team', ''))} Team Total", "", _bz(tt.get("opening", 0))] + \
+                       tt_months + [_bz(tt.get("total_sales", 0)), _bz(tt.get("closing", 0))]
             for c, v in enumerate(sub_vals, 1):
                 cell = ws.cell(row=row, column=c, value=v)
                 cell.fill = subtotal_fill
@@ -8136,8 +8292,9 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
 
         # Grand total
         grand = result.get("grand_total", {})
-        grand_vals = [f"{region_name} Total", "", grand.get("opening", 0)] + \
-                     list(grand.get("months", [0] * 12)) + [grand.get("total_sales", 0), grand.get("closing", 0)]
+        grand_months = [_bz(v) for v in (grand.get("months") or [0] * 12)]
+        grand_vals = [f"{region_name} Total", "", _bz(grand.get("opening", 0))] + \
+                     grand_months + [_bz(grand.get("total_sales", 0)), _bz(grand.get("closing", 0))]
         for c, v in enumerate(grand_vals, 1):
             cell = ws.cell(row=row, column=c, value=v)
             cell.fill = grand_fill
