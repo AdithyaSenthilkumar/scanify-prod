@@ -760,6 +760,8 @@ def get_statement_for_view(doc_name):
                 "ocr_raw_purchase_total": getattr(doc, "ocr_raw_purchase_total", "") or "",
                 "ocr_raw_opening_total": getattr(doc, "ocr_raw_opening_total", "") or "",
                 "ocr_raw_closing_total": getattr(doc, "ocr_raw_closing_total", "") or "",
+                "hq_name": frappe.db.get_value("HQ Master", doc.hq, "hq_name") if doc.hq else "",
+                "team_name": frappe.db.get_value("Team Master", doc.team, "team_name") if doc.team else "",
                 "division": doc.division or "",
             },
             "items": items
@@ -7230,6 +7232,12 @@ def get_stockist_report_filter_options(division=None):
         "SELECT name, stockist_name FROM `tabStockist Master` WHERE division=%s AND status='Active' ORDER BY stockist_name",
         (division,), as_dict=True,
     )
+    products = frappe.db.sql(
+        "SELECT product_code, product_name, pack, COALESCE(category, '') AS category "
+        "FROM `tabProduct Master` WHERE division=%s AND status='Active' "
+        "ORDER BY COALESCE(sequence, 9999), product_code",
+        (division,), as_dict=True,
+    )
     months = frappe.db.sql(
         "SELECT DISTINCT upload_month FROM `tabPrimary Sales Data` WHERE division=%s ORDER BY upload_month DESC",
         (division,), as_list=1,
@@ -7246,6 +7254,8 @@ def get_stockist_report_filter_options(division=None):
         "zones": [{"code": z.name, "name": z.zone_name} for z in zones],
         "stockists": [{
             "code": s.name, "name": s.stockist_name} for s in stockists],
+        "products": [{"code": p.product_code, "name": p.product_name or p.product_code,
+                       "pack": p.pack or "", "category": p.category or ""} for p in products],
         "months": [m[0] for m in months],
         "statement_months": [m[0] for m in statement_months],
     }
@@ -7253,43 +7263,59 @@ def get_stockist_report_filter_options(division=None):
 
 @frappe.whitelist()
 def get_stockist_primary_sales_report(division=None, sales_type="primary", region=None,
-                                       from_date=None, to_date=None, team=None, hq=None):
+                                       from_date=None, to_date=None, team=None, hq=None,
+                                       product_codes=None):
     """Report 1 – Stockist Wise Primary Sales Report.
     sales_type: 'primary' (iscancelled=0) or 'creditnote' (iscancelled=1).
+    product_codes: optional list (or JSON-string list / comma-separated string) of
+                   product codes to filter by.
     """
     if not division:
         division = get_user_division()
     is_cancelled = 1 if sales_type == "creditnote" else 0
 
-    conditions = ["division = %(division)s", "iscancelled = %(is_cancelled)s"]
+    # Normalise product_codes input
+    pcodes = _normalise_code_list(product_codes)
+
+    conditions = ["psd.division = %(division)s", "psd.iscancelled = %(is_cancelled)s"]
     params = {"division": division, "is_cancelled": is_cancelled}
 
     if region:
-        conditions.append("region = %(region)s")
+        conditions.append("psd.region = %(region)s")
         params["region"] = region
     if team:
-        conditions.append("team = %(team)s")
+        conditions.append("psd.team = %(team)s")
         params["team"] = team
     if hq:
-        conditions.append("stockist_code IN (SELECT name FROM `tabStockist Master` WHERE hq = %(hq)s)")
+        conditions.append("psd.stockist_code IN (SELECT name FROM `tabStockist Master` WHERE hq = %(hq)s)")
         params["hq"] = hq
     if from_date:
-        conditions.append("invoicedate >= %(from_date)s")
+        conditions.append("psd.invoicedate >= %(from_date)s")
         params["from_date"] = from_date
     if to_date:
-        conditions.append("invoicedate <= %(to_date)s")
+        conditions.append("psd.invoicedate <= %(to_date)s")
         params["to_date"] = to_date
+    if pcodes:
+        ph = ", ".join([f"%(_pc{i})s" for i in range(len(pcodes))])
+        conditions.append(f"psd.pcode IN ({ph})")
+        for i, c in enumerate(pcodes):
+            params[f"_pc{i}"] = c
 
     where = " AND ".join(conditions)
 
     rows = frappe.db.sql(f"""
-        SELECT stockist_code, stockist_name, pcode AS product_code,
-               product AS product_name, pack,
-               SUM(quantity) AS total_qty, SUM(ptsvalue) AS total_value
-        FROM `tabPrimary Sales Data`
+        SELECT psd.stockist_code, psd.stockist_name,
+               COALESCE(hm.hq_name, sm.hq, '') AS hq_name,
+               psd.pcode AS product_code,
+               psd.product AS product_name, psd.pack,
+               SUM(psd.quantity) AS total_qty, SUM(psd.ptsvalue) AS total_value
+        FROM `tabPrimary Sales Data` psd
+        LEFT JOIN `tabStockist Master` sm ON sm.name = psd.stockist_code AND sm.division = %(division)s
+        LEFT JOIN `tabHQ Master` hm ON hm.name = sm.hq AND hm.division = %(division)s
         WHERE {where}
-        GROUP BY stockist_code, stockist_name, pcode, product, pack
-        ORDER BY stockist_name, pcode
+        GROUP BY psd.stockist_code, psd.stockist_name, hm.hq_name, sm.hq,
+                 psd.pcode, psd.product, psd.pack
+        ORDER BY psd.stockist_name, psd.pcode
     """, params, as_dict=True)
 
     seq_map = {r[0]: (r[1] if r[1] is not None else 9999) for r in frappe.db.sql(
@@ -7299,6 +7325,29 @@ def get_stockist_primary_sales_report(division=None, sales_type="primary", regio
     rows.sort(key=lambda r: (r.stockist_name or "", seq_map.get(r.product_code, 9999), r.product_code or ""))
 
     return {"success": True, "data": rows}
+
+
+def _normalise_code_list(value):
+    """Normalise a multi-select input into a list of strings.
+    Accepts: list, JSON-string list, comma-separated string, or empty/None.
+    """
+    if not value:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str):
+        v = value.strip()
+        if not v:
+            return []
+        if v.startswith("["):
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, (list, tuple)):
+                    return [str(x).strip() for x in parsed if str(x).strip()]
+            except Exception:
+                pass
+        return [p.strip() for p in v.split(",") if p.strip()]
+    return []
 
 
 @frappe.whitelist()
@@ -7408,9 +7457,11 @@ def get_stockist_secondary_sales_report(division=None, region=None,
 
 @frappe.whitelist()
 def get_stockist_moving_trend_report(division=None, sales_type="secondary",
-                                      stockist_code=None):
+                                      stockist_code=None, product_codes=None):
     """Report 3 – Moving Trend (monthly pivot Apr-Mar) for a single stockist.
     sales_type: 'primary' uses Primary Sales Data; 'secondary' uses Statement Items.
+    product_codes: optional multi-select product filter.
+    Returns per-product monthly QTY and monthly VALUE, plus aggregated value-in-lakhs row.
     """
     if not division:
         division = get_user_division()
@@ -7420,38 +7471,65 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
     month_labels = ["apr", "may", "jun", "jul", "aug", "sep",
                     "oct", "nov", "dec", "jan", "feb", "mar"]
 
+    pcodes = _normalise_code_list(product_codes)
+    pcode_clause = ""
+    extra_params = {}
+    if pcodes:
+        ph = ", ".join([f"%(_pc{i})s" for i in range(len(pcodes))])
+        pcode_clause = f" AND product_code_filter_col IN ({ph})"
+        for i, c in enumerate(pcodes):
+            extra_params[f"_pc{i}"] = c
+
+    base_params = {"division": division, "stockist": stockist_code, **extra_params}
+
     if sales_type == "primary":
-        rows = frappe.db.sql("""
+        pcode_sub = pcode_clause.replace("product_code_filter_col", "pcode")
+        rows = frappe.db.sql(f"""
             SELECT pcode AS product_code, product AS product_name, pack,
                    MONTH(invoicedate) AS m, YEAR(invoicedate) AS y,
-                   SUM(quantity) AS qty
+                   SUM(quantity) AS qty,
+                   SUM(ptsvalue) AS value
             FROM `tabPrimary Sales Data`
             WHERE division = %(division)s AND stockist_code = %(stockist)s
-                  AND iscancelled = 0
+                  AND iscancelled = 0{pcode_sub}
             GROUP BY pcode, product, pack, MONTH(invoicedate), YEAR(invoicedate)
             ORDER BY pcode, y, m
-        """, {"division": division, "stockist": stockist_code}, as_dict=True)
+        """, base_params, as_dict=True)
     else:
         # Secondary sales = sales + free − scheme free (the canonical "true sales" figure).
-        # Computed inline so it's correct even for legacy rows where the persisted
-        # scheme_deducted_qty_calc may not yet be backfilled.
-        rows = frappe.db.sql("""
+        pcode_sub = pcode_clause.replace("product_code_filter_col", "si.product_code")
+        rows = frappe.db.sql(f"""
             SELECT si.product_code, si.product_name, si.pack,
                    MONTH(ss.statement_month) AS m, YEAR(ss.statement_month) AS y,
-                     SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty
+                   SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty,
+                   SUM(((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0)) AS value
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
             WHERE ss.division = %(division)s AND ss.stockist_code = %(stockist)s
-                  AND ss.docstatus IN (0, 1)
+                  AND ss.docstatus IN (0, 1){pcode_sub}
             GROUP BY si.product_code, si.product_name, si.pack,
                      MONTH(ss.statement_month), YEAR(ss.statement_month)
             ORDER BY si.product_code, y, m
-        """, {"division": division, "stockist": stockist_code}, as_dict=True)
+        """, base_params, as_dict=True)
+
+    # Look up stockist metadata (name, HQ name) up front so we always have the
+    # HQ even when the result is empty.
+    stk_info = frappe.db.sql(
+        """SELECT sm.stockist_name, COALESCE(hm.hq_name, sm.hq, '') AS hq_name
+             FROM `tabStockist Master` sm
+        LEFT JOIN `tabHQ Master` hm ON hm.name = sm.hq AND hm.division = %s
+            WHERE sm.name = %s AND sm.division = %s""",
+        (division, stockist_code, division), as_dict=True,
+    )
+    stockist_name = stk_info[0].stockist_name if stk_info else stockist_code
+    hq_name = stk_info[0].hq_name if stk_info else ""
 
     # Derive the financial year range from data
     if not rows:
-        return {"success": True, "data": [], "fy_label": ""}
+        return {"success": True, "data": [], "fy_label": "",
+                "stockist_name": stockist_name, "hq_name": hq_name,
+                "value_in_lakhs": {"months": [0] * 12, "total": 0.0}}
 
     all_dates = [(r.y, r.m) for r in rows]
     min_y = min(d[0] for d in all_dates)
@@ -7467,6 +7545,8 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
                  10: 6, 11: 7, 12: 8, 1: 9, 2: 10, 3: 11}
 
     products = {}
+    monthly_value = [0.0] * 12
+    grand_value = 0.0
     for r in rows:
         key = r.product_code
         if key not in products:
@@ -7481,13 +7561,29 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
         if idx is not None:
             products[key]["months"][idx] += flt(r.qty)
             products[key]["total"] += flt(r.qty)
+            monthly_value[idx] += flt(r.value)
+            grand_value += flt(r.value)
 
     seq_map = {r[0]: (r[1] if r[1] is not None else 9999) for r in frappe.db.sql(
         "SELECT product_code, COALESCE(sequence, 9999) FROM `tabProduct Master` WHERE division=%s AND status='Active'",
         (division,)
     )}
     data = sorted(products.values(), key=lambda p: (seq_map.get(p["product_code"], 9999), p["product_code"] or ""))
-    return {"success": True, "data": data, "fy_label": fy_label, "month_labels": month_labels}
+
+    # Aggregate value-in-lakhs row (monthly + total)
+    value_in_lakhs = {
+        "months": [round(v / 100000, 2) for v in monthly_value],
+        "total": round(grand_value / 100000, 2),
+    }
+    return {
+        "success": True,
+        "data": data,
+        "fy_label": fy_label,
+        "month_labels": month_labels,
+        "stockist_name": stockist_name,
+        "hq_name": hq_name,
+        "value_in_lakhs": value_in_lakhs,
+    }
 
 
 @frappe.whitelist()
@@ -7953,18 +8049,47 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
     sales_type = kwargs.get("sales_type", "primary")
     stockist_code = kwargs.get("stockist_code", "")
     criteria = kwargs.get("criteria", "ALL")
+    product_codes = kwargs.get("product_codes", "")
     period_label = f"{from_date} to {to_date}" if from_date and to_date else ""
     region_label = region or "All Regions"
 
+    bold_value_font = Font(bold=True, size=11)
+    bold_value_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+
+    def write_value_row(ws, row_num, values):
+        """Bold value row (top-of-section monetary aggregate)."""
+        for col, v in enumerate(values, 1):
+            cell = ws.cell(row=row_num, column=col, value=v)
+            cell.font = bold_value_font
+            cell.fill = bold_value_fill
+            cell.border = thin_border
+            if col > 1:
+                cell.alignment = Alignment(horizontal="right")
+
     if report_type == "primary_sales":
         ws.title = "Primary Sales"
-        result = get_stockist_primary_sales_report(division, sales_type, region, from_date, to_date)
+        result = get_stockist_primary_sales_report(division, sales_type, region, from_date, to_date,
+                                                    kwargs.get("team") or None, kwargs.get("hq") or None,
+                                                    product_codes or None)
         data = result.get("data", [])
         type_label = "Credit Note" if sales_type == "creditnote" else "Primary"
         row = write_title_rows(ws, f"Stockist Wise {type_label} Sales Report – {division}",
                                f"Region: {region_label}  |  Period: {period_label}")
-        headers = ["Stockist Name", "Product Code", "Product Name", "Pack", "Quantity", "Value (PTS)"]
+
+        headers = ["Stockist Name", "HQ Name", "Product Code", "Product Name", "Pack",
+                    "Quantity", "Value (PTS)", "Value (Rs. Lakhs)"]
         write_header_row(ws, row, headers)
+        row += 1
+
+        # Bold "Value in Lakhs" aggregate row at the top of the data area
+        total_val_all = sum(flt(d.total_value) for d in data) if data else 0.0
+        total_qty_all = sum(flt(d.total_qty) for d in data) if data else 0.0
+        write_value_row(ws, row, [
+            "Value in Lakhs", "", "", "", "",
+            round(total_qty_all, 2) if total_qty_all else None,
+            round(total_val_all, 2) if total_val_all else None,
+            round(total_val_all / 100000, 2) if total_val_all else None,
+        ])
         row += 1
         current_stockist = None
         for d in data:
@@ -7974,8 +8099,10 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                 row += 1
             qty = flt(d.total_qty)
             val = flt(d.total_value)
-            write_data_row(ws, row, [d.stockist_name, d.product_code, d.product_name, d.pack,
-                                     qty if qty else None, val if val else None])
+            write_data_row(ws, row, [d.stockist_name, d.hq_name or "",
+                                     d.product_code, d.product_name, d.pack,
+                                     qty if qty else None, val if val else None,
+                                     round(val / 100000, 2) if val else None])
             row += 1
 
     elif report_type == "secondary_sales":
@@ -8077,15 +8204,30 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
 
     elif report_type == "moving_trend":
         ws.title = "Moving Trend"
-        result = get_stockist_moving_trend_report(division, sales_type, stockist_code)
+        result = get_stockist_moving_trend_report(division, sales_type, stockist_code,
+                                                   product_codes or None)
         data = result.get("data", [])
         fy_label = result.get("fy_label", "")
+        stockist_name = result.get("stockist_name") or stockist_code
+        hq_name = result.get("hq_name", "")
+        vil = result.get("value_in_lakhs", {"months": [0] * 12, "total": 0})
         ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
         type_label = "Primary" if sales_type == "primary" else "Secondary"
-        row = write_title_rows(ws, f"Moving Trend ({type_label} Sales) – {division}",
-                               f"Stockist: {stockist_code}  |  {fy_label}")
+        subtitle = f"Stockist: {stockist_name}"
+        if hq_name:
+            subtitle += f"  |  HQ: {hq_name}"
+        if fy_label:
+            subtitle += f"  |  {fy_label}"
+        row = write_title_rows(ws, f"Moving Trend ({type_label} Sales) – {division}", subtitle)
         headers = ["Product Code", "Product Name", "Pack"] + ml + ["Total"]
         write_header_row(ws, row, headers)
+        row += 1
+        # Bold "Value in Lakhs" row at the top
+        vil_months = vil.get("months", [0] * 12)
+        vil_vals = ["Value in Lakhs", "", ""] + [v if v else None for v in vil_months] + [
+            vil.get("total") or None
+        ]
+        write_value_row(ws, row, vil_vals)
         row += 1
         for d in data:
             vals = [d["product_code"], d["product_name"], d["pack"]] + d["months"] + [d["total"]]
@@ -8170,20 +8312,35 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                 write_data_row(ws, row, _row_vals(d))
                 row += 1
 
-    elif report_type == "sec_moving_trend":
-        # Report 7 – Secondary Sales Moving Trend
+    elif report_type in ("sec_moving_trend", "primary_moving_trend"):
+        # Reports 7 (secondary) & 10 (primary) – shared Moving Trend output shape
         entity_type = kwargs.get("entity_type", "Team")
         entity_name = kwargs.get("entity_name", "")
         financial_year = kwargs.get("financial_year", "")
         sales_mode = kwargs.get("sales_mode", "after_deduction")
-        ws.title = "Sec Sales Moving Trend"
-        result = get_secondary_sales_moving_trend(division, entity_type, entity_name, financial_year, sales_mode)
+        if report_type == "primary_moving_trend":
+            ws.title = "Primary Sales Moving Trend"
+            result = get_primary_sales_moving_trend(division, entity_type, entity_name,
+                                                     financial_year, product_codes or None)
+            report_title_prefix = "Primary Sales Moving Trend"
+            sales_mode_label = ""  # primary has no scheme deduction split
+        else:
+            ws.title = "Sec Sales Moving Trend"
+            result = get_secondary_sales_moving_trend(division, entity_type, entity_name,
+                                                      financial_year, sales_mode)
+            report_title_prefix = "Secondary Sales Moving Trend"
+            sales_mode_label = "Before Deduction" if sales_mode == "before_deduction" else "After Deduction"
         ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
         fy_label = result.get("fy_label", "")
         entity_display = result.get("entity_display", entity_name)
-        sales_mode_label = "Before Deduction" if sales_mode == "before_deduction" else "After Deduction"
-        row = write_title_rows(ws, f"Secondary Sales Moving Trend – {division}",
-                               f"{entity_type}: {entity_display}  |  {fy_label}  |  {sales_mode_label}")
+        sanctioned_strength = result.get("sanctioned_strength", 0)
+        subtitle_parts = [f"{entity_type}: {entity_display}",
+                          f"Sanctioned Strength: {sanctioned_strength}",
+                          fy_label]
+        if sales_mode_label:
+            subtitle_parts.append(sales_mode_label)
+        subtitle = "  |  ".join([p for p in subtitle_parts if p])
+        row = write_title_rows(ws, f"{report_title_prefix} – {division}", subtitle)
         headers = ["Product", "Pack"] + ml + ["Target", "Total", "Average", "Per Capita", "%"]
         write_header_row(ws, row, headers)
         row += 1
@@ -8428,6 +8585,102 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
             rqty = p.get("region_qty")
             p_vals.append(rqty if rqty else "")
             write_data_row(ws, row, p_vals)
+            row += 1
+
+    elif report_type == "sec_vs_closing":
+        # Report 11 – Secondary Sales Value vs Closing Stock Value
+        from_month = kwargs.get("from_month", "")
+        to_month = kwargs.get("to_month", "")
+        sales_mode = kwargs.get("sales_mode", "after_deduction")
+        region_codes = kwargs.get("region_codes", "")
+        ws.title = "Sec Sales vs Closing Value"
+        result = get_secondary_vs_closing_value_report(division, from_month or None,
+                                                        to_month or None, region_codes or None,
+                                                        sales_mode)
+        months_seq = result.get("months", [])
+        regions_out = result.get("regions", [])
+        grand = result.get("grand_total", {}).get("monthly", [])
+
+        period_label = ""
+        if months_seq:
+            period_label = months_seq[0]["label"] + " to " + months_seq[-1]["label"]
+        sales_mode_label = "Before Deduction" if sales_mode == "before_deduction" else "After Deduction"
+        subtitle_parts = ["Organization Secondary Sales & Closing Stock Value", period_label, sales_mode_label]
+        subtitle = "  |  ".join([p for p in subtitle_parts if p])
+        row = write_title_rows(ws, f"Secondary Sales vs Closing Value – {division}", subtitle)
+
+        # Two-row header
+        hdr_row1 = row
+        hdr_row2 = row + 1
+        # First col: "HQ"
+        cell = ws.cell(row=hdr_row1, column=1, value="Months")
+        cell.font = header_font; cell.fill = header_fill; cell.alignment = header_align; cell.border = thin_border
+        ws.merge_cells(start_row=hdr_row1, start_column=1, end_row=hdr_row2, end_column=1)
+        # Per-month header pairs
+        col_cursor = 2
+        for ms in months_seq:
+            cell = ws.cell(row=hdr_row1, column=col_cursor, value=ms["label"])
+            cell.font = header_font; cell.fill = header_fill; cell.alignment = header_align; cell.border = thin_border
+            ws.merge_cells(start_row=hdr_row1, start_column=col_cursor,
+                           end_row=hdr_row1, end_column=col_cursor + 1)
+            for sub, lbl in enumerate(["Sec Val", "Cls Val"]):
+                c = ws.cell(row=hdr_row2, column=col_cursor + sub, value=lbl)
+                c.font = header_font; c.fill = header_fill; c.alignment = header_align; c.border = thin_border
+            col_cursor += 2
+
+        # Override row-1 col-1 label to "HQ"
+        ws.cell(row=hdr_row2, column=1, value="HQ").font = header_font
+        ws.cell(row=hdr_row2, column=1).fill = header_fill
+        ws.cell(row=hdr_row2, column=1).alignment = header_align
+        ws.cell(row=hdr_row2, column=1).border = thin_border
+
+        row = hdr_row2 + 1
+
+        # Region groups
+        region_total_font = Font(bold=True, color="C00000", size=11)
+        region_total_fill = PatternFill(start_color="FFF2F2", end_color="FFF2F2", fill_type="solid")
+
+        def _z(v):
+            return v if v else None
+
+        for reg in regions_out:
+            for h in reg.get("hqs", []):
+                vals = [h["hq_name"]]
+                for m in h["monthly"]:
+                    vals.append(_z(m.get("sec_val")))
+                    vals.append(_z(m.get("cls_val")))
+                write_data_row(ws, row, vals)
+                row += 1
+
+            # Region total row (bold red)
+            tvals = [f"{reg['region_name']} Region Total"]
+            for m in reg["totals"]["monthly"]:
+                tvals.append(_z(m.get("sec_val")))
+                tvals.append(_z(m.get("cls_val")))
+            for c, v in enumerate(tvals, 1):
+                cell = ws.cell(row=row, column=c, value=v)
+                cell.font = region_total_font
+                cell.fill = region_total_fill
+                cell.border = thin_border
+                if c > 1:
+                    cell.alignment = Alignment(horizontal="right")
+            row += 1
+
+        # Grand total
+        if grand:
+            gvals = ["Grand Total"]
+            for m in grand:
+                gvals.append(_z(m.get("sec_val")))
+                gvals.append(_z(m.get("cls_val")))
+            grand_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+            grand_font = Font(bold=True, color="FFFFFF", size=11)
+            for c, v in enumerate(gvals, 1):
+                cell = ws.cell(row=row, column=c, value=v)
+                cell.font = grand_font
+                cell.fill = grand_fill
+                cell.border = thin_border
+                if c > 1:
+                    cell.alignment = Alignment(horizontal="right")
             row += 1
 
     else:
@@ -10187,6 +10440,278 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
 
 
 # ═══════════════════════════════════════════════════════════════
+# REPORT 10 – PRIMARY SALES MOVING TREND
+# Same shape as Report 7 (Secondary Sales Moving Trend) but reads from
+# `tabPrimary Sales Data`. No before/after-scheme split — primary sales are
+# raw billing figures and the scheme deduction concept does not apply.
+# ═══════════════════════════════════════════════════════════════
+
+@frappe.whitelist()
+def get_primary_sales_moving_trend(division=None, entity_type="Team",
+                                   entity_name=None, financial_year=None,
+                                   product_codes=None):
+    """Report 10 – Primary Sales Moving Trend.
+
+    Mirrors get_secondary_sales_moving_trend's output shape (sections of products
+    with monthly quantities and a Value-in-Lakhs row) so the same renderer can be
+    reused on the front-end. Reads Primary Sales Data (iscancelled=0).
+    """
+    if not division:
+        division = get_user_division()
+    if not entity_name:
+        return {"success": False, "message": f"{entity_type} is required"}
+
+    from datetime import date
+    today = date.today()
+
+    if financial_year:
+        try:
+            start_year = int(financial_year.split("-")[0])
+        except Exception:
+            start_year = today.year if today.month >= 4 else today.year - 1
+    else:
+        start_year = today.year if today.month >= 4 else today.year - 1
+        financial_year = f"{start_year}-{str(start_year + 1)[2:]}"
+
+    fy_start = f"{start_year}-04-01"
+    fy_end = f"{start_year + 1}-03-31"
+    fy_label = f"Apr {str(start_year)[2:]} to Mar {str(start_year + 1)[2:]}"
+
+    # ── Resolve entity → list of HQs (matches Report 7's resolver) ──
+    hq_list = []
+    entity_display = entity_name
+    sanctioned_strength = 0
+
+    if entity_type == "HQ":
+        hq_list = [entity_name]
+        pc = frappe.db.get_value("HQ Master", entity_name, "per_capita") or 0
+        sanctioned_strength = flt(pc)
+        hq_name = frappe.db.get_value("HQ Master", entity_name, "hq_name") or entity_name
+        entity_display = hq_name
+
+    elif entity_type == "Team":
+        hqs = frappe.get_all("HQ Master",
+                             filters={"team": entity_name, "status": "Active", "division": division},
+                             fields=["name", "hq_name"])
+        hq_list = [h.name for h in hqs]
+        hq_names = [h.hq_name for h in hqs]
+        ss = frappe.db.get_value("Team Master", entity_name, "sanctioned_strength") or 0
+        sanctioned_strength = flt(ss)
+        team_name = frappe.db.get_value("Team Master", entity_name, "team_name") or entity_name
+        entity_display = f"{team_name} ({', '.join(hq_names)})" if hq_names else team_name
+
+    elif entity_type == "Region":
+        teams = frappe.get_all("Team Master",
+                               filters={"region": entity_name, "status": "Active",
+                                        "division": ["in", [division, "Both"]]},
+                               fields=["name"])
+        for t in teams:
+            sub_hqs = frappe.get_all("HQ Master",
+                                 filters={"team": t.name, "status": "Active", "division": division},
+                                 fields=["name"])
+            hq_list.extend([h.name for h in sub_hqs])
+        total_pc = frappe.db.sql(
+            "SELECT COALESCE(SUM(per_capita), 0) FROM `tabHQ Master` "
+            "WHERE team IN (SELECT name FROM `tabTeam Master` WHERE region=%s AND status='Active') "
+            "AND status='Active' AND division=%s",
+            (entity_name, division)
+        )
+        sanctioned_strength = flt(total_pc[0][0]) if total_pc else 0
+        region_name = frappe.db.get_value("Region Master", entity_name, "region_name") or entity_name
+        entity_display = region_name
+
+    elif entity_type == "Zone":
+        regions = frappe.get_all("Region Master",
+                                 filters={"zone": entity_name, "status": "Active",
+                                          "division": ["in", [division, "Both"]]},
+                                 fields=["name"])
+        for reg in regions:
+            sub_teams = frappe.get_all("Team Master",
+                                       filters={"region": reg.name, "status": "Active",
+                                                "division": ["in", [division, "Both"]]},
+                                       fields=["name"])
+            for t in sub_teams:
+                sub_hqs = frappe.get_all("HQ Master",
+                                         filters={"team": t.name, "status": "Active", "division": division},
+                                         fields=["name"])
+                hq_list.extend([h.name for h in sub_hqs])
+        total_pc = frappe.db.sql(
+            "SELECT COALESCE(SUM(hm.per_capita), 0) FROM `tabHQ Master` hm "
+            "INNER JOIN `tabTeam Master` tm ON hm.team = tm.name "
+            "INNER JOIN `tabRegion Master` rm ON tm.region = rm.name "
+            "WHERE rm.zone=%s AND hm.status='Active' AND hm.division=%s",
+            (entity_name, division)
+        )
+        sanctioned_strength = flt(total_pc[0][0]) if total_pc else 0
+        zone_name = frappe.db.get_value("Zone Master", entity_name, "zone_name") or entity_name
+        entity_display = zone_name
+
+    if not hq_list:
+        return {"success": True, "sections": [],
+                "entity_display": entity_display, "entity_type": entity_type,
+                "sanctioned_strength": sanctioned_strength, "fy_label": fy_label,
+                "month_labels": _MONTH_LABELS}
+
+    # ── Products & optional code filter ──
+    products = frappe.db.sql(
+        "SELECT product_code, product_name, pack, category, pts "
+        "FROM `tabProduct Master` WHERE division=%s AND status='Active' "
+        "ORDER BY category, COALESCE(sequence, 9999), product_code",
+        (division,), as_dict=True
+    )
+    pcodes = _normalise_code_list(product_codes)
+    if pcodes:
+        allowed = set(pcodes)
+        products = [p for p in products if p.product_code in allowed]
+
+    # ── Primary Sales by product × month, scoped to the HQs of the chosen entity ──
+    # Resolve HQs → stockists (Primary Sales has no direct hq column).
+    stockist_rows = frappe.db.sql(
+        f"""SELECT name FROM `tabStockist Master`
+              WHERE division=%s AND status='Active'
+                AND hq IN ({", ".join(["%s"] * len(hq_list))})""",
+        [division] + hq_list,
+    )
+    stockist_codes = [r[0] for r in stockist_rows]
+    if not stockist_codes:
+        return {"success": True, "sections": [],
+                "entity_display": entity_display, "entity_type": entity_type,
+                "sanctioned_strength": sanctioned_strength, "fy_label": fy_label,
+                "month_labels": _MONTH_LABELS}
+
+    sp_ph = ", ".join(["%s"] * len(stockist_codes))
+    pcode_clause = ""
+    pcode_args = []
+    if pcodes:
+        pp = ", ".join(["%s"] * len(pcodes))
+        pcode_clause = f" AND pcode IN ({pp})"
+        pcode_args = pcodes
+
+    pri_rows = frappe.db.sql(f"""
+        SELECT pcode AS product_code,
+               MONTH(invoicedate) AS m,
+               SUM(quantity) AS qty,
+               SUM(ptsvalue) AS value
+        FROM `tabPrimary Sales Data`
+        WHERE division = %s AND iscancelled = 0
+          AND stockist_code IN ({sp_ph})
+          AND invoicedate BETWEEN %s AND %s{pcode_clause}
+        GROUP BY pcode, MONTH(invoicedate)
+    """, [division] + stockist_codes + [fy_start, fy_end] + pcode_args, as_dict=True)
+
+    # ── Pivot ──
+    month_map = {4: 0, 5: 1, 6: 2, 7: 3, 8: 4, 9: 5,
+                 10: 6, 11: 7, 12: 8, 1: 9, 2: 10, 3: 11}
+    product_data = {}
+    for r in pri_rows:
+        pc = r.product_code
+        if pc not in product_data:
+            product_data[pc] = {"months_qty": [0] * 12, "months_val": [0.0] * 12}
+        idx = month_map.get(r.m)
+        if idx is not None:
+            product_data[pc]["months_qty"][idx] += flt(r.qty)
+            product_data[pc]["months_val"][idx] += flt(r.value)
+
+    # ── HQ target (in ₹) for the FY ──
+    target_value = 0.0
+    target_rows = frappe.db.sql(f"""
+        SELECT COALESCE(SUM(ti.yearly_total), 0) AS total_target
+        FROM `tabHQ Yearly Target` yt
+        INNER JOIN `tabHQ Target Item` ti ON ti.parent = yt.name
+        WHERE yt.docstatus = 1 AND yt.division = %s AND yt.financial_year = %s
+              AND ti.hq IN ({", ".join(["%s"] * len(hq_list))})
+    """, [division, financial_year] + hq_list, as_dict=True)
+    if target_rows:
+        target_value = flt(target_rows[0].total_target)
+
+    # ── Count active months (months with any sales) ──
+    active_months = 0
+    for i in range(12):
+        if any(pd["months_qty"][i] > 0 for pd in product_data.values()):
+            active_months += 1
+    active_months = max(active_months, 1)
+
+    # ── Build sections by category ──
+    category_order = [
+        ("Main Products", "MAIN PRODUCTS"),
+        ("Hospital Products", "HOSPITAL PRODUCTS"),
+        ("New Products", "NEW PRODUCTS"),
+    ]
+
+    section_totals = {}
+    grand_total_val = 0.0
+    for cat_key, _ in category_order:
+        cat_products = [p for p in products if (p.category or "").lower() == cat_key.lower()]
+        total_val = sum(sum(product_data.get(p.product_code, {"months_val": [0.0] * 12})["months_val"])
+                        for p in cat_products)
+        section_totals[cat_key] = total_val
+        grand_total_val += total_val
+
+    sections = []
+    for cat_key, cat_label in category_order:
+        cat_products = [p for p in products if (p.category or "").lower() == cat_key.lower()]
+        if not cat_products:
+            continue
+        section_months_val = [0.0] * 12
+        product_rows = []
+        for p in cat_products:
+            pc = p.product_code
+            pd = product_data.get(pc, {"months_qty": [0] * 12, "months_val": [0.0] * 12})
+            total_qty = sum(pd["months_qty"])
+            avg_qty = round(total_qty / active_months) if total_qty else 0
+            per_capita = round(avg_qty / sanctioned_strength) if sanctioned_strength else 0
+            for i in range(12):
+                section_months_val[i] += pd["months_val"][i]
+            product_rows.append({
+                "code": pc, "pack": p.pack or "",
+                "target": 0,
+                "months": pd["months_qty"],
+                "total": total_qty,
+                "average": avg_qty,
+                "per_capita": per_capita,
+            })
+
+        section_total_val = section_totals[cat_key]
+        section_months_lakhs = [round(v / 100000, 2) for v in section_months_val]
+        section_total_lakhs = round(section_total_val / 100000, 2)
+        section_avg_lakhs = round(section_total_lakhs / active_months, 2)
+        section_pc_lakhs = round(section_avg_lakhs / sanctioned_strength, 2) if sanctioned_strength else 0
+
+        cat_target = 0.0
+        cat_pct = 0.0
+        if target_value > 0 and grand_total_val > 0:
+            share = section_total_val / grand_total_val if grand_total_val else 0
+            cat_target = round(target_value * share, 2)
+            cat_pct = round((section_total_lakhs / cat_target) * 100) if cat_target else 0
+
+        sections.append({
+            "label": cat_label,
+            "category": cat_key,
+            "products": product_rows,
+            "value_in_lakhs": {
+                "target": cat_target,
+                "months": section_months_lakhs,
+                "total": section_total_lakhs,
+                "average": section_avg_lakhs,
+                "per_capita": section_pc_lakhs,
+                "pct": cat_pct,
+            }
+        })
+
+    return {
+        "success": True,
+        "entity_type": entity_type,
+        "entity_display": entity_display,
+        "sanctioned_strength": sanctioned_strength,
+        "fy_label": fy_label,
+        "financial_year": financial_year,
+        "active_months": active_months,
+        "sections": sections,
+        "month_labels": _MONTH_LABELS,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
 # REGION-WISE STOCKIST SECONDARY SALES MOVING TREND
 # Format: Rows = Stockists; Cols = Opening | Apr..Mar | Total Value | Closing
 # Values in ₹ Lakhs; grouped by Team within Region
@@ -10403,6 +10928,190 @@ def get_region_wise_stockist_moving_trend(division=None, region=None, financial_
             "total_sales": round(grand_total, 2),
             "closing": round(grand_closing, 2),
         },
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# REPORT 11 – SECONDARY SALES VALUE vs CLOSING STOCK VALUE
+# HQ rows grouped by Region, with one (Sec Val, Cls Val) pair per month.
+# All values in ₹ Lakhs.
+# ═══════════════════════════════════════════════════════════════
+
+@frappe.whitelist()
+def get_secondary_vs_closing_value_report(division=None, from_month=None, to_month=None,
+                                          region_codes=None, sales_mode="after_deduction"):
+    """Report 11 – Secondary Sales Value vs Closing Stock Value (HQ-wise).
+
+    from_month / to_month: YYYY-MM strings (first-of-month resolution).
+    region_codes: optional multi-select; if blank, includes all active regions for the division.
+    sales_mode: 'after_deduction' (default) or 'before_deduction' (same semantics as Reports 7/8).
+    """
+    if not division:
+        division = get_user_division()
+
+    from datetime import date
+
+    # ── Resolve month range (default: current FY Apr-Mar) ──
+    today = date.today()
+    if not from_month or not to_month:
+        start_year = today.year if today.month >= 4 else today.year - 1
+        from_date_d = f"{start_year}-04-01"
+        to_year = start_year + 1
+        to_date_d = f"{to_year}-03-31"
+    else:
+        try:
+            fy, fm = from_month.split("-")
+            ty, tm = to_month.split("-")
+            from_date_d = f"{fy}-{fm}-01"
+            # last day of to_month
+            import calendar
+            last_d = calendar.monthrange(int(ty), int(tm))[1]
+            to_date_d = f"{ty}-{tm}-{last_d:02d}"
+        except Exception:
+            return {"success": False, "message": "Invalid month range (expected YYYY-MM)."}
+
+    # ── Build month sequence (year, month, label) ──
+    from datetime import datetime
+    cur = datetime.strptime(from_date_d, "%Y-%m-%d")
+    end = datetime.strptime(to_date_d, "%Y-%m-%d")
+    months_seq = []
+    while cur <= end:
+        label = f"{cur.strftime('%b')}-{str(cur.year)[2:]}"
+        months_seq.append({"year": cur.year, "month": cur.month, "label": label,
+                            "key": f"{cur.year}-{cur.month:02d}"})
+        # advance one month
+        if cur.month == 12:
+            cur = cur.replace(year=cur.year + 1, month=1)
+        else:
+            cur = cur.replace(month=cur.month + 1)
+    if not months_seq:
+        return {"success": False, "message": "Empty month range."}
+
+    # ── Resolve regions ──
+    region_codes_n = _normalise_code_list(region_codes)
+    region_filter_sql = ""
+    region_params = []
+    if region_codes_n:
+        region_filter_sql = "AND name IN (" + ", ".join(["%s"] * len(region_codes_n)) + ")"
+        region_params = region_codes_n
+
+    regions = frappe.db.sql(
+        f"""SELECT name AS code, region_name FROM `tabRegion Master`
+              WHERE status='Active' AND division IN (%s, 'Both') {region_filter_sql}
+              ORDER BY region_name""",
+        [division] + region_params, as_dict=True,
+    )
+    if not regions:
+        return {"success": True, "regions": [], "months": months_seq, "grand_total": {}}
+
+    region_codes_all = [r.code for r in regions]
+    r_ph = ", ".join(["%s"] * len(region_codes_all))
+
+    # ── HQs for those regions ──
+    hqs = frappe.db.sql(
+        f"""SELECT name AS code, hq_name, region
+              FROM `tabHQ Master`
+              WHERE status='Active' AND division=%s AND region IN ({r_ph})
+              ORDER BY hq_name""",
+        [division] + region_codes_all, as_dict=True,
+    )
+    if not hqs:
+        return {"success": True, "regions": [], "months": months_seq, "grand_total": {}}
+
+    hq_codes = [h.code for h in hqs]
+    hq_ph = ", ".join(["%s"] * len(hq_codes))
+
+    # ── Monthly secondary sales value (in Rs) per HQ ──
+    if sales_mode == "before_deduction":
+        sv_expr = "((si.sales_qty + si.free_qty) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0)"
+    else:
+        sv_expr = (
+            "(COALESCE(si.scheme_deducted_qty_calc, "
+            "(si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0))) "
+            "/ IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0)"
+        )
+
+    sales_rows = frappe.db.sql(f"""
+        SELECT ss.hq,
+               YEAR(ss.statement_month) AS y,
+               MONTH(ss.statement_month) AS m,
+               SUM({sv_expr}) AS sales_value
+          FROM `tabStockist Statement` ss
+    INNER JOIN `tabStockist Statement Item` si
+            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+         WHERE ss.division = %s
+           AND ss.docstatus IN (0, 1)
+           AND ss.hq IN ({hq_ph})
+           AND ss.statement_month BETWEEN %s AND %s
+      GROUP BY ss.hq, YEAR(ss.statement_month), MONTH(ss.statement_month)
+    """, [division] + hq_codes + [from_date_d, to_date_d], as_dict=True)
+
+    # ── Monthly closing stock value per HQ ──
+    closing_rows = frappe.db.sql(f"""
+        SELECT ss.hq,
+               YEAR(ss.statement_month) AS y,
+               MONTH(ss.statement_month) AS m,
+               SUM(IFNULL(si.closing_value, 0)) AS closing_value
+          FROM `tabStockist Statement` ss
+    INNER JOIN `tabStockist Statement Item` si
+            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+         WHERE ss.division = %s
+           AND ss.docstatus IN (0, 1)
+           AND ss.hq IN ({hq_ph})
+           AND ss.statement_month BETWEEN %s AND %s
+      GROUP BY ss.hq, YEAR(ss.statement_month), MONTH(ss.statement_month)
+    """, [division] + hq_codes + [from_date_d, to_date_d], as_dict=True)
+
+    LAKH = 100000.0
+
+    def to_lakhs(v):
+        return round(flt(v) / LAKH, 2) if v else 0.0
+
+    # Index rows: (hq, year, month) → value
+    sales_idx = {(r.hq, r.y, r.m): flt(r.sales_value) for r in sales_rows}
+    closing_idx = {(r.hq, r.y, r.m): flt(r.closing_value) for r in closing_rows}
+
+    # ── Build per-region structure ──
+    hq_by_region = {}
+    for h in hqs:
+        hq_by_region.setdefault(h.region, []).append(h)
+
+    regions_out = []
+    grand_monthly = [{"sec_val": 0.0, "cls_val": 0.0} for _ in months_seq]
+
+    for r in regions:
+        region_hqs = hq_by_region.get(r.code, [])
+        region_monthly = [{"sec_val": 0.0, "cls_val": 0.0} for _ in months_seq]
+        hqs_out = []
+        for h in region_hqs:
+            row_monthly = []
+            for mi, ms in enumerate(months_seq):
+                sv = to_lakhs(sales_idx.get((h.code, ms["year"], ms["month"]), 0))
+                cv = to_lakhs(closing_idx.get((h.code, ms["year"], ms["month"]), 0))
+                row_monthly.append({"sec_val": sv, "cls_val": cv})
+                region_monthly[mi]["sec_val"] = round(region_monthly[mi]["sec_val"] + sv, 2)
+                region_monthly[mi]["cls_val"] = round(region_monthly[mi]["cls_val"] + cv, 2)
+            hqs_out.append({"hq_code": h.code, "hq_name": h.hq_name or h.code, "monthly": row_monthly})
+
+        for mi in range(len(months_seq)):
+            grand_monthly[mi]["sec_val"] = round(grand_monthly[mi]["sec_val"] + region_monthly[mi]["sec_val"], 2)
+            grand_monthly[mi]["cls_val"] = round(grand_monthly[mi]["cls_val"] + region_monthly[mi]["cls_val"], 2)
+
+        regions_out.append({
+            "region_code": r.code,
+            "region_name": r.region_name or r.code,
+            "hqs": hqs_out,
+            "totals": {"monthly": region_monthly},
+        })
+
+    return {
+        "success": True,
+        "regions": regions_out,
+        "months": months_seq,
+        "grand_total": {"monthly": grand_monthly},
+        "from_month": from_month,
+        "to_month": to_month,
+        "sales_mode": sales_mode,
     }
 
 

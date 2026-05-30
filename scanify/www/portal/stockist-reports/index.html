@@ -34,6 +34,8 @@
                         <option value="sec_moving_trend">7. Secondary Sales Moving Trend</option>
                         <option value="region_stockist_trend">8. Region-wise Stockist Moving Trend (Opening/Closing)</option>
                         <option value="region_product_stock">9. Product Closing Stock – Region Summary (HQ &amp; Stockist-wise)</option>
+                        <option value="primary_moving_trend">10. Primary Sales Moving Trend</option>
+                        <option value="sec_vs_closing">11. Secondary Sales Value vs Closing Stock Value (HQ-wise)</option>
                     </select>
                 </div>
                 <div class="col-md-5 col-lg-6 mt-3 mt-md-0 d-flex align-items-end" style="gap:8px;">
@@ -207,29 +209,84 @@
                 </select>
             </div>
 
-            <!-- Entity Type (Report 7) -->
-            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend">
+            <!-- View By (Reports 7 & 10) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,primary_moving_trend">
                 <label class="sr-filter-label">View By</label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-entity-type" onchange="onEntityTypeChange()">
-                    <option value="Team">Team</option>
                     <option value="HQ">HQ</option>
+                    <option value="Team">Team</option>
                     <option value="Region">Region</option>
                     <option value="Zone">Zone</option>
                 </select>
             </div>
-            <!-- Entity Name (Report 7) -->
-            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend" style="min-width:220px;">
-                <label class="sr-filter-label">Select <span id="entity-type-label">Team</span></label>
-                <select class="form-control form-control-sm sr-filter-select" id="f-entity-name">
-                    <option value="">-- Select --</option>
+            <!-- Cascading Region (Reports 7 & 10) -->
+            <div class="sr-filter-item filter-field smt-region" data-reports="sec_moving_trend,primary_moving_trend" style="min-width:200px;">
+                <label class="sr-filter-label">Region</label>
+                <select class="form-control form-control-sm sr-filter-select sr-select2" id="f-smt-region" onchange="onSMTRegionChange()">
+                    <option value="">All Regions</option>
+                    {% for r in regions %}
+                    <option value="{{ r.code }}">{{ r.name }}</option>
+                    {% endfor %}
                 </select>
             </div>
-            <!-- Sales Mode (Reports 7, 8, 9) -->
-            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,region_product_stock">
+            <!-- Cascading Team (Reports 7 & 10) -->
+            <div class="sr-filter-item filter-field smt-team" data-reports="sec_moving_trend,primary_moving_trend" style="min-width:200px;">
+                <label class="sr-filter-label">Team</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-smt-team" onchange="onSMTTeamChange()">
+                    <option value="">All Teams</option>
+                </select>
+            </div>
+            <!-- Cascading HQ (Reports 7 & 10) -->
+            <div class="sr-filter-item filter-field smt-hq" data-reports="sec_moving_trend,primary_moving_trend" style="min-width:200px;">
+                <label class="sr-filter-label">HQ</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-smt-hq">
+                    <option value="">-- Select HQ --</option>
+                </select>
+            </div>
+            <!-- Zone picker (only when View By = Zone) -->
+            <div class="sr-filter-item filter-field smt-zone" data-reports="sec_moving_trend,primary_moving_trend" style="min-width:200px;">
+                <label class="sr-filter-label">Zone</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-smt-zone">
+                    <option value="">-- Select Zone --</option>
+                    {% for z in zones %}
+                    <option value="{{ z.code }}">{{ z.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <!-- Sales Mode (Reports 7, 8, 9, 11 — NOT Report 10; primary sales has no scheme split) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,region_product_stock,sec_vs_closing">
                 <label class="sr-filter-label">Sales Mode</label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-sales-mode">
                     <option value="after_deduction">After Deduction (Sales+Free&minus;Scheme)</option>
                     <option value="before_deduction">Before Deduction (Sales+Free)</option>
+                </select>
+            </div>
+
+            <!-- From / To Month (Report 11) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_vs_closing">
+                <label class="sr-filter-label">From Month</label>
+                <input type="month" class="form-control form-control-sm sr-filter-select" id="f-svc-from-month">
+            </div>
+            <div class="sr-filter-item filter-field" data-reports="sec_vs_closing">
+                <label class="sr-filter-label">To Month</label>
+                <input type="month" class="form-control form-control-sm sr-filter-select" id="f-svc-to-month">
+            </div>
+            <!-- Regions multi-select (Report 11) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_vs_closing" style="min-width:260px;flex:1 1 260px;max-width:420px;">
+                <label class="sr-filter-label">Regions <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-svc-regions" multiple>
+                    {% for r in regions %}
+                    <option value="{{ r.code }}">{{ r.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <!-- Product Multi-Select (Reports 1, 3, 10) -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,moving_trend,primary_moving_trend" style="min-width:280px;flex:1 1 280px;max-width:480px;">
+                <label class="sr-filter-label">Products <span class="text-muted" style="font-weight:400;text-transform:none;">(optional — all if blank)</span></label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-products" multiple>
+                    {% for p in products %}
+                    <option value="{{ p.code }}">{{ p.name }}{% if p.pack %} ({{ p.pack }}){% endif %}</option>
+                    {% endfor %}
                 </select>
             </div>
         </div>
@@ -687,6 +744,22 @@ $(document).ready(function() {
         allowClear: true,
         dropdownParent: $(".sr-filters-panel"),
     });
+    // Multi-select product picker for Reports 1, 3, 10
+    $("#f-products").select2({
+        width: "100%",
+        placeholder: "All products (or pick specific ones)",
+        allowClear: true,
+        dropdownParent: $(".sr-filters-panel"),
+        closeOnSelect: false,
+    });
+    // Multi-select regions for Report 11
+    $("#f-svc-regions").select2({
+        width: "100%",
+        placeholder: "All regions",
+        allowClear: true,
+        dropdownParent: $(".sr-filters-panel"),
+        closeOnSelect: false,
+    });
     // Pre-populate team and HQ dropdowns with all options
     rebuildSelect("f-team", CTX_TEAMS_RAW, "All Teams");
     rebuildSelect("f-hq", CTX_HQS_RAW, "All HQs");
@@ -722,7 +795,11 @@ function onReportTypeChange() {
     document.getElementById("btn-pdf").style.display = "none";
 
     // Populate entity dropdown on first show
-    if (currentReportType === "sec_moving_trend") onEntityTypeChange();
+    if (currentReportType === "sec_moving_trend" || currentReportType === "primary_moving_trend") {
+        onEntityTypeChange();
+    }
+    // Clear product multi-select when switching reports
+    if ($("#f-products").data("select2")) $("#f-products").val(null).trigger("change");
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -751,33 +828,44 @@ function onTeamChange() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Report 7: Entity cascade
+// Reports 7 & 10: Hierarchy cascade (Region → Team → HQ) + View By
 // ─────────────────────────────────────────────────────────────
 function onEntityTypeChange() {
+    // Show/hide cascading pickers based on View By selection
     var et = document.getElementById("f-entity-type").value;
-    document.getElementById("entity-type-label").textContent = et;
-    var sel = document.getElementById("f-entity-name");
-    // Destroy Select2 if already applied before rebuilding options
-    if ($(sel).data("select2")) $(sel).select2("destroy");
-    sel.innerHTML = '<option value="">-- Select ' + et + ' --</option>';
-    var rawList = [];
-    if (et === "Zone") rawList = CTX_ZONES_RAW;
-    else if (et === "Region") rawList = CTX_REGIONS_RAW;
-    else if (et === "Team") rawList = CTX_TEAMS_RAW;
-    else if (et === "HQ") rawList = CTX_HQS_RAW;
-    rawList.forEach(function(item) {
-        var opt = document.createElement("option");
-        opt.value = item.code;
-        opt.textContent = item.name || item.code;
-        sel.appendChild(opt);
-    });
-    // Re-init Select2
-    $(sel).select2({
-        width: "100%",
-        allowClear: true,
-        placeholder: "-- Select " + et + " --",
-        dropdownParent: $(".sr-filters-panel"),
-    });
+    var showRegion = (et !== "Zone");                  // Region appears for HQ, Team, Region
+    var showTeam   = (et === "HQ" || et === "Team");    // Team appears for HQ & Team
+    var showHQ     = (et === "HQ");                     // HQ picker only for HQ view
+    var showZone   = (et === "Zone");                   // Zone picker only for Zone view
+
+    document.querySelectorAll(".smt-region").forEach(function(el) { el.style.display = showRegion ? "" : "none"; });
+    document.querySelectorAll(".smt-team").forEach(function(el)   { el.style.display = showTeam   ? "" : "none"; });
+    document.querySelectorAll(".smt-hq").forEach(function(el)     { el.style.display = showHQ     ? "" : "none"; });
+    document.querySelectorAll(".smt-zone").forEach(function(el)   { el.style.display = showZone   ? "" : "none"; });
+
+    // Reset the cascade when entity changes
+    if (showRegion) onSMTRegionChange();
+}
+
+function onSMTRegionChange() {
+    var region = document.getElementById("f-smt-region").value;
+    var teams = region ? (CTX_TEAMS_BY_REGION[region] || []) : CTX_TEAMS_RAW;
+    rebuildSelect("f-smt-team", teams, "All Teams");
+    onSMTTeamChange();
+}
+
+function onSMTTeamChange() {
+    var team = document.getElementById("f-smt-team").value;
+    var region = document.getElementById("f-smt-region").value;
+    var hqs;
+    if (team) {
+        hqs = CTX_HQS_BY_TEAM[team] || [];
+    } else if (region) {
+        hqs = CTX_HQS_RAW.filter(function(h) { return h.region === region; });
+    } else {
+        hqs = CTX_HQS_RAW;
+    }
+    rebuildSelect("f-smt-hq", hqs, "-- Select HQ --");
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -798,6 +886,8 @@ function generateReport() {
         sec_moving_trend: "scanify.api.get_secondary_sales_moving_trend",
         region_stockist_trend: "scanify.api.get_region_wise_stockist_moving_trend",
         region_product_stock: "scanify.api.get_region_product_closing_stock",
+        primary_moving_trend: "scanify.api.get_primary_sales_moving_trend",
+        sec_vs_closing: "scanify.api.get_secondary_vs_closing_value_report",
     };
 
     document.getElementById("report-loading").style.display = "block";
@@ -837,6 +927,9 @@ function buildParams() {
     const fromDate = document.getElementById("f-from-date").value;
     const toDate = document.getElementById("f-to-date").value;
 
+    // Selected products from the multi-select (Reports 1, 3, 10)
+    const selectedProducts = $("#f-products").val() || [];
+
     if (currentReportType === "primary_sales") {
         p.sales_type = document.getElementById("f-sales-type").value;
         if (region) p.region = region;
@@ -844,6 +937,7 @@ function buildParams() {
         if (hq) p.hq = hq;
         if (fromDate) p.from_date = fromDate;
         if (toDate) p.to_date = toDate;
+        if (selectedProducts.length) p.product_codes = JSON.stringify(selectedProducts);
     } else if (currentReportType === "secondary_sales") {
         if (region) p.region = region;
         if (team) p.team = team;
@@ -867,6 +961,7 @@ function buildParams() {
     } else if (currentReportType === "moving_trend") {
         p.sales_type = document.getElementById("f-sales-type-trend").value;
         p.stockist_code = document.getElementById("f-stockist").value;
+        if (selectedProducts.length) p.product_codes = JSON.stringify(selectedProducts);
     } else if (currentReportType === "hq_wise") {
         if (region) p.region = region;
         if (team) p.team = team;
@@ -876,12 +971,33 @@ function buildParams() {
         if (team) p.team = team;
         if (hq) p.hq = hq;
         p.criteria = document.getElementById("f-criteria").value;
-    } else if (currentReportType === "sec_moving_trend") {
+    } else if (currentReportType === "sec_moving_trend" || currentReportType === "primary_moving_trend") {
         p.entity_type = document.getElementById("f-entity-type").value;
-        p.entity_name = document.getElementById("f-entity-name").value;
+        // Resolve cascading hierarchy → single entity_name based on View By
+        var et = p.entity_type;
+        var entityName = "";
+        if (et === "HQ") {
+            entityName = document.getElementById("f-smt-hq").value;
+            if (!entityName) { showAlert("Please select an HQ.", "warning"); return null; }
+        } else if (et === "Team") {
+            entityName = document.getElementById("f-smt-team").value;
+            if (!entityName) { showAlert("Please select a Team.", "warning"); return null; }
+        } else if (et === "Region") {
+            entityName = document.getElementById("f-smt-region").value;
+            if (!entityName) { showAlert("Please select a Region.", "warning"); return null; }
+        } else if (et === "Zone") {
+            entityName = document.getElementById("f-smt-zone").value;
+            if (!entityName) { showAlert("Please select a Zone.", "warning"); return null; }
+        }
+        p.entity_name = entityName;
         const fy = document.getElementById("f-financial-year").value;
         if (fy) p.financial_year = fy;
-        p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
+        if (currentReportType === "sec_moving_trend") {
+            p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
+        } else {
+            // Report 10 — primary moving trend: optional product filter, no sales_mode
+            if (selectedProducts.length) p.product_codes = JSON.stringify(selectedProducts);
+        }
     } else if (currentReportType === "region_stockist_trend") {
         p.region = document.getElementById("f-region-trend").value;
         const fy = document.getElementById("f-financial-year").value;
@@ -895,6 +1011,18 @@ function buildParams() {
         const td = document.getElementById("f-pstock-to-date").value;
         if (fd) p.from_date = fd;
         if (td) p.to_date = td;
+        p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
+    } else if (currentReportType === "sec_vs_closing") {
+        const fm = document.getElementById("f-svc-from-month").value;
+        const tm = document.getElementById("f-svc-to-month").value;
+        if (!fm || !tm) {
+            showAlert("Please pick both From and To months.", "warning");
+            return null;
+        }
+        p.from_month = fm;
+        p.to_month = tm;
+        var regs = $("#f-svc-regions").val() || [];
+        if (regs.length) p.region_codes = JSON.stringify(regs);
         p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
     }
     return p;
@@ -919,6 +1047,8 @@ function renderReport(result) {
         sec_moving_trend: renderSecMovingTrend,
         region_stockist_trend: renderRegionStockistTrend,
         region_product_stock: renderRegionProductStock,
+        primary_moving_trend: renderSecMovingTrend,  // Same shape as Report 7
+        sec_vs_closing: renderSecVsClosing,
     };
 
     const renderer = renderers[currentReportType];
@@ -950,6 +1080,8 @@ function renderReport(result) {
         sec_moving_trend: "Secondary Sales Moving Trend",
         region_stockist_trend: "Region-wise Stockist Secondary Sales Moving Trend",
         region_product_stock: "Product Closing Stock – Region Summary",
+        primary_moving_trend: "Primary Sales Moving Trend",
+        sec_vs_closing: "Secondary Sales vs Closing Stock Value",
     };
     const regionSel = document.getElementById("f-region");
     const region = regionSel.options[regionSel.selectedIndex]?.text || "All Regions";
@@ -959,13 +1091,16 @@ function renderReport(result) {
     if (fromDate && toDate) subtitle += ` | Period: ${fromDate} to ${toDate}`;
 
     if (currentReportType === "moving_trend") {
-        const stk = document.getElementById("f-stockist");
-        const stkLabel = stk.options[stk.selectedIndex]?.text || "";
+        const stkLabel = result.stockist_name || (function () {
+            const stk = document.getElementById("f-stockist");
+            return stk.options[stk.selectedIndex]?.text || "";
+        })();
         subtitle = `Stockist: ${stkLabel}`;
+        if (result.hq_name) subtitle += ` | HQ: ${result.hq_name}`;
         if (result.fy_label) subtitle += ` | ${result.fy_label}`;
     }
 
-    if (currentReportType === "sec_moving_trend") {
+    if (currentReportType === "sec_moving_trend" || currentReportType === "primary_moving_trend") {
         subtitle = `${result.entity_type || ""}: ${result.entity_display || ""}`;
         subtitle += ` | Sanctioned Strength: ${result.sanctioned_strength || 0}`;
         if (result.fy_label) subtitle += ` | ${result.fy_label}`;
@@ -984,6 +1119,14 @@ function renderReport(result) {
         subtitle += ` | ${gb} | Quantities`;
     }
 
+    if (currentReportType === "sec_vs_closing") {
+        var ms = result.months || [];
+        var periodLbl = ms.length ? (ms[0].label + " to " + ms[ms.length - 1].label) : "";
+        subtitle = `Organization Secondary Sales & Closing Stock Value`;
+        if (periodLbl) subtitle += ` | ${periodLbl}`;
+        subtitle += ` | Values in Rs. Lakhs`;
+    }
+
     currentReportMeta = {
         title: titles[currentReportType] + " – " + DIVISION,
         subtitle: subtitle,
@@ -998,7 +1141,7 @@ function getDataLength(result) {
     if (currentReportType === "hq_wise") {
         return (result.data || []).reduce((s, g) => s + g.stockists.length, 0);
     }
-    if (currentReportType === "sec_moving_trend") {
+    if (currentReportType === "sec_moving_trend" || currentReportType === "primary_moving_trend") {
         var total = 0;
         (result.sections || []).forEach(function(sec) { total += (sec.products || []).length; });
         return total;
@@ -1010,6 +1153,9 @@ function getDataLength(result) {
     }
     if (currentReportType === "region_product_stock") {
         return (result.products || []).length;
+    }
+    if (currentReportType === "sec_vs_closing") {
+        return (result.regions || []).reduce(function(s, r) { return s + (r.hqs || []).length; }, 0);
     }
     if (currentReportType === "secondary_sales") {
         return (result.products || []).length;
@@ -1025,14 +1171,19 @@ function fmtLakhs(n) { return (n != null ? (Number(n) / 100000) : 0).toFixed(2);
 
 // ---------- Report 1: Primary Sales ----------
 function renderPrimarySales(result, thead, tbody) {
-    thead.innerHTML = `<tr>${th("Stockist Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Quantity")}${th("Value (PTS)")}${th("Value (Rs. Lakhs)")}</tr>`;
+    thead.innerHTML = `<tr>${th("Stockist Name")}${th("HQ Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Quantity")}${th("Value (PTS)")}${th("Value (Rs. Lakhs)")}</tr>`;
     let currentStk = null;
     let stkQty = 0, stkVal = 0, grandQty = 0, grandVal = 0;
     const data = result.data || [];
 
+    // Pre-compute grand value for the top "Value in Lakhs" row (bold)
+    var topVal = 0;
+    data.forEach(function(r) { topVal += Number(r.total_value) || 0; });
+    tbody.innerHTML += `<tr class="value-lakhs-row" style="background:#f1f5f9;font-weight:700;"><td colspan="6" style="font-weight:700;">Value in Lakhs (Grand)</td><td class="text-right" style="font-weight:700;">${fmtNZ(topVal)}</td><td class="text-right" style="font-weight:700;">${fmtNZ(topVal / 100000)}</td></tr>`;
+
     function flushStockistSubtotal() {
         if (currentStk !== null) {
-            tbody.innerHTML += `<tr class="subtotal-row"><td colspan="4" class="text-right font-weight-bold">Stockist Total</td><td class="text-right font-weight-bold">${fmtQtyNZ(stkQty)}</td><td class="text-right font-weight-bold">${fmtNZ(stkVal)}</td><td class="text-right font-weight-bold">${fmtNZ(stkVal / 100000)}</td></tr>`;
+            tbody.innerHTML += `<tr class="subtotal-row"><td colspan="5" class="text-right font-weight-bold">Stockist Total</td><td class="text-right font-weight-bold">${fmtQtyNZ(stkQty)}</td><td class="text-right font-weight-bold">${fmtNZ(stkVal)}</td><td class="text-right font-weight-bold">${fmtNZ(stkVal / 100000)}</td></tr>`;
         }
     }
 
@@ -1041,17 +1192,17 @@ function renderPrimarySales(result, thead, tbody) {
             flushStockistSubtotal();
             currentStk = r.stockist_code;
             stkQty = 0; stkVal = 0;
-            tbody.innerHTML += `<tr class="group-row"><td colspan="7">${esc(r.stockist_name)}</td></tr>`;
+            tbody.innerHTML += `<tr class="group-row"><td colspan="8">${esc(r.stockist_name)}${r.hq_name ? '  —  HQ: ' + esc(r.hq_name) : ''}</td></tr>`;
         }
         stkQty += Number(r.total_qty) || 0;
         stkVal += Number(r.total_value) || 0;
         grandQty += Number(r.total_qty) || 0;
         grandVal += Number(r.total_value) || 0;
-        tbody.innerHTML += `<tr>${td(r.stockist_name)}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQtyNZ(r.total_qty), "text-right")}${td(fmtNZ(r.total_value), "text-right")}${td(fmtNZ((Number(r.total_value)||0) / 100000), "text-right")}</tr>`;
+        tbody.innerHTML += `<tr>${td(r.stockist_name)}${td(r.hq_name || '')}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQtyNZ(r.total_qty), "text-right")}${td(fmtNZ(r.total_value), "text-right")}${td(fmtNZ((Number(r.total_value)||0) / 100000), "text-right")}</tr>`;
     });
     flushStockistSubtotal();
     if (data.length > 0) {
-        tbody.innerHTML += `<tr class="grand-total-row"><td colspan="4" class="text-right font-weight-bold">Grand Total</td><td class="text-right font-weight-bold">${fmtQtyNZ(grandQty)}</td><td class="text-right font-weight-bold">${fmtNZ(grandVal)}</td><td class="text-right font-weight-bold">${fmtNZ(grandVal / 100000)}</td></tr>`;
+        tbody.innerHTML += `<tr class="grand-total-row"><td colspan="5" class="text-right font-weight-bold">Grand Total</td><td class="text-right font-weight-bold">${fmtQtyNZ(grandQty)}</td><td class="text-right font-weight-bold">${fmtNZ(grandVal)}</td><td class="text-right font-weight-bold">${fmtNZ(grandVal / 100000)}</td></tr>`;
     }
 }
 
@@ -1111,6 +1262,16 @@ function renderSecondarySales(result, thead, tbody) {
 function renderMovingTrend(result, thead, tbody) {
     const ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
     thead.innerHTML = `<tr>${th("Product Code")}${th("Product Name")}${th("Pack")}${ml.map(m => th(m)).join("")}${th("Total")}</tr>`;
+
+    // Bold "Value in Lakhs" row at the top of the table
+    var vil = result.value_in_lakhs || {months: [0,0,0,0,0,0,0,0,0,0,0,0], total: 0};
+    var vilCells = '<td colspan="3" style="font-weight:700;">Value in Lakhs</td>';
+    (vil.months || []).forEach(function(v) {
+        vilCells += '<td class="text-right" style="font-weight:700;">' + fmtNZ(v) + '</td>';
+    });
+    vilCells += '<td class="text-right" style="font-weight:700;">' + fmtNZ(vil.total) + '</td>';
+    tbody.innerHTML += '<tr class="value-lakhs-row" style="background:#f1f5f9;">' + vilCells + '</tr>';
+
     (result.data || []).forEach(r => {
         let row = `${td(r.product_code)}${td(r.product_name)}${td(r.pack)}`;
         r.months.forEach(v => { row += td(fmtQtyNZ(v), "text-right"); });
@@ -1350,14 +1511,74 @@ function renderRegionProductStock(result, thead, tbody) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Report 11: Secondary Sales Value vs Closing Stock Value (HQ-wise, grouped by Region)
+// Two-row header: month labels (Sec Val | Cls Val sub-cols), values in Rs Lakhs.
+// ─────────────────────────────────────────────────────────────
+function renderSecVsClosing(result, thead, tbody) {
+    var months = result.months || [];
+    var regions = result.regions || [];
+    var grand = (result.grand_total && result.grand_total.monthly) || [];
+
+    // Two-row header
+    var hRow1 = "<tr>"
+        + "<th rowspan='2' style='vertical-align:middle;'>HQ</th>";
+    var hRow2 = "<tr>";
+    months.forEach(function(m) {
+        hRow1 += "<th colspan='2' style='text-align:center;'>" + esc(m.label) + "</th>";
+        hRow2 += "<th style='background:#334155;color:#fff;'>Sec Val</th>"
+              +  "<th style='background:#334155;color:#fff;'>Cls Val</th>";
+    });
+    hRow1 += "</tr>";
+    hRow2 += "</tr>";
+    thead.innerHTML = hRow1 + hRow2;
+
+    var html = "";
+    regions.forEach(function(reg) {
+        (reg.hqs || []).forEach(function(h) {
+            var row = "<tr>" + td(esc(h.hq_name));
+            (h.monthly || []).forEach(function(m) {
+                row += "<td class='text-right'>" + fmtNZ(m.sec_val) + "</td>"
+                     + "<td class='text-right'>" + fmtNZ(m.cls_val) + "</td>";
+            });
+            row += "</tr>";
+            html += row;
+        });
+
+        // Region total row — bold, red — matches the screenshot
+        var rt = "<tr class='region-total-row' style='background:#fff2f2;'>"
+               + "<td style='font-weight:700;color:#c00000;'>" + esc(reg.region_name) + " Region Total</td>";
+        (reg.totals && reg.totals.monthly || []).forEach(function(m) {
+            rt += "<td class='text-right' style='font-weight:700;color:#c00000;'>" + fmtNZ(m.sec_val) + "</td>"
+               +  "<td class='text-right' style='font-weight:700;color:#c00000;'>" + fmtNZ(m.cls_val) + "</td>";
+        });
+        rt += "</tr>";
+        html += rt;
+    });
+
+    // Grand total row
+    if (grand.length) {
+        var gt = "<tr class='grand-total-row'>"
+               + "<td>Grand Total</td>";
+        grand.forEach(function(m) {
+            gt += "<td class='text-right'>" + fmtNZ(m.sec_val) + "</td>"
+               +  "<td class='text-right'>" + fmtNZ(m.cls_val) + "</td>";
+        });
+        gt += "</tr>";
+        html += gt;
+    }
+    tbody.innerHTML = html;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Download Excel (server-side)
 // ─────────────────────────────────────────────────────────────
 function downloadExcel() {
     if (!currentReportType) return;
     const params = buildParams();
+    if (!params) return;
     params.report_type = currentReportType;
 
-    // Build query string
+    // Build query string — product_codes is already a JSON-encoded string in buildParams
     const qs = Object.entries(params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
     window.open(`/api/method/scanify.api.export_stockist_report_excel?${qs}`, "_blank");
 }
@@ -1447,7 +1668,8 @@ function buildSalesSummary(data) {
     (data || []).forEach(function(r) {
         var key = r.stockist_code;
         if (!stockists[key]) {
-            stockists[key] = { code: key, name: r.stockist_name, totalQty: 0, totalVal: 0, products: 0 };
+            stockists[key] = { code: key, name: r.stockist_name, hq: r.hq_name || "",
+                                totalQty: 0, totalVal: 0, products: 0 };
         }
         stockists[key].totalQty += Number(r.total_qty) || 0;
         stockists[key].totalVal += Number(r.total_value) || 0;
@@ -1577,25 +1799,33 @@ async function downloadPDF() {
         var isGrandTotal = tr.classList.contains("grand-total-row");
         var isSectionHeader = tr.classList.contains("section-header-row");
         var isValueLakhs = tr.classList.contains("value-lakhs-row");
+        var isRegionTotal = tr.classList.contains("region-total-row");
         tr.querySelectorAll("td").forEach(function(c) {
             var span = parseInt(c.getAttribute("colspan") || 1);
             row.push({ content: ascii(c.textContent.trim()), colSpan: span });
         });
-        dBody.push({ cells: row, isGroup: isGroup, isSubtotal: isSubtotal, isGrandTotal: isGrandTotal, isSectionHeader: isSectionHeader, isValueLakhs: isValueLakhs });
+        dBody.push({ cells: row, isGroup: isGroup, isSubtotal: isSubtotal, isGrandTotal: isGrandTotal, isSectionHeader: isSectionHeader, isValueLakhs: isValueLakhs, isRegionTotal: isRegionTotal });
     });
+
+    // Per-report compaction: Report 7 (and the new Report 10) overflow at default
+    // settings, so trim padding/margins for them while keeping other reports as-is.
+    var _tight = (currentReportType === "sec_moving_trend" || currentReportType === "primary_moving_trend");
+    var _detailFontSize = _tight ? 6.5 : 7;
+    var _detailCellPad  = _tight ? 0.9 : 1.5;
+    var _detailMargin   = _tight ? { left: 5, right: 5, top: 28 } : { left: 8, right: 8, top: 30 };
 
     doc.autoTable({
         head: dHead,
         body: dBody.map(function(r) { return r.cells; }),
         startY: startY,
         styles: {
-            fontSize: 7, cellPadding: 1.5,
+            fontSize: _detailFontSize, cellPadding: _detailCellPad,
             lineColor: [120, 120, 120], lineWidth: 0.15,
             valign: "middle",
         },
         headStyles: {
             fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold",
-            fontSize: 7, lineColor: [120, 120, 120], lineWidth: 0.2,
+            fontSize: _detailFontSize, lineColor: [120, 120, 120], lineWidth: 0.2,
             halign: "center",
         },
         didParseCell: function(d) {
@@ -1611,13 +1841,15 @@ async function downloadPDF() {
                     d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = "bold";
                 } else if (r.isValueLakhs) {
                     d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = "bold";
+                } else if (r.isRegionTotal) {
+                    d.cell.styles.fillColor = [255, 242, 242]; d.cell.styles.textColor = [192, 0, 0]; d.cell.styles.fontStyle = "bold";
                 }
             }
         },
-        margin: { left: 8, right: 8, top: 30 },
+        margin: _detailMargin,
         didDrawPage: function(d) {
             if (d.pageNumber > 1) {
-                addPDFHeader(doc, currentReportMeta.title, "Detailed Report Data (contd.)");
+                addPDFHeader(doc, currentReportMeta.title, currentReportMeta.subtitle || "");
             }
         }
     });
@@ -1652,11 +1884,11 @@ async function downloadPDF() {
         doc.setFontSize(10);
         doc.text("Consolidated Stockist-wise Summary", 14, startY + 26);
 
-        var summaryHead = [["#", "Stockist Name", "Products", "Total Qty", "Value (PTS)", "Value (Rs. Lakhs)", "% Share"]];
+        var summaryHead = [["#", "Stockist Name", "HQ", "Products", "Total Qty", "Value (PTS)", "Value (Rs. Lakhs)", "% Share"]];
         var summaryBody = summary.map(function(s, i) {
-            return [i + 1, s.name, s.products, fmtQty(s.totalQty), fmt(s.totalVal), (s.totalVal / 100000).toFixed(2), grandVal > 0 ? ((s.totalVal / grandVal) * 100).toFixed(1) + "%" : "0%"];
+            return [i + 1, s.name, s.hq || "", s.products, fmtQty(s.totalQty), fmt(s.totalVal), (s.totalVal / 100000).toFixed(2), grandVal > 0 ? ((s.totalVal / grandVal) * 100).toFixed(1) + "%" : "0%"];
         });
-        summaryBody.push(["", "GRAND TOTAL", "", fmtQty(grandQty), fmt(grandVal), (grandVal / 100000).toFixed(2), "100%"]);
+        summaryBody.push(["", "GRAND TOTAL", "", "", fmtQty(grandQty), fmt(grandVal), (grandVal / 100000).toFixed(2), "100%"]);
 
         doc.autoTable({
             head: summaryHead,
@@ -1828,7 +2060,7 @@ async function downloadPDF() {
         }, 900, 400);
         doc.addImage(hqBarImg, "PNG", 14, startY, 268, 120);
 
-    } else if (currentReportType === "sec_moving_trend") {
+    } else if (currentReportType === "sec_moving_trend" || currentReportType === "primary_moving_trend") {
         var trendSummary = buildSecTrendSummary(data);
         var grandLakhs = trendSummary.reduce(function(s, t) { return s + t.totalLakhs; }, 0);
 
@@ -2289,6 +2521,97 @@ async function downloadPDF() {
             options: { responsive: false, animation: false, plugins: { title: { display: true, text: "Top 10 Products by Closing Quantity", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 10 } } } } }
         }, 600, 400);
         doc.addImage(psPieImg, "PNG", 185, startY, 98, 65);
+
+    } else if (currentReportType === "sec_vs_closing") {
+        // ── Report 11: Secondary Sales vs Closing Stock Value ──
+        var svcMonths = data.months || [];
+        var svcRegions = data.regions || [];
+        var svcGrand = (data.grand_total && data.grand_total.monthly) || [];
+        var totalHQs = svcRegions.reduce(function(s, r) { return s + (r.hqs || []).length; }, 0);
+        var totalSec = svcGrand.reduce(function(s, m) { return s + (m.sec_val || 0); }, 0);
+        var totalCls = svcGrand.reduce(function(s, m) { return s + (m.cls_val || 0); }, 0);
+        var totalMonths = svcMonths.length;
+
+        // Summary stats boxes
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(218, startY, 62, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Total HQs", 18, startY + 6);
+        doc.text("Months", 86, startY + 6);
+        doc.text("Total Sec Value (Rs. L)", 154, startY + 6);
+        doc.text("Total Closing (Rs. L)", 222, startY + 6);
+        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text(String(totalHQs), 18, startY + 14);
+        doc.text(String(totalMonths), 86, startY + 14);
+        doc.text(totalSec.toFixed(2), 154, startY + 14);
+        doc.text(totalCls.toFixed(2), 222, startY + 14);
+        doc.setTextColor(0);
+
+        // Region-wise consolidated table
+        doc.setFontSize(10);
+        doc.text("Region-wise Totals (Rs. Lakhs)", 14, startY + 26);
+        var svcHead = [["Region", "HQs", "Total Sec Val", "Total Cls Val", "Sec/Cls Ratio"]];
+        var svcBody = svcRegions.map(function(r) {
+            var sec = (r.totals.monthly || []).reduce(function(s, m) { return s + (m.sec_val || 0); }, 0);
+            var cls = (r.totals.monthly || []).reduce(function(s, m) { return s + (m.cls_val || 0); }, 0);
+            var ratio = cls > 0 ? (sec / cls).toFixed(2) : "-";
+            return [r.region_name, String((r.hqs || []).length), sec.toFixed(2), cls.toFixed(2), ratio];
+        });
+        svcBody.push(["TOTAL", String(totalHQs), totalSec.toFixed(2), totalCls.toFixed(2),
+                       totalCls > 0 ? (totalSec / totalCls).toFixed(2) : "-"]);
+
+        doc.autoTable({
+            head: svcHead, body: svcBody, startY: startY + 30,
+            styles: { fontSize: 8, cellPadding: 2, lineColor: [120, 120, 120], lineWidth: 0.15 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function(d) {
+                if (d.section === "body" && d.row === svcBody.length - 1) {
+                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                }
+            },
+            margin: { left: 14, right: 14 },
+        });
+
+        // Charts page
+        doc.addPage();
+        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
+
+        // Monthly Sec vs Closing line chart (grand totals)
+        var svcLineImg = await renderChartToImage({
+            type: "bar",
+            data: {
+                labels: svcMonths.map(function(m) { return m.label; }),
+                datasets: [
+                    { label: "Sec Val", data: svcGrand.map(function(m) { return m.sec_val || 0; }), backgroundColor: "#4f46e5" },
+                    { label: "Cls Val", data: svcGrand.map(function(m) { return m.cls_val || 0; }), backgroundColor: "#10b981" }
+                ]
+            },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Monthly Sec Sales vs Closing Stock Value (Rs. Lakhs)", font: { size: 16 } }, legend: { position: "top" } },
+                scales: { y: { beginAtZero: true, title: { display: true, text: "Rs. Lakhs" } } }
+            }
+        }, 900, 420);
+        doc.addImage(svcLineImg, "PNG", 14, startY, 175, 90);
+
+        // Region distribution pie
+        var svcPieImg = await renderChartToImage({
+            type: "doughnut",
+            data: {
+                labels: svcRegions.map(function(r) { return r.region_name; }),
+                datasets: [{
+                    data: svcRegions.map(function(r) {
+                        return (r.totals.monthly || []).reduce(function(s, m) { return s + (m.sec_val || 0); }, 0);
+                    }),
+                    backgroundColor: ["#4f46e5","#10b981","#f59e0b","#ef4444","#3b82f6","#8b5cf6","#06b6d4","#ec4899"]
+                }]
+            },
+            options: { responsive: false, animation: false,
+                plugins: { title: { display: true, text: "Region-wise Sec Sales Share (Rs. Lakhs)", font: { size: 14 } }, legend: { position: "right", labels: { font: { size: 9 } } } } }
+        }, 600, 400);
+        doc.addImage(svcPieImg, "PNG", 195, startY, 90, 60);
 
     } else {
         // Generic fallback for any future reports
