@@ -1687,8 +1687,8 @@
         const [y, m] = (sv_doc.statement_month || '').split('-');
         const monthLabel = m && y ? new Date(y, m - 1).toLocaleString('default', { month: 'long', year: 'numeric' }) : sv_doc.statement_month;
         $('#sv-month').text(monthLabel);
-        $('#sv-hq').text(sv_doc.hq || '—');
-        $('#sv-team').text(sv_doc.team || '—');
+        $('#sv-hq').text(sv_doc.hq_name || sv_doc.hq || '—');
+        $('#sv-team').text(sv_doc.team_name || sv_doc.team || '—');
 
         // Extraction status badge
         const statusColors = { Completed: 'success', Failed: 'danger', 'In Progress': 'info', Pending: 'secondary' };
