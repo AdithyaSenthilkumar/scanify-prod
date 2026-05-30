@@ -105,15 +105,10 @@
             </div>
         </div>
 
-        <!-- Statement Totals (moved to top — row count & op-sales as badges on the right) -->
+        <!-- Calculated Totals (aggregated from extracted row items) -->
         <div class="card sv-totals-card" id="sv-totals-section">
             <div class="card-header sv-totals-header">
-                <span><i class="fa fa-calculator"></i> Statement Totals</span>
-                <div class="sv-totals-badges">
-                    <span class="sv-mini-badge"><i class="fa fa-box"></i> <span id="sv-total-products">0</span> Rows</span>
-                    <span class="sv-mini-badge"><i class="fa fa-random"></i> Op Sales: <span id="sv-oper-sales">0</span></span>
-                    <span class="sv-mini-badge sv-mini-badge-stmt-total"><i class="fa fa-file-invoice-dollar"></i> Stmt Total: <span id="sv-ocr-stmt-total">—</span></span>
-                </div>
+                <span><i class="fa fa-calculator"></i> Calculated Totals</span>
             </div>
             <div class="card-body p-0">
                 <div class="sv-totals-grid">
@@ -145,34 +140,37 @@
             </div>
         </div>
 
-        <!-- Preview Table -->
-        <div class="card">
-            <div class="card-header">
-                <span><i class="fa fa-list"></i> Statement Items</span>
-                <small class="text-muted" id="sv-item-count"></small>
+        <!-- Statement Source Totals (read directly from the original document via OCR) -->
+        <div class="card sv-totals-card" id="sv-source-totals-section">
+            <div class="card-header sv-totals-header">
+                <span><i class="fa fa-receipt"></i> Statement Source Totals</span>
             </div>
             <div class="card-body p-0">
-                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-                    <table class="table table-hover mb-0 sv-preview-table">
-                        <thead class="sv-table-head">
-                            <tr>
-                                <th>Code</th>
-                                <th>Product Name</th>
-                                <th>Pack</th>
-                                <th class="text-right sv-prev-col">Prev Cls</th>
-                                <th class="text-right">Opening</th>
-                                <th class="text-right">Purchase</th>
-                                <th class="text-right">Sales</th>
-                                <th class="text-right">Op Sales</th>
-                                <th class="text-right">Free</th>
-                                <th class="text-right">Closing</th>
-                                <th class="text-right">Cls Val</th>
-                                <th class="text-center" title="Math validation">✓</th>
-                                <th class="text-right" title="Row extraction confidence">Ext%</th>
-                            </tr>
-                        </thead>
-                        <tbody id="sv-preview-tbody"></tbody>
-                    </table>
+                <div class="sv-totals-grid">
+                    <div class="sv-total-item sv-total-teal">
+                        <div class="sv-total-label"><i class="fa fa-box"></i> Statement Rows</div>
+                        <div class="sv-total-value" id="sv-src-total-rows">0</div>
+                    </div>
+                    <div class="sv-total-item sv-total-orange">
+                        <div class="sv-total-label"><i class="fa fa-random"></i> Op Sales Qty</div>
+                        <div class="sv-total-value" id="sv-src-oper-sales">0</div>
+                    </div>
+                    <div class="sv-total-item sv-total-indigo" id="sv-src-opening-item">
+                        <div class="sv-total-label"><i class="fa fa-cubes"></i> Opening Total</div>
+                        <div class="sv-total-value sv-not-visible-val" id="sv-src-opening">not visible</div>
+                    </div>
+                    <div class="sv-total-item sv-total-blue" id="sv-src-purchase-item">
+                        <div class="sv-total-label"><i class="fa fa-truck"></i> Purchase Total</div>
+                        <div class="sv-total-value sv-not-visible-val" id="sv-src-purchase">not visible</div>
+                    </div>
+                    <div class="sv-total-item sv-total-green" id="sv-src-stmt-total-item">
+                        <div class="sv-total-label"><i class="fa fa-file-invoice-dollar"></i> Sales Total</div>
+                        <div class="sv-total-value sv-not-visible-val" id="sv-src-stmt-total">not visible</div>
+                    </div>
+                    <div class="sv-total-item sv-total-purple" id="sv-src-closing-item">
+                        <div class="sv-total-label"><i class="fa fa-warehouse"></i> Closing Total</div>
+                        <div class="sv-total-value sv-not-visible-val" id="sv-src-closing">not visible</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -377,42 +375,6 @@
         flex-wrap: wrap;
     }
 
-    .sv-totals-badges {
-        display: flex;
-        gap: 6px;
-        flex-wrap: wrap;
-    }
-
-    .sv-mini-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        padding: 3px 10px;
-        border-radius: 999px;
-        background: #eef6ff;
-        border: 1px solid #cfe3ff;
-        color: #0b4f95;
-        font-size: 11px;
-        font-weight: 700;
-        white-space: nowrap;
-        font-variant-numeric: tabular-nums;
-    }
-
-    .sv-mini-badge i {
-        color: #4d6a8a;
-        font-size: 10px;
-    }
-
-    .sv-mini-badge-stmt-total.sv-not-visible {
-        background: #f8fafc;
-        border-color: #e2e8f0;
-        color: #94a3b8;
-    }
-
-    .sv-mini-badge-stmt-total.sv-not-visible i {
-        color: #cbd5e1;
-    }
-
     .sv-totals-grid {
         display: grid;
         grid-template-columns: repeat(6, 1fr);
@@ -435,6 +397,13 @@
         .sv-totals-grid {
             grid-template-columns: 1fr;
         }
+    }
+
+    .sv-total-value.sv-not-visible-val {
+        color: #94a3b8;
+        font-style: italic;
+        font-weight: 500;
+        font-size: 0.95rem;
     }
 
     .sv-total-item {
@@ -760,17 +729,6 @@
             flex-direction: column;
             align-items: flex-start;
         }
-    }
-
-    .sv-table-head th {
-        background: linear-gradient(180deg, #20324a 0%, #162437 100%);
-        color: white;
-        font-size: 11px;
-        white-space: nowrap;
-    }
-
-    .sv-preview-table td {
-        font-size: 12px;
     }
 
     /* Enhanced doc viewer */
@@ -1693,10 +1651,28 @@
         $('#sv-qc-oper-sales').text(sv_fmt(t.t_oper));
         $('#sv-full-oper-sales').text(sv_fmt(t.t_oper));
         $('#sv-totals-section').show();
-        // Top-right badges on the totals card
-        $('#sv-total-products').text(sv_items.length);
-        $('#sv-oper-sales').text(sv_fmt(t.t_oper));
-        $('#sv-item-count').text(sv_items.length + ' rows');
+        // Source totals card — rows + op sales are always available
+        $('#sv-src-total-rows').text(sv_items.length);
+        $('#sv-src-oper-sales').text(sv_fmt(t.t_oper));
+    }
+
+    // Renders the OCR-extracted "source" values printed on the original statement.
+    // Each field may be absent (older statements / OCR couldn't read it) — in that
+    // case we keep the literal "not visible" placeholder with grayed styling.
+    function sv_render_source_totals() {
+        function setVal(id, raw) {
+            const v = (raw || '').toString().trim();
+            const $el = $('#' + id);
+            if (v && v.toLowerCase() !== 'not visible') {
+                $el.text(v).removeClass('sv-not-visible-val');
+            } else {
+                $el.text('not visible').addClass('sv-not-visible-val');
+            }
+        }
+        setVal('sv-src-stmt-total', sv_doc.ocr_raw_sales_total);
+        setVal('sv-src-purchase',   sv_doc.ocr_raw_purchase_total);
+        setVal('sv-src-opening',    sv_doc.ocr_raw_opening_total);
+        setVal('sv-src-closing',    sv_doc.ocr_raw_closing_total);
     }
 
     function render_sv_page() {
@@ -1783,85 +1759,9 @@
             $('#sv-accuracy-chip').hide();
         }
 
-        // Top-right badges on the totals card (full numbers populated by sv_refresh_totals)
-        $('#sv-total-products').text(sv_items.length);
-        $('#sv-oper-sales').text(sv_fmt(sv_doc.total_operational_sales_qty || 0));
-
-        // OCR raw statement sales total badge
-        const rawStmtTotal = (sv_doc.ocr_raw_sales_total || '').trim();
-        const $stmtBadge = $('#sv-ocr-stmt-total').closest('.sv-mini-badge-stmt-total');
-        if (rawStmtTotal && rawStmtTotal.toLowerCase() !== 'not visible') {
-            $('#sv-ocr-stmt-total').text(rawStmtTotal);
-            $stmtBadge.removeClass('sv-not-visible');
-        } else {
-            $('#sv-ocr-stmt-total').text('not visible');
-            $stmtBadge.addClass('sv-not-visible');
-        }
-
-        // Preview table — includes Prev Cls column
-        const $tbody = $('#sv-preview-tbody');
-        $tbody.empty();
-        const isDraft = (sv_doc.docstatus === 0 && sv_doc.extracted_data_status === 'Completed');
-        sv_items.forEach((row, rowIdx) => {
-            const prevCls = row.prev_closing_qty != null ? sv_fmt(row.prev_closing_qty) : '—';
-            const prevClass = row.prev_closing_qty != null && parseFloat(row.openingqty) !== parseFloat(row.prev_closing_qty)
-                ? 'text-right text-warning' : 'text-right text-muted';
-
-            // Row coloring based on confidence and mapping status
-            const ms = (row.mappingstatus || 'matched');
-            const rowType = row.rowtype || 'product';
-            const isSpecialRow = rowType !== 'product';
-            const rowConf = parseFloat(row.row_confidence || 0);
-            let rowStyle = '';
-            if (ms === 'unmapped') rowStyle = 'background:#fde2e2;';
-            else if (ms === 'auto_mapped') rowStyle = 'background:#fff7cd;';
-            else if (isSpecialRow) rowStyle = 'background:#eef6ff;';
-            else if (rowConf < 70) rowStyle = 'background:#fde2e2;';
-            else if (rowConf < 90) rowStyle = 'background:#fff7cd;';
-
-            // Math check indicator
-            const mathCheck = row.math_check || 'N/A';
-            let mathIcon = '';
-            if (mathCheck === 'Pass') mathIcon = '<span class="text-success" title="Math check passed">✓</span>';
-            else if (mathCheck === 'Fail') mathIcon = '<span class="text-danger" title="Quantities don\'t balance">✗</span>';
-
-
-            // Preview table is read-only regardless of draft status.
-            // Editing is available only in the QC screen and Full Table modal.
-            function qtyCell(field, val) {
-                return `<td class="text-right">${sv_fmt(val)}</td>`;
-            }
-
-            // For unmapped items, show raw name instead of blank product code
-            const displayCode = row.productcode || (row.rawproductname
-                ? (isSpecialRow
-                    ? `<span class="text-info" title="Special row: ${sv_escape(row.rawproductname)}">${sv_escape(row.rawproductname)}</span>`
-                    : `<span class="text-danger" title="Unmapped: ${sv_escape(row.rawproductname)}">${sv_escape(row.rawproductname)}</span>`)
-                : '—');
-            const displayName = row.productname || (isSpecialRow
-                ? '<span class="text-info"><i class="fa fa-random"></i> Operational row</span>'
-                : (ms === 'unmapped' ? '<span class="text-danger"><i class="fa fa-exclamation-triangle"></i> Unmapped</span>' : ''));
-
-            $tbody.append(`<tr style="${rowStyle}">
-      <td><strong>${displayCode}</strong></td>
-      <td>${displayName}</td>
-      <td>${sv_escape(row.pack || '')}</td>
-      <td class="${prevClass}">${prevCls}</td>
-      ${qtyCell('openingqty', row.openingqty)}
-      ${qtyCell('purchaseqty', row.purchaseqty)}
-      ${qtyCell('salesqty', row.salesqty)}
-    ${qtyCell('operationalsalesqty', row.operationalsalesqty)}
-      ${qtyCell('freeqty', row.freeqty)}
-      ${qtyCell('closingqty', row.closingqty)}
-      <td class="text-right sv-clsval-cell">${sv_fmt(row.closingvalue)}</td>
-      <td class="text-center">${mathIcon}</td>
-            <td class="text-right"><span class="${rowConf >= 90 ? 'text-success' : rowConf >= 70 ? 'text-warning' : 'text-danger'}" style="font-weight:600;font-size:11px;">${rowConf.toFixed(0) + '%'}</span></td>
-    </tr>`);
-        });
-                $('#sv-item-count').text(`${sv_items.length} rows`);
-
-        // Totals section
+        // Totals sections
         sv_refresh_totals();
+        sv_render_source_totals();
 
         // Show content
         $('#sv-loading').hide();

@@ -757,6 +757,9 @@ def get_statement_for_view(doc_name):
                 "total_sales_value_pts": flt(doc.total_sales_value_pts),
                 "total_sales_value_ptr": flt(doc.total_sales_value_ptr),
                 "ocr_raw_sales_total": doc.ocr_raw_sales_total or "not visible",
+                "ocr_raw_purchase_total": getattr(doc, "ocr_raw_purchase_total", "") or "",
+                "ocr_raw_opening_total": getattr(doc, "ocr_raw_opening_total", "") or "",
+                "ocr_raw_closing_total": getattr(doc, "ocr_raw_closing_total", "") or "",
                 "division": doc.division or "",
             },
             "items": items

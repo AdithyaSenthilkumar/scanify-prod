@@ -483,12 +483,21 @@ async function processBulkImport() {
         });
 
         renderTable();
-        $("#bulk-import-modal").modal("hide");
-        fileInput.value = "";
 
-        var msg = "Imported " + rows.length + " HQ row(s) successfully.";
-        if (errors.length) msg += " " + errors.length + " row(s) skipped: " + errors.slice(0, 2).join("; ");
-        showAlert(msg, "success");
+        var importMsg = "Imported " + rows.length + " HQ row(s) successfully.";
+        if (errors.length) importMsg += " " + errors.length + " row(s) skipped: " + errors.slice(0, 2).join("; ");
+
+        // Use the hidden.bs.modal event to force-clean the backdrop AFTER Bootstrap's
+        // hide animation fully completes — prevents the stale dark overlay blocking clicks.
+        $("#bulk-import-modal").one("hidden.bs.modal", function () {
+            if (!$(".modal.show").length) {
+                $("body").removeClass("modal-open").css("padding-right", "");
+                $(".modal-backdrop").remove();
+            }
+            showAlert(importMsg, "success");
+        }).modal("hide");
+
+        fileInput.value = "";
     } catch (e) {
         $("#import-target-progress").hide();
         showAlert("Failed to process the import file: " + (e.message || ""), "danger");
