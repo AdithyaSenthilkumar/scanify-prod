@@ -199,7 +199,7 @@ function saveModalRow() {
         targetRows[editingRowIdx].months = months;
     }
 
-    $("#edit-hq-modal").modal("hide");
+    closeModalHard("edit-hq-modal");
     renderTable();
 }
 
@@ -487,15 +487,8 @@ async function processBulkImport() {
         var importMsg = "Imported " + rows.length + " HQ row(s) successfully.";
         if (errors.length) importMsg += " " + errors.length + " row(s) skipped: " + errors.slice(0, 2).join("; ");
 
-        // Use the hidden.bs.modal event to force-clean the backdrop AFTER Bootstrap's
-        // hide animation fully completes — prevents the stale dark overlay blocking clicks.
-        $("#bulk-import-modal").one("hidden.bs.modal", function () {
-            if (!$(".modal.show").length) {
-                $("body").removeClass("modal-open").css("padding-right", "");
-                $(".modal-backdrop").remove();
-            }
-            showAlert(importMsg, "success");
-        }).modal("hide");
+        closeModalHard("bulk-import-modal");
+        showAlert(importMsg, "success");
 
         fileInput.value = "";
     } catch (e) {
@@ -505,6 +498,24 @@ async function processBulkImport() {
 }
 
 // ─── Utilities ───────────────────────────────────────────
+
+// Hides a Bootstrap modal and force-cleans any lingering backdrop/body state.
+// The portal loads two jQuery + Bootstrap instances (the page-level pair, then
+// frappe-web.bundle.js which reassigns window.$). Because this file's `$` is Frappe's
+// jQuery while the modal is shown via the page-level `data-toggle` handler, `.modal("hide")`
+// may not own the modal's bs.modal state — so `hidden.bs.modal` never fires and the dark
+// `.modal-backdrop` lingers, blocking all clicks. Tear it down unconditionally as a fallback.
+function closeModalHard(id) {
+    var $modal = $("#" + id);
+    try { $modal.modal("hide"); } catch (e) { /* instance mismatch — handled below */ }
+    setTimeout(function () {
+        $modal.removeClass("show").attr("aria-hidden", "true").css("display", "none");
+        if (!$(".modal.show").length) {
+            $("body").removeClass("modal-open").css({ "padding-right": "", "overflow": "" });
+            $(".modal-backdrop").remove();
+        }
+    }, 350);
+}
 
 function toNum(val) { var n = parseFloat(val); return Number.isNaN(n) ? 0 : n; }
 function formatNum(num) { return toNum(num).toFixed(2); }
