@@ -9,6 +9,7 @@
     "statement_month",
     "zip_file",
     "division",
+    "region",
     "column_break",
     "status",
     "section_break",
@@ -43,6 +44,14 @@
       "fieldtype": "Link",
       "label": "Division",
       "options": "Division",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "region",
+      "fieldtype": "Link",
+      "label": "Restrict to Region",
+      "options": "Region Master",
+      "description": "If set, stockist name matching is restricted to stockists in this region only. Leave blank to match across the whole division.",
       "in_list_view": 1
     },
     {

@@ -1520,9 +1520,12 @@ def get_bulk_jobs_list(division=None):
 
 
 @frappe.whitelist()
-def create_bulk_ocr_job(statement_month, zip_file_url, division=None, job_name=None):
+def create_bulk_ocr_job(statement_month, zip_file_url, division=None, job_name=None, region=None):
     """
     Create a new Bulk Statement Upload document from portal.
+    If `region` is provided, stockist name matching for this job is restricted
+    to stockists in that region only (avoids cross-region name collisions, e.g.
+    "Vijay Pharma" vs "Vijaya Pharma" in a different region).
     Returns the created doc name.
     """
     try:
@@ -1534,6 +1537,7 @@ def create_bulk_ocr_job(statement_month, zip_file_url, division=None, job_name=N
             "statement_month": statement_month,
             "zip_file": zip_file_url,
             "division": division,
+            "region": region or None,
             "job_name": job_name or "",
             "status": "Pending",
         })
@@ -1637,7 +1641,11 @@ def process_bulk_extraction(docname, month, zip_file_url):
                 filters = {"status": "Active"}
                 if doc.division:
                     filters["division"] = doc.division
-                    
+                # Optional region scoping: when set, only stockists in this region
+                # are offered to the matcher, preventing cross-region name collisions.
+                if doc.region:
+                    filters["region"] = doc.region
+
                 stockists_cat = frappe.get_all(
                     "Stockist Master",
                     filters=filters,
@@ -1680,7 +1688,9 @@ def process_bulk_extraction(docname, month, zip_file_url):
                     # Identify stockist - Gemini mapping first, fuzzy fallback
                     stockist_code = gemini_mapping.get(file) if gemini_mapping else None
                     if not stockist_code:
-                        stockist_code = identify_stockist_from_filename(file)
+                        stockist_code = identify_stockist_from_filename(
+                            file, division=doc.division, region=doc.region
+                        )
                     
                     if not stockist_code:
                         results.append({
@@ -2099,9 +2109,13 @@ def get_unmatched_filenames_suggestion(zip_file_url):
     except Exception as e:
         return {"success": False, "message": str(e)}
 
-def identify_stockist_from_filename(filename):
+def identify_stockist_from_filename(filename, division=None, region=None):
     """
-    Identify stockist code from filename using robust fuzzy matching
+    Identify stockist code from filename using robust fuzzy matching.
+    When `division` and/or `region` are provided, the candidate stockist pool is
+    narrowed accordingly so a filename only matches stockists in that scope —
+    this prevents cross-region name collisions (e.g. "Vijay Pharma" being matched
+    to "Vijaya Pharma" from a different region).
     """
     import re
     from difflib import SequenceMatcher
@@ -2133,10 +2147,15 @@ def identify_stockist_from_filename(filename):
         frappe.log_error(f"Filename too short after cleaning: {filename}", "Stockist ID Failed")
         return None
     
-    # Get all active stockists
-    stockists = frappe.get_all("Stockist Master", 
+    # Get all active stockists (optionally scoped to a division and/or region)
+    stockist_filters = {"status": "Active"}
+    if division:
+        stockist_filters["division"] = division
+    if region:
+        stockist_filters["region"] = region
+    stockists = frappe.get_all("Stockist Master",
         fields=["stockist_code", "stockist_name", "city"],
-        filters={"status": "Active"})
+        filters=stockist_filters)
     
     if not stockists:
         frappe.log_error("No active stockists found", "Stockist ID Failed")
@@ -3615,7 +3634,7 @@ def get_hq_list(division=None, search=""):
             filters=filters,
             fields=["name", "hq_name", "team", "region", "zone", "division"],
             order_by="hq_name asc",
-            limit=50
+            limit=0
         )
 
         # Resolve zone code (Z0001) to zone_name for display in text fields
@@ -3650,7 +3669,7 @@ def get_region_list(division=None, search=""):
             filters=filters,
             fields=["name", "region_name", "region_code", "zone", "state", "division"],
             order_by="region_name asc",
-            limit=100
+            limit=0
         )
 
         # Resolve zone/state codes to display names for the list table
@@ -3687,7 +3706,7 @@ def get_team_list(division=None, search=""):
             filters=filters,
             fields=["name", "team_name", "region", "division"],
             order_by="team_name asc",
-            limit=100
+            limit=0
         )
 
         # Enrich each team with region_name and zone_name (from Region Master / Zone Master)
@@ -4455,7 +4474,7 @@ def get_zone_list(division=None, search=""):
             filters=filters,
             fields=["name", "zone_name"],
             order_by="zone_name asc",
-            limit=100
+            limit=0
         )
         return {"success": True, "data": zones}
     except Exception as e:
@@ -4476,7 +4495,7 @@ def get_state_list(division=None, search=""):
             filters=filters,
             fields=["name", "state_name"],
             order_by="state_name asc",
-            limit=100
+            limit=0
         )
         return {"success": True, "data": states}
     except Exception as e:
