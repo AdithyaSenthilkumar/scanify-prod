@@ -146,50 +146,85 @@
         </div>
     </div>
 
-    <!-- Recent Statements -->
+    <!-- Recent Imports (persistent log) -->
     <div class="card shadow-sm border-0">
         <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center" style="padding: 1rem 1.5rem;">
-            <h5 class="mb-0 font-weight-600"><i class="fa fa-history mr-2 text-secondary"></i>Recently Created Statements</h5>
-            <a href="/portal/stock-statements-list" class="btn btn-sm btn-outline-secondary"><i class="fa fa-table mr-1"></i> View All</a>
+            <h5 class="mb-0 font-weight-600"><i class="fa fa-history mr-2 text-secondary"></i>Recent Imports</h5>
+            <a href="/portal/stock-statements-list" class="btn btn-sm btn-outline-secondary"><i class="fa fa-table mr-1"></i> View Statements</a>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table table-hover mb-0" style="font-size: 13px;">
+                <table class="table table-hover mb-0 align-middle" style="font-size: 13px;">
                     <thead>
                         <tr>
-                            <th>Statement</th>
-                            <th>Stockist</th>
+                            <th>Import ID</th>
                             <th>Month</th>
                             <th>Status</th>
-                            <th>QC</th>
-                            <th>Created</th>
+                            <th class="text-right">Rows</th>
+                            <th class="text-right">Statements</th>
+                            <th class="text-right">Skipped</th>
+                            <th class="text-right">Unmatched</th>
+                            <th class="text-right">Unmapped</th>
+                            <th>When</th>
+                            <th>By</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% if recent_statements %}
-                        {% for s in recent_statements %}
+                        {% if recent_uploads %}
+                        {% for u in recent_uploads %}
                         <tr>
-                            <td><a href="/portal/statement-view?name={{ s.name }}"><strong>{{ s.name }}</strong></a></td>
-                            <td>{{ s.stockist_name or s.stockist_code }}</td>
-                            <td>{{ s.statement_month }}</td>
+                            <td><strong>{{ u.name }}</strong></td>
+                            <td>{{ u.upload_month }}</td>
                             <td>
-                                {% if s.docstatus == 1 %}
-                                <span class="badge badge-success">Submitted</span>
+                                {% if u.status == 'Completed' %}
+                                <span class="badge badge-success">Completed</span>
+                                {% elif u.status == 'Processing' %}
+                                <span class="badge badge-info">Processing</span>
+                                {% elif u.status == 'Failed' %}
+                                <span class="badge badge-danger">Failed</span>
                                 {% else %}
-                                <span class="badge badge-warning">Draft</span>
+                                <span class="badge badge-warning">{{ u.status }}</span>
                                 {% endif %}
                             </td>
-                            <td><span class="badge badge-light border">{{ s.qc_confidence or '-' }}</span></td>
-                            <td>{{ frappe.utils.pretty_date(s.creation) }}</td>
+                            <td class="text-right">{{ u.total_data_rows or 0 }}</td>
+                            <td class="text-right text-success font-weight-600">{{ u.statements_created or 0 }}</td>
+                            <td class="text-right">{{ u.skipped_existing or 0 }}</td>
+                            <td class="text-right {{ 'text-danger font-weight-600' if u.unmatched_stockists else 'text-muted' }}">{{ u.unmatched_stockists or 0 }}</td>
+                            <td class="text-right {{ 'text-warning font-weight-600' if u.unmapped_products else 'text-muted' }}">{{ u.unmapped_products or 0 }}</td>
+                            <td>{{ frappe.utils.pretty_date(u.upload_date) if u.upload_date else '-' }}</td>
+                            <td>{{ u.uploaded_by or '-' }}</td>
+                            <td><button type="button" class="btn btn-sm btn-outline-info" onclick="viewLog('{{ u.name }}')"><i class="fa fa-file-alt"></i> Log</button></td>
                         </tr>
                         {% endfor %}
                         {% else %}
                         <tr>
-                            <td colspan="6" class="text-center py-4 text-muted">No statements yet for {{ division }} division.</td>
+                            <td colspan="11" class="text-center py-4 text-muted">No imports yet for {{ division }} division.</td>
                         </tr>
                         {% endif %}
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Modal -->
+    <div class="modal fade" id="logModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fa fa-file-alt mr-2 text-info"></i>Import Log <span id="log-modal-id" class="text-muted" style="font-size:13px;"></span></h5>
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="log-modal-loading" class="text-center py-4 text-muted">
+                        <div class="spinner-border spinner-border-sm mr-2"></div> Loading log...
+                    </div>
+                    <pre id="log-modal-body" style="display:none; white-space:pre-wrap; font-size:12px; background:#f8f9fa; border:1px solid #e9ecef; border-radius:6px; padding:12px; max-height:60vh; overflow:auto;"></pre>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                </div>
             </div>
         </div>
     </div>
@@ -316,6 +351,35 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function showFormatModal() { $('#formatModal').modal('show'); }
+
+function viewLog(name) {
+    document.getElementById('log-modal-id').textContent = name;
+    document.getElementById('log-modal-loading').style.display = 'block';
+    var body = document.getElementById('log-modal-body');
+    body.style.display = 'none';
+    body.textContent = '';
+    $('#logModal').modal('show');
+
+    $.ajax({
+        url: '/api/method/scanify.api.get_secondary_sales_upload_log',
+        data: { name: name },
+        success: function(resp) {
+            var r = resp.message || {};
+            document.getElementById('log-modal-loading').style.display = 'none';
+            body.style.display = 'block';
+            if (r.success && r.data) {
+                body.textContent = r.data.log || '(No log recorded for this import.)';
+            } else {
+                body.textContent = (r.message || 'Could not load log.');
+            }
+        },
+        error: function() {
+            document.getElementById('log-modal-loading').style.display = 'none';
+            body.style.display = 'block';
+            body.textContent = 'Could not load log.';
+        }
+    });
+}
 
 function downloadSecondarySalesTemplate() {
     var columns = ['stockistcode','stockistname','citypool','team','region','act_region',

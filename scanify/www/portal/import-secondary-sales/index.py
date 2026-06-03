@@ -17,21 +17,16 @@ def get_context(context):
     else:
         context.user_role = "User"
 
-    # Recent backfilled statements for this division (most recent first)
-    stockists = frappe.get_all(
-        "Stockist Master",
-        filters={"division": ["in", [context.division, "Both"]]},
-        pluck="name",
+    # Recent import runs (persistent log) for this division
+    context.recent_uploads = frappe.get_all(
+        "Secondary Sales Upload",
+        filters={"division": context.division},
+        fields=["name", "upload_month", "status", "upload_date", "uploaded_by",
+                "total_data_rows", "statements_created", "items_created",
+                "skipped_existing", "unmatched_stockists", "inactive_stockists",
+                "unmapped_products", "create_errors"],
+        order_by="creation desc",
+        limit=10,
     )
-    context.recent_statements = []
-    if stockists:
-        context.recent_statements = frappe.get_all(
-            "Stockist Statement",
-            filters={"stockist_code": ["in", stockists]},
-            fields=["name", "stockist_code", "stockist_name", "statement_month",
-                    "docstatus", "qc_confidence", "creation"],
-            order_by="creation desc",
-            limit=10,
-        )
 
     return context

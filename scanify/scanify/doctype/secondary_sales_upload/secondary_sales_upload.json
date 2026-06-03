@@ -1,0 +1,210 @@
+{
+ "actions": [],
+ "autoname": "format:SEC-{YYYY}-{#####}",
+ "creation": "2026-06-03 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "upload_month",
+  "division",
+  "column_break_1",
+  "uploaded_by",
+  "upload_date",
+  "section_break_file",
+  "file",
+  "column_break_3",
+  "status",
+  "section_break_counts",
+  "total_data_rows",
+  "stockists_in_file",
+  "statements_created",
+  "items_created",
+  "column_break_counts",
+  "skipped_existing",
+  "unmatched_stockists",
+  "inactive_stockists",
+  "unmapped_products",
+  "create_errors",
+  "section_break_log",
+  "log"
+ ],
+ "fields": [
+  {
+   "fieldname": "upload_month",
+   "fieldtype": "Data",
+   "label": "Upload Month",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "Format: YYYY-MM (e.g. 2026-03)"
+  },
+  {
+   "fieldname": "division",
+   "fieldtype": "Link",
+   "label": "Division",
+   "options": "Division",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "uploaded_by",
+   "fieldtype": "Link",
+   "label": "Uploaded By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "upload_date",
+   "fieldtype": "Datetime",
+   "label": "Upload Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_file",
+   "fieldtype": "Section Break",
+   "label": "File"
+  },
+  {
+   "fieldname": "file",
+   "fieldtype": "Attach",
+   "label": "Uploaded File"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nProcessing\nCompleted\nFailed",
+   "default": "Pending",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "section_break_counts",
+   "fieldtype": "Section Break",
+   "label": "Summary"
+  },
+  {
+   "fieldname": "total_data_rows",
+   "fieldtype": "Int",
+   "label": "Total Data Rows",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "stockists_in_file",
+   "fieldtype": "Int",
+   "label": "Stockists In File",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "statements_created",
+   "fieldtype": "Int",
+   "label": "Statements Created",
+   "read_only": 1,
+   "in_list_view": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "items_created",
+   "fieldtype": "Int",
+   "label": "Item Rows Created",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "column_break_counts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "skipped_existing",
+   "fieldtype": "Int",
+   "label": "Skipped (Already Existed)",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "unmatched_stockists",
+   "fieldtype": "Int",
+   "label": "Unmatched Stockists",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "inactive_stockists",
+   "fieldtype": "Int",
+   "label": "Inactive Stockists Skipped",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "unmapped_products",
+   "fieldtype": "Int",
+   "label": "Unmapped Product Rows",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "create_errors",
+   "fieldtype": "Int",
+   "label": "Create Errors",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "section_break_log",
+   "fieldtype": "Section Break",
+   "label": "Log"
+  },
+  {
+   "fieldname": "log",
+   "fieldtype": "Long Text",
+   "label": "Import Log",
+   "read_only": 1,
+   "description": "Full breakdown: unmatched stockist names, skipped statements, unmapped products and per-stockist errors."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-06-03 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Scanify",
+ "name": "Secondary Sales Upload",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

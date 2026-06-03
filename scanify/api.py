@@ -7146,6 +7146,29 @@ def export_primary_sales_data(month, division):
 
 
 @frappe.whitelist()
+def get_secondary_sales_upload_log(name):
+    """Return the full import log text + counts for a Secondary Sales Upload record."""
+    if not name:
+        return {"success": False, "message": "Upload name is required"}
+    user_division = get_user_division() or "Prima"
+    doc = frappe.db.get_value(
+        "Secondary Sales Upload", name,
+        ["name", "upload_month", "division", "uploaded_by", "upload_date", "status",
+         "total_data_rows", "stockists_in_file", "statements_created", "items_created",
+         "skipped_existing", "unmatched_stockists", "inactive_stockists",
+         "unmapped_products", "create_errors", "log"],
+        as_dict=True,
+    )
+    if not doc:
+        return {"success": False, "message": "Upload record not found"}
+    # Division guard — users only see their own division's logs
+    if doc.division and doc.division != user_division and "System Manager" not in frappe.get_roles():
+        return {"success": False, "message": "Not permitted for this division"}
+    doc["upload_date"] = str(doc.get("upload_date") or "")
+    return {"success": True, "data": doc}
+
+
+@frappe.whitelist()
 def save_primary_sales_record(name=None, data=None):
     """Create or update a Primary Sales Data record."""
     try:
@@ -12086,6 +12109,19 @@ def process_secondary_sales_upload(upload_month, file_url):
     if not os.path.exists(file_path):
         return {"success": False, "error": "Uploaded file not found on server."}
 
+    # Persistent log record (browsable in desk + on the portal import page)
+    log_doc = frappe.get_doc({
+        "doctype": "Secondary Sales Upload",
+        "upload_month": str(upload_month),
+        "division": user_division,
+        "uploaded_by": frappe.session.user,
+        "upload_date": frappe.utils.now(),
+        "file": file_url,
+        "status": "Processing",
+    })
+    log_doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+
     try:
         wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
         ws = wb.active
@@ -12097,7 +12133,12 @@ def process_secondary_sales_upload(upload_month, file_url):
         # Require at least the stockist name column — everything else is lenient
         if "stockistname" not in [h for h in headers if h]:
             wb.close()
-            return {"success": False, "error": "Missing required column: stockistname"}
+            log_doc.reload()
+            log_doc.status = "Failed"
+            log_doc.log = "Missing required column: stockistname"
+            log_doc.save(ignore_permissions=True)
+            frappe.db.commit()
+            return {"success": False, "error": "Missing required column: stockistname", "log_name": log_doc.name}
 
         # ── Caches ──
         # Stockist: STRICT name → code (division-scoped, includes 'Both')
@@ -12192,7 +12233,12 @@ def process_secondary_sales_upload(upload_month, file_url):
 
     except Exception as e:
         frappe.log_error(f"Secondary Sales Upload (read) Error: {str(e)}", "Secondary Sales Upload")
-        return {"success": False, "error": f"Could not read the Excel file: {str(e)}"}
+        log_doc.reload()
+        log_doc.status = "Failed"
+        log_doc.log = f"Could not read the Excel file: {str(e)}"
+        log_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return {"success": False, "error": f"Could not read the Excel file: {str(e)}", "log_name": log_doc.name}
 
     # ── Create one Stockist Statement per stockist (DRAFT) ──
     statements_created = 0
@@ -12233,7 +12279,7 @@ def process_secondary_sales_upload(upload_month, file_url):
             create_errors.append(f"{stockist_code}: {str(e)}")
             frappe.log_error(frappe.get_traceback(), "Secondary Sales Upload (create) Error")
 
-    # ── Build human-readable messages (capped) ──
+    # ── Build human-readable messages (capped for the UI) ──
     messages = []
     if unmatched_names:
         sample = list(unmatched_names.keys())[:15]
@@ -12262,8 +12308,57 @@ def process_secondary_sales_upload(upload_month, file_url):
     if create_errors:
         messages.extend(create_errors[:15])
 
+    # ── Build the FULL (uncapped) log text for persistence ──
+    log_lines = [
+        f"Secondary Sales Import — {upload_month} ({user_division})",
+        f"Run by {frappe.session.user} at {frappe.utils.now()}",
+        "",
+        f"Data rows read         : {total_data_rows}",
+        f"Stockists in file      : {len(groups)}",
+        f"Statements created     : {statements_created}",
+        f"Item rows created      : {items_created}",
+        f"Skipped (existed)      : {len(skipped_existing)}",
+        f"Unmatched stockists    : {len(unmatched_names)}",
+        f"Inactive skipped       : {len(inactive_names)}",
+        f"Unmapped product rows  : {unmapped_products}",
+        f"Create errors          : {len(create_errors)}",
+    ]
+    if unmatched_names:
+        log_lines += ["", "── Unmatched stockist names (name × row-count) ──"]
+        log_lines += [f"  • {nm}  (×{cnt})" for nm, cnt in sorted(unmatched_names.items())]
+    if inactive_names:
+        log_lines += ["", "── Inactive stockists skipped ──"]
+        log_lines += [f"  • {nm}  → {code}" for nm, code in sorted(inactive_names.items())]
+    if skipped_existing:
+        log_lines += ["", "── Skipped: statement already exists ──"]
+        log_lines += [f"  • {x['stockist']}  → {x['name']}" for x in skipped_existing]
+    if create_errors:
+        log_lines += ["", "── Per-stockist create errors ──"]
+        log_lines += [f"  • {err}" for err in create_errors]
+    full_log = "\n".join(log_lines)
+
+    # ── Persist the log record ──
+    try:
+        log_doc.reload()
+        log_doc.status = "Completed"
+        log_doc.total_data_rows = total_data_rows
+        log_doc.stockists_in_file = len(groups)
+        log_doc.statements_created = statements_created
+        log_doc.items_created = items_created
+        log_doc.skipped_existing = len(skipped_existing)
+        log_doc.unmatched_stockists = len(unmatched_names)
+        log_doc.inactive_stockists = len(inactive_names)
+        log_doc.unmapped_products = unmapped_products
+        log_doc.create_errors = len(create_errors)
+        log_doc.log = full_log[:140000]
+        log_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "Secondary Sales Upload (log save) Error")
+
     return {
         "success": True,
+        "log_name": log_doc.name,
         "month": str(upload_month),
         "division": user_division,
         "total_data_rows": total_data_rows,
