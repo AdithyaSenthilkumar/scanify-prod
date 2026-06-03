@@ -11276,6 +11276,9 @@ def create_manual_statement(stockist_code, statement_month, items, uploaded_file
                 continue
             doc.append("items", {
                 "product_code": product_code,
+                # Per-line PTS override (manual scheme-discount path). Zero/blank
+                # falls back to Master PTS inside calculate_closing_and_totals().
+                "pts": flt(row.get("pts") or 0),
                 "opening_qty": flt(row.get("openingqty") or 0),
                 "purchase_qty": flt(row.get("purchaseqty") or 0),
                 "sales_qty": flt(row.get("salesqty") or 0),

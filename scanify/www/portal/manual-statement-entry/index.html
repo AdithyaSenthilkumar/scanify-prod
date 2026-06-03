@@ -133,7 +133,7 @@
               <th class="me-th-code">Code</th>
               <th class="me-th-name">Product Name</th>
               <th class="me-th-pack">Pack</th>
-              <th class="me-th-pts">PTS</th>
+              <th class="me-th-pts" title="Editable — override to account for scheme discounts">PTS <i class="fa fa-pencil-alt" style="font-size:9px;opacity:0.7;"></i></th>
               <th class="me-th-num">Opening</th>
               <th class="me-th-num">Purchase</th>
               <th class="me-th-num">Sales</th>
@@ -386,6 +386,18 @@
   .me-input.has-value {
     background: #fefce8;
     border-color: #f59e0b;
+  }
+
+  /* PTS override input — subtle distinct styling so it reads as editable */
+  .me-pts-input {
+    background: #f5f3ff;
+    border-color: #c4b5fd;
+    color: #6d28d9;
+    font-weight: 600;
+  }
+  .me-pts-input.has-value {
+    background: #ede9fe;
+    border-color: #7c3aed;
   }
 
   .me-calc-cell {
@@ -742,7 +754,7 @@
         '<td class="me-code-cell">' + me_escape(code) + '</td>' +
         '<td class="me-name-cell" title="' + me_escape(name) + '">' + me_escape(name) + '</td>' +
         '<td class="me-readonly-cell">' + me_escape(pack) + '</td>' +
-        '<td class="me-readonly-cell">' + me_fmt(pts, true) + '</td>' +
+        me_pts_cell(code, row.pts) +
         me_input_cell(code, 'openingqty', row.openingqty) +
         me_input_cell(code, 'purchaseqty', row.purchaseqty) +
         me_input_cell(code, 'salesqty', row.salesqty) +
@@ -779,6 +791,16 @@
       'value="' + (v || '') + '" min="0" step="any" tabindex="0"></td>';
   }
 
+  // Editable PTS cell — pre-filled from master PTS but overridable so users can
+  // account for scheme discounts (mirrors the per-line PTS override in the QC screen).
+  function me_pts_cell(code, val) {
+    var pts = parseFloat(val) || 0;
+    return '<td class="p-0"><input type="number" class="me-input me-pts-input" ' +
+      'data-code="' + me_escape(code) + '" data-field="pts" ' +
+      'value="' + pts + '" min="0" step="any" tabindex="0" ' +
+      'title="PTS — editable to account for scheme discounts"></td>';
+  }
+
   // ---- Calculation on input ----
   function me_on_input_change(input) {
     var code = $(input).data('code');
@@ -810,6 +832,14 @@
         break;
       case 'closingqty':
         row.closingvalue = (row.closingqty / cf) * pts;
+        break;
+      case 'pts':
+        // Per-line PTS override (manual scheme discount): re-derive every
+        // PTS-driven value column for this row.
+        row.openingvalue  = (row.openingqty  / cf) * pts;
+        row.purchasevalue = (row.purchaseqty / cf) * pts;
+        row.salesvaluepts = (row.salesqty    / cf) * pts;
+        row.closingvalue  = (row.closingqty  / cf) * pts;
         break;
     }
 
@@ -885,6 +915,7 @@
           r.returnqty || r.miscoutqty || r.closingqty) {
         items.push({
           productcode: r.productcode,
+          pts: r.pts || 0,
           openingqty: r.openingqty || 0,
           purchaseqty: r.purchaseqty || 0,
           salesqty: r.salesqty || 0,
