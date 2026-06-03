@@ -52,7 +52,7 @@
             "in_list_view": 1,
             "label": "Region",
             "options": "Region Master",
-            "reqd": 1
+            "reqd": 0
         },
         {
             "fieldname": "column_break_1",

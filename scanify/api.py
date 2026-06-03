@@ -4081,7 +4081,6 @@ def create_hq_yearly_target_from_portal(financial_year, start_date, end_date, st
 
         parsed_rows = []
         seen_hq = set()
-        region_set = set()
 
         for row in hq_targets:
             row = row or {}
@@ -4099,11 +4098,6 @@ def create_hq_yearly_target_from_portal(financial_year, start_date, end_date, st
 
             if division and meta.get("division") not in [division, "Both"]:
                 frappe.throw(_("HQ {0} does not belong to selected division {1}").format(hq, division))
-
-            region = meta.get("region")
-            if not region:
-                frappe.throw(_("Region is missing in HQ Master for {0}").format(hq))
-            region_set.add(region)
 
             parsed_rows.append({
                 "hq": hq,
@@ -4124,16 +4118,12 @@ def create_hq_yearly_target_from_portal(financial_year, start_date, end_date, st
 
         if not parsed_rows:
             frappe.throw(_("At least one valid HQ target row is required"))
-        if len(region_set) != 1:
-            frappe.throw(_("All selected HQs must belong to one region"))
 
-        region = list(region_set)[0]
         series = "HQT-.division.-.YYYY.-"
         doc = frappe.get_doc({
             "doctype": "HQ Yearly Target",
             "naming_series": series,
             "division": division,
-            "region": region,
             "financial_year": financial_year,
             "start_date": start_date,
             "end_date": end_date,

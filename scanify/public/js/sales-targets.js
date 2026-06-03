@@ -273,7 +273,6 @@ async function saveTargets() {
 
     var rows = [];
     var seenHQs = {};
-    var seenRegions = {};
     var hasError = false;
 
     targetRows.forEach(function (row) {
@@ -284,7 +283,6 @@ async function saveTargets() {
             return;
         }
         seenHQs[row.hqId] = true;
-        if (row.regionId) seenRegions[row.regionId] = true;
 
         var r = { hq: row.hqId };
         MONTHS.forEach(function (m) { r[m] = toNum(row.months[m]); });
@@ -293,12 +291,6 @@ async function saveTargets() {
 
     if (hasError) return;
     if (!rows.length) { showAlert("Add at least one HQ row", "warning"); return; }
-
-    var regionKeys = Object.keys(seenRegions);
-    if (regionKeys.length > 1) {
-        showAlert("All selected HQs must belong to the same region", "warning");
-        return;
-    }
 
     showLoadingOverlay("Saving sales target...");
     try {
