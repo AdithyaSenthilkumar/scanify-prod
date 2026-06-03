@@ -3975,7 +3975,7 @@ def update_hq_yearly_target_from_portal(name, financial_year, start_date, end_da
                 "mar": flt(raw.get("mar")),
             })
 
-        doc.save(ignore_permissions=False)
+        doc.save(ignore_permissions=False, ignore_mandatory=True)
         frappe.db.commit()
         return {"success": True, "message": "Updated successfully", "name": doc.name}
     except Exception as e:
@@ -4130,7 +4130,7 @@ def create_hq_yearly_target_from_portal(financial_year, start_date, end_date, st
             "status": status or "Draft",
             "hq_targets": parsed_rows,
         })
-        doc.insert(ignore_permissions=False)
+        doc.insert(ignore_permissions=False, ignore_mandatory=True)
         frappe.db.commit()
 
         return {
