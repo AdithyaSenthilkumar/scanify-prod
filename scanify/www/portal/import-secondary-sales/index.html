@@ -1,0 +1,347 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Import Secondary Sales{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page import-secondary-sales-page">
+    <div class="page-header mb-4">
+        <h1 class="page-title"><i class="fa fa-upload"></i> Import Secondary Sales</h1>
+        <p class="page-subtitle text-muted">Upload secondary sales Data (stockist statements) for {{ division }} division &mdash; one month at a time</p>
+    </div>
+
+    <!-- Info banner -->
+    <div class="alert alert-light border d-flex align-items-start mb-4" style="font-size:13px;">
+        <i class="fa fa-info-circle mr-2 mt-1 text-info"></i>
+        <div>
+            This creates one <strong>Stockist Statement</strong> (saved as <strong>Draft</strong>) per stockist for the selected month.
+            <ul class="mb-0 mt-1 pl-3">
+                <li>Stockists are matched <strong>strictly by name</strong> &mdash; the file's <code>stockistcode</code> is ignored. Unmatched names are skipped and reported.</li>
+                <li>Products are mapped by <code>pcode</code> only. Unknown codes are kept on the row as <em>unmapped</em>.</li>
+                <li>The per-line <code>pts</code> in the file is taken as final (a value differing from the master is treated as a scheme discount). All values are computed on save.</li>
+                <li>A stockist that already has a statement for the month is <strong>skipped</strong> &mdash; delete it first to re-import.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Upload Form -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white border-bottom" style="padding: 1rem 1.5rem;">
+            <h5 class="mb-0 font-weight-600"><i class="fa fa-cloud-upload-alt mr-2 text-primary"></i>Upload File</h5>
+        </div>
+        <div class="card-body" style="padding: 1.5rem;">
+            <form id="upload-form">
+                <div class="row align-items-end">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label class="font-weight-600">Month <span class="text-danger">*</span></label>
+                            <input type="month" class="form-control" id="upload-month" required>
+                            <small class="text-muted">The statement month for every row in this file</small>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <div class="form-group">
+                            <label class="font-weight-600">Excel File (.xlsx) <span class="text-danger">*</span></label>
+                            <div class="custom-file">
+                                <input type="file" class="custom-file-input" id="upload-file" accept=".xlsx,.xls" required>
+                                <label class="custom-file-label" for="upload-file" id="file-label">Choose file...</label>
+                            </div>
+                            <small class="text-muted">Max 15MB. Must match the required column format.</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end" style="gap: 8px;">
+                        <div class="form-group mb-0 flex-grow-1">
+                            <button type="submit" class="btn btn-primary btn-block" id="btn-upload">
+                                <i class="fa fa-upload mr-1"></i> Import
+                            </button>
+                        </div>
+                        <div class="form-group mb-0">
+                            <button type="button" class="btn btn-outline-info btn-block" onclick="showFormatModal()" title="View expected column format">
+                                <i class="fa fa-info-circle mr-1"></i> Format
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Progress -->
+            <div id="upload-progress" class="mt-3" style="display:none;">
+                <div class="d-flex align-items-center mb-2">
+                    <div class="spinner-border spinner-border-sm text-primary mr-2" role="status"></div>
+                    <span id="progress-text" class="font-weight-500">Uploading and processing...</span>
+                </div>
+                <div class="progress" style="height: 6px; border-radius: 3px;">
+                    <div class="progress-bar bg-primary" role="progressbar" id="progress-bar" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Result -->
+            <div id="upload-result" class="mt-3" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Expected Format Modal -->
+    <div class="modal fade" id="formatModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fa fa-info-circle mr-2 text-info"></i>Expected Column Format</h5>
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="px-3 pt-3 pb-2 d-flex justify-content-between align-items-center">
+                        <p class="mb-0 text-muted" style="font-size:13px;">Columns in this exact order. Only <code>stockistname</code> is required; <code>pcode</code> and <code>pts</code> drive mapping and valuation.</p>
+                        <button type="button" class="btn btn-sm btn-success" onclick="downloadSecondarySalesTemplate()" style="white-space:nowrap;">
+                            <i class="fa fa-download mr-1"></i> Download Sample Template
+                        </button>
+                    </div>
+                    <div class="table-responsive" style="max-height: 65vh; overflow-y: auto;">
+                        <table class="table table-sm table-bordered mb-0" style="font-size: 12px;">
+                            <thead>
+                                <tr style="background:#217346;color:white;">
+                                    <th style="padding:8px 12px;white-space:nowrap;">#</th>
+                                    <th style="padding:8px 12px;white-space:nowrap;">Excel Column</th>
+                                    <th style="padding:8px 12px;white-space:nowrap;">Description</th>
+                                    <th style="padding:8px 12px;white-space:nowrap;">Maps To</th>
+                                    <th style="padding:8px 12px;white-space:nowrap;">Used?</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>1</td><td><code>stockistcode</code></td><td>Legacy stockist code</td><td>&mdash; (ignored, name is authoritative)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>2</td><td><code>stockistname</code></td><td>Stockist Name</td><td>Stockist Master &rarr; stockist_name (strict)</td><td><span class="badge badge-danger">Required</span></td></tr>
+                                <tr><td>3</td><td><code>citypool</code></td><td>City / Pool</td><td>&mdash;</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>4</td><td><code>team</code></td><td>Team</td><td>&mdash; (derived from stockist)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>5</td><td><code>region</code></td><td>Region</td><td>&mdash; (derived from stockist)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>6</td><td><code>act_region</code></td><td>Actual Region</td><td>&mdash;</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>7</td><td><code>zonee</code></td><td>Zone</td><td>&mdash; (derived from stockist)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>8</td><td><code>statementdate</code></td><td>Statement date</td><td>&mdash; (month from selector above)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>9</td><td><code>pcode</code></td><td>Product Code</td><td>Product Master &rarr; product_code</td><td><span class="badge badge-success">Mapping</span></td></tr>
+                                <tr><td>10</td><td><code>product</code></td><td>Product Name (raw)</td><td>Stored as raw name (not mapped)</td><td><span class="badge badge-info">Stored</span></td></tr>
+                                <tr><td>11</td><td><code>pack</code></td><td>Pack</td><td>&mdash; (fetched from product)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>12</td><td><code>quantity</code></td><td>Secondary sales qty</td><td>Item &rarr; sales_qty</td><td><span class="badge badge-success">Value</span></td></tr>
+                                <tr><td>13</td><td><code>clstock</code></td><td>Closing stock qty</td><td>Item &rarr; closing_qty</td><td><span class="badge badge-success">Value</span></td></tr>
+                                <tr><td>14</td><td><code>freeqty</code></td><td>Free qty</td><td>Item &rarr; free_qty</td><td><span class="badge badge-success">Value</span></td></tr>
+                                <tr><td>15</td><td><code>opstock</code></td><td>Opening stock qty</td><td>Item &rarr; opening_qty</td><td><span class="badge badge-success">Value</span></td></tr>
+                                <tr><td>16</td><td><code>pts</code></td><td>Price to Stockist</td><td>Item &rarr; pts (final, scheme-discount aware)</td><td><span class="badge badge-success">Value</span></td></tr>
+                                <tr><td>17</td><td><code>ptsvalue</code></td><td>PTS &times; Qty</td><td>&mdash; (recomputed)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>18</td><td><code>ptr</code></td><td>Price to Retailer</td><td>&mdash; (from product master)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>19</td><td><code>ptrvalue</code></td><td>PTR &times; Qty</td><td>&mdash; (recomputed)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>20</td><td><code>mrp</code></td><td>MRP</td><td>&mdash; (from product master)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>21</td><td><code>mrpvalue</code></td><td>MRP &times; Qty</td><td>&mdash; (recomputed)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>22</td><td><code>nrv</code></td><td>Net Realizable Value</td><td>&mdash; (recomputed)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>23</td><td><code>nrvvalue</code></td><td>NRV &times; Qty</td><td>&mdash; (recomputed)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>24</td><td><code>clsvalue</code></td><td>Closing value</td><td>&mdash; (recomputed)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>25</td><td><code>opsvalue</code></td><td>Opening value</td><td>&mdash; (recomputed)</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                                <tr><td>26</td><td><code>product_head</code></td><td>Product Group</td><td>&mdash;</td><td><span class="badge badge-secondary">Info</span></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-success" onclick="downloadSecondarySalesTemplate()">
+                        <i class="fa fa-download mr-1"></i> Download Sample Template
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Statements -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center" style="padding: 1rem 1.5rem;">
+            <h5 class="mb-0 font-weight-600"><i class="fa fa-history mr-2 text-secondary"></i>Recently Created Statements</h5>
+            <a href="/portal/stock-statements-list" class="btn btn-sm btn-outline-secondary"><i class="fa fa-table mr-1"></i> View All</a>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" style="font-size: 13px;">
+                    <thead>
+                        <tr>
+                            <th>Statement</th>
+                            <th>Stockist</th>
+                            <th>Month</th>
+                            <th>Status</th>
+                            <th>QC</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if recent_statements %}
+                        {% for s in recent_statements %}
+                        <tr>
+                            <td><a href="/portal/statement-view?name={{ s.name }}"><strong>{{ s.name }}</strong></a></td>
+                            <td>{{ s.stockist_name or s.stockist_code }}</td>
+                            <td>{{ s.statement_month }}</td>
+                            <td>
+                                {% if s.docstatus == 1 %}
+                                <span class="badge badge-success">Submitted</span>
+                                {% else %}
+                                <span class="badge badge-warning">Draft</span>
+                                {% endif %}
+                            </td>
+                            <td><span class="badge badge-light border">{{ s.qc_confidence or '-' }}</span></td>
+                            <td>{{ frappe.utils.pretty_date(s.creation) }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center py-4 text-muted">No statements yet for {{ division }} division.</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.import-secondary-sales-page { animation: fadeIn 0.3s ease; }
+.import-secondary-sales-page .font-weight-600 { font-weight: 600; }
+.import-secondary-sales-page .font-weight-500 { font-weight: 500; }
+.import-secondary-sales-page code { font-size: 11px; color: #e83e8c; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('upload-file').addEventListener('change', function() {
+        var fileName = this.files[0] ? this.files[0].name : 'Choose file...';
+        document.getElementById('file-label').textContent = fileName;
+    });
+
+    document.getElementById('upload-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        var monthInput = document.getElementById('upload-month');
+        var fileInput = document.getElementById('upload-file');
+
+        if (!monthInput.value) { showAlert('Please select a month', 'warning'); return; }
+        if (!fileInput.files.length) { showAlert('Please select an Excel file', 'warning'); return; }
+
+        var file = fileInput.files[0];
+        if (file.size > 15 * 1024 * 1024) { showAlert('File size exceeds 15MB limit', 'danger'); return; }
+        var ext = file.name.split('.').pop().toLowerCase();
+        if (ext !== 'xlsx' && ext !== 'xls') { showAlert('Please upload an .xlsx or .xls file', 'danger'); return; }
+
+        var btn = document.getElementById('btn-upload');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span> Processing...';
+
+        document.getElementById('upload-progress').style.display = 'block';
+        document.getElementById('upload-result').style.display = 'none';
+        document.getElementById('progress-bar').style.width = '10%';
+        document.getElementById('progress-text').textContent = 'Uploading file...';
+
+        var formData = new FormData();
+        formData.append('file', file);
+        formData.append('is_private', 1);
+        formData.append('folder', 'Home');
+
+        $.ajax({
+            url: '/api/method/upload_file',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            success: function(uploadResp) {
+                var fileUrl = uploadResp.message.file_url;
+                document.getElementById('progress-bar').style.width = '40%';
+                document.getElementById('progress-text').textContent = 'Creating statements...';
+
+                $.ajax({
+                    url: '/api/method/scanify.api.process_secondary_sales_upload',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+                    data: JSON.stringify({ upload_month: monthInput.value, file_url: fileUrl }),
+                    success: function(resp) {
+                        document.getElementById('progress-bar').style.width = '100%';
+                        document.getElementById('progress-text').textContent = 'Complete!';
+
+                        var r = resp.message || {};
+                        var resultDiv = document.getElementById('upload-result');
+                        resultDiv.style.display = 'block';
+
+                        if (r.success) {
+                            var msgHtml = '';
+                            if (r.messages && r.messages.length) {
+                                msgHtml = '<hr class="my-2"><small class="d-block"><strong>Notes:</strong><ul class="mb-0 mt-1 pl-3">' +
+                                    r.messages.map(function(m){ return '<li>' + m + '</li>'; }).join('') + '</ul></small>';
+                            }
+                            var cls = r.statements_created > 0 ? 'alert-success' : 'alert-warning';
+                            resultDiv.innerHTML = '<div class="alert ' + cls + '">' +
+                                '<i class="fa fa-check-circle mr-2"></i>' +
+                                '<strong>Import complete for ' + r.month + '.</strong> ' +
+                                r.statements_created + ' statement(s) created (' + r.items_created + ' rows) from ' +
+                                r.stockists_in_file + ' stockist(s) in the file. ' +
+                                (r.skipped_existing ? r.skipped_existing + ' already existed (skipped). ' : '') +
+                                (r.unmatched_stockists ? r.unmatched_stockists + ' stockist name(s) unmatched. ' : '') +
+                                (r.unmapped_products ? r.unmapped_products + ' unmapped product row(s). ' : '') +
+                                msgHtml +
+                                '</div>';
+                            showAlert('Secondary sales imported: ' + r.statements_created + ' statement(s)', 'success');
+                            setTimeout(function(){ window.location.reload(); }, 3500);
+                        } else {
+                            resultDiv.innerHTML = '<div class="alert alert-danger"><i class="fa fa-exclamation-circle mr-2"></i>' +
+                                '<strong>Import Failed:</strong> ' + (r.error || 'Unknown error') + '</div>';
+                            showAlert('Import failed. Check the details.', 'danger');
+                        }
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa fa-upload mr-1"></i> Import';
+                    },
+                    error: function(xhr) {
+                        document.getElementById('upload-progress').style.display = 'none';
+                        var errMsg = 'Unknown error';
+                        try { errMsg = JSON.parse(xhr.responseText)._server_messages || errMsg; } catch(e) {}
+                        try { errMsg = JSON.parse(errMsg); if (Array.isArray(errMsg)) errMsg = errMsg.map(function(m){ try { return JSON.parse(m).message; } catch(e2){ return m; } }).join(', '); } catch(e3) {}
+                        document.getElementById('upload-result').style.display = 'block';
+                        document.getElementById('upload-result').innerHTML = '<div class="alert alert-danger"><i class="fa fa-exclamation-circle mr-2"></i><strong>Error:</strong> ' + errMsg + '</div>';
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa fa-upload mr-1"></i> Import';
+                        showAlert('Import failed', 'danger');
+                    }
+                });
+            },
+            error: function() {
+                document.getElementById('upload-progress').style.display = 'none';
+                showAlert('Failed to upload file. Please try again.', 'danger');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa fa-upload mr-1"></i> Import';
+            }
+        });
+    });
+});
+
+function showFormatModal() { $('#formatModal').modal('show'); }
+
+function downloadSecondarySalesTemplate() {
+    var columns = ['stockistcode','stockistname','citypool','team','region','act_region',
+        'zonee','statementdate','pcode','product','pack','quantity','clstock','freeqty',
+        'opstock','pts','ptsvalue','ptr','ptrvalue','mrp','mrpvalue','nrv','nrvvalue',
+        'clsvalue','opsvalue','product_head'];
+    var sampleRow = ['F00048','Vadamalayan Medi Pharma - Dindigul','Dindigul','Dindigul',
+        'Dindigul','Tamilnadu','South Zone','2026-03-31','ARC','Aminorich Capsules 1 x 15s',
+        '10x15','0','0','0','0','1787.14','0','1985.71','0','2606.63','0','1787.14','0','0','0','AMINORICH GROUP'];
+
+    var csv = columns.join(',') + '\n' + sampleRow.map(function(v){
+        var s = String(v);
+        return (s.indexOf(',') > -1 || s.indexOf('"') > -1) ? '"' + s.replace(/"/g,'""') + '"' : s;
+    }).join(',');
+
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'Secondary_Sales_Upload_Template.csv');
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showAlert('Downloaded Secondary Sales template', 'success');
+}
+</script>
+{% endblock %}

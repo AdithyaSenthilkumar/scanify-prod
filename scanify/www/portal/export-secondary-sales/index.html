@@ -1,0 +1,245 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Export Secondary Sales{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page export-secondary-sales-page">
+    <div class="page-header mb-4">
+        <h1 class="page-title"><i class="fa fa-file-excel"></i> Export Secondary Sales Data</h1>
+        <p class="page-subtitle text-muted">Download secondary sales (stockist statement) data as Excel for {{ division }} division</p>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white border-bottom" style="padding: 1rem 1.5rem;">
+            <h5 class="mb-0 font-weight-600"><i class="fa fa-filter mr-2 text-primary"></i>Filters</h5>
+        </div>
+        <div class="card-body" style="padding: 1.5rem;">
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="font-weight-600">Month <span class="text-danger">*</span></label>
+                        <select class="form-control" id="export-month" required>
+                            <option value="">Select month...</option>
+                            {% for m in available_months %}
+                            <option value="{{ m.month }}">{{ m.month }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="font-weight-600">Zone</label>
+                        <select class="form-control sec-select2" id="f-zone" data-placeholder="All zones">
+                            <option value="">All zones</option>
+                            {% for z in zones %}
+                            <option value="{{ z.code }}">{{ z.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="font-weight-600">Region</label>
+                        <select class="form-control sec-select2" id="f-region" data-placeholder="All regions">
+                            <option value="">All regions</option>
+                            {% for r in regions %}
+                            <option value="{{ r.code }}" data-zone="{{ r.zone }}">{{ r.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="font-weight-600">Team</label>
+                        <select class="form-control sec-select2" id="f-team" data-placeholder="All teams">
+                            <option value="">All teams</option>
+                            {% for t in teams %}
+                            <option value="{{ t.code }}" data-zone="{{ t.zone }}" data-region="{{ t.region }}">{{ t.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="font-weight-600">HQ</label>
+                        <select class="form-control sec-select2" id="f-hq" data-placeholder="All HQs">
+                            <option value="">All HQs</option>
+                            {% for h in hqs %}
+                            <option value="{{ h.code }}" data-zone="{{ h.zone }}" data-region="{{ h.region }}" data-team="{{ h.team }}">{{ h.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="font-weight-600">Document Status</label>
+                        <select class="form-control" id="f-docstatus">
+                            <option value="">Draft + Submitted</option>
+                            <option value="0">Draft only</option>
+                            <option value="1">Submitted only</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <div class="form-group w-100">
+                        <button class="btn btn-success btn-block" id="btn-export" onclick="exportData()">
+                            <i class="fa fa-download mr-1"></i> Download Excel
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <div class="form-group w-100">
+                        <button class="btn btn-outline-secondary btn-block" onclick="clearFilters()">
+                            <i class="fa fa-undo mr-1"></i> Clear Filters
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Count preview -->
+            <div id="count-preview" class="mt-2" style="display:none;">
+                <div class="alert alert-info mb-0 d-flex align-items-center" style="font-size:14px;">
+                    <i class="fa fa-info-circle mr-2"></i>
+                    <span id="preview-text"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if not available_months %}
+    <div class="card shadow-sm border-0">
+        <div class="card-body text-center py-5">
+            <i class="fa fa-inbox fa-3x text-muted mb-3"></i>
+            <h5 class="text-muted">No Data Available</h5>
+            <p class="text-muted">No secondary sales data exists for {{ division }} division yet.</p>
+            <a href="/portal/import-secondary-sales" class="btn btn-primary mt-2">
+                <i class="fa fa-upload mr-1"></i> Import Secondary Sales Data
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.export-secondary-sales-page { animation: fadeIn 0.3s ease; }
+.export-secondary-sales-page .font-weight-600 { font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var division = "{{ division }}";
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof $ !== "undefined" && $.fn.select2) {
+        $(".sec-select2").select2({ width: "100%", allowClear: true });
+    }
+
+    // Cascading narrowing: choosing a higher level prunes lower levels' visible options.
+    $("#f-zone").on("change", function() { applyCascade(); refreshCount(); });
+    $("#f-region").on("change", function() { applyCascade(); refreshCount(); });
+    $("#f-team").on("change", function() { applyCascade(); refreshCount(); });
+    $("#f-hq, #f-docstatus").on("change", refreshCount);
+    document.getElementById('export-month').addEventListener('change', refreshCount);
+});
+
+function applyCascade() {
+    var zone = $("#f-zone").val();
+    var region = $("#f-region").val();
+    var team = $("#f-team").val();
+
+    // Region options limited to selected zone
+    filterOptions("#f-region", function(opt) {
+        return !zone || opt.getAttribute("data-zone") === zone || opt.value === "";
+    });
+    // Team options limited to selected zone/region
+    filterOptions("#f-team", function(opt) {
+        if (opt.value === "") return true;
+        if (zone && opt.getAttribute("data-zone") !== zone) return false;
+        if (region && opt.getAttribute("data-region") !== region) return false;
+        return true;
+    });
+    // HQ options limited to selected zone/region/team
+    filterOptions("#f-hq", function(opt) {
+        if (opt.value === "") return true;
+        if (zone && opt.getAttribute("data-zone") !== zone) return false;
+        if (region && opt.getAttribute("data-region") !== region) return false;
+        if (team && opt.getAttribute("data-team") !== team) return false;
+        return true;
+    });
+}
+
+function filterOptions(selector, keepFn) {
+    var sel = document.querySelector(selector);
+    if (!sel) return;
+    var current = sel.value;
+    var stillValid = false;
+    Array.prototype.forEach.call(sel.options, function(opt) {
+        var keep = keepFn(opt);
+        opt.hidden = !keep;
+        opt.disabled = !keep;
+        if (keep && opt.value === current) stillValid = true;
+    });
+    if (!stillValid) sel.value = "";
+    if (typeof $ !== "undefined" && $.fn.select2) { $(sel).trigger("change.select2"); }
+}
+
+function getFilters() {
+    return {
+        month: document.getElementById('export-month').value,
+        division: division,
+        zone: $("#f-zone").val() || "",
+        region: $("#f-region").val() || "",
+        team: $("#f-team").val() || "",
+        hq: $("#f-hq").val() || "",
+        docstatus: document.getElementById('f-docstatus').value || ""
+    };
+}
+
+function refreshCount() {
+    var f = getFilters();
+    var preview = document.getElementById('count-preview');
+    if (!f.month) { preview.style.display = 'none'; return; }
+
+    $.ajax({
+        url: '/api/method/scanify.api.get_secondary_sales_count',
+        data: { month: f.month, division: f.division, zone: f.zone, region: f.region, team: f.team, hq: f.hq },
+        success: function(resp) {
+            var m = resp.message || {};
+            document.getElementById('preview-text').textContent =
+                (m.statements || 0) + ' statement(s) and ' + (m.rows || 0) + ' product row(s) match for ' + f.month;
+            preview.style.display = 'block';
+        }
+    });
+}
+
+function clearFilters() {
+    document.getElementById('export-month').value = "";
+    document.getElementById('f-docstatus').value = "";
+    if (typeof $ !== "undefined" && $.fn.select2) {
+        $("#f-zone, #f-region, #f-team, #f-hq").val("").trigger("change");
+    }
+    applyCascade();
+    document.getElementById('count-preview').style.display = 'none';
+}
+
+function exportData() {
+    var f = getFilters();
+    if (!f.month) { showAlert('Please select a month', 'warning'); return; }
+
+    var btn = document.getElementById('btn-export');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span> Generating...';
+
+    var qs = Object.keys(f).map(function(k){ return k + '=' + encodeURIComponent(f[k]); }).join('&');
+    window.location.href = '/api/method/scanify.api.export_secondary_sales_data?' + qs;
+
+    setTimeout(function() {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-download mr-1"></i> Download Excel';
+    }, 3000);
+}
+</script>
+{% endblock %}

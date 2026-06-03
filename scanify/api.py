@@ -11991,3 +11991,476 @@ def chatbot_query(message, conversation_history=None):
             "success": False,
             "error": f"An error occurred: {str(e)}"
         }
+
+
+# ═══════════════════════════════════════════════════════════════
+# Secondary Sales (Stockist Statement) Backfill — Import & Export
+# ───────────────────────────────────────────────────────────────
+# Bulk backfill of one month's secondary sales (stockist statements) from an
+# Excel export of the legacy/source system. One Stockist Statement is created
+# per stockist for the chosen month, with the product rows as items.
+#
+# Strictness rules (per requirement):
+#   • Stockist  → matched STRICTLY by name. The file's `stockistcode` is from the
+#     legacy migration and is NOT trusted for mapping. An unmatched name is an
+#     error and that row is skipped.
+#   • Product   → mapped by `pcode` only (code is authoritative; product names are
+#     never used to map). Unmapped codes are kept on the row (mapping_status =
+#     'unmapped') but excluded from value totals by the controller.
+#   • PTS        → the per-line `pts` from the file is taken as final (a value that
+#     differs from the master means a scheme discount was given). Values are then
+#     computed by the Stockist Statement controller (qty × pts, pack conversion).
+# ═══════════════════════════════════════════════════════════════
+
+# Excel header → Stockist Statement Item field (quantity inputs only)
+_SECONDARY_QTY_COL_MAP = {
+    "quantity": "sales_qty",
+    "clstock": "closing_qty",
+    "freeqty": "free_qty",
+    "opstock": "opening_qty",
+}
+
+
+@frappe.whitelist()
+def get_secondary_sales_count(month, division=None, zone=None, region=None, team=None, hq=None):
+    """Count statements + line items of secondary sales data for a month (with optional org filters)."""
+    from frappe.utils import get_first_day, get_last_day
+
+    if not division:
+        division = get_user_division() or "Prima"
+    if not month:
+        return {"statements": 0, "rows": 0}
+
+    month_str = str(month)[:7] + "-01"
+    first_day = get_first_day(month_str)
+    last_day = get_last_day(first_day)
+
+    conditions = ["ss.division = %(division)s",
+                  "ss.statement_month BETWEEN %(first_day)s AND %(last_day)s",
+                  "ss.docstatus IN (0, 1)"]
+    params = {"division": division, "first_day": first_day, "last_day": last_day}
+    if zone:
+        conditions.append("ss.zone = %(zone)s"); params["zone"] = zone
+    if region:
+        conditions.append("ss.region = %(region)s"); params["region"] = region
+    if team:
+        conditions.append("ss.team = %(team)s"); params["team"] = team
+    if hq:
+        conditions.append("ss.hq = %(hq)s"); params["hq"] = hq
+
+    where = " AND ".join(conditions)
+    res = frappe.db.sql(f"""
+        SELECT COUNT(DISTINCT ss.name) AS statements, COUNT(si.name) AS rows
+        FROM `tabStockist Statement` ss
+        LEFT JOIN `tabStockist Statement Item` si
+            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+        WHERE {where}
+    """, params, as_dict=True)
+    row = res[0] if res else {}
+    return {"statements": int(row.get("statements") or 0), "rows": int(row.get("rows") or 0)}
+
+
+@frappe.whitelist()
+def process_secondary_sales_upload(upload_month, file_url):
+    """Backfill secondary sales (stockist statements) from one month's Excel file.
+
+    See module header above for the strictness rules. Returns a summary dict with
+    counts and a capped list of human-readable warnings/errors.
+    """
+    import openpyxl
+    from datetime import datetime
+    from frappe.utils import get_first_day
+
+    user_division = get_user_division() or "Prima"
+
+    # Validate month format (YYYY-MM)
+    if not upload_month or not re.match(r"^\d{4}-\d{2}$", str(upload_month)):
+        return {"success": False, "error": "Invalid month format. Use YYYY-MM."}
+
+    statement_month = get_first_day(str(upload_month) + "-01")
+
+    # Resolve the uploaded file path
+    file_path = frappe.get_site_path(file_url.lstrip("/"))
+    if not os.path.exists(file_path):
+        file_path = frappe.get_site_path("private", "files", os.path.basename(file_url))
+    if not os.path.exists(file_path):
+        return {"success": False, "error": "Uploaded file not found on server."}
+
+    try:
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        ws = wb.active
+
+        # Headers from row 1 (lower-cased, trimmed)
+        raw_headers = [cell.value for cell in ws[1]]
+        headers = [str(h).strip().lower() if h is not None else None for h in raw_headers]
+
+        # Require at least the stockist name column — everything else is lenient
+        if "stockistname" not in [h for h in headers if h]:
+            wb.close()
+            return {"success": False, "error": "Missing required column: stockistname"}
+
+        # ── Caches ──
+        # Stockist: STRICT name → code (division-scoped, includes 'Both')
+        stockist_name_cache = {}
+        for s in frappe.get_all("Stockist Master",
+                                filters={"division": ["in", [user_division, "Both"]]},
+                                fields=["stockist_code", "stockist_name", "status"],
+                                limit_page_length=0):
+            if s.stockist_name:
+                stockist_name_cache[s.stockist_name.strip().lower()] = {
+                    "code": s.stockist_code, "status": s.status}
+
+        # Product: code → name (authoritative mapping by code only)
+        product_code_cache = set()
+        for p in frappe.get_all("Product Master",
+                                filters={"division": ["in", [user_division, "Both", "ASPR", "Wellness"]]},
+                                fields=["product_code"],
+                                limit_page_length=0):
+            if p.product_code:
+                product_code_cache.add(p.product_code)
+
+        # ── Group rows by matched stockist code ──
+        groups = {}                 # stockist_code -> list[item_dict]
+        unmatched_names = {}        # raw name -> count (strict skip)
+        inactive_names = {}         # name -> code (skipped: inactive stockist)
+        unmapped_products = 0
+        blank_rows = 0
+        total_data_rows = 0
+
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if all(v is None for v in row):
+                continue
+
+            rec = {}
+            for col_idx, val in enumerate(row):
+                if col_idx >= len(headers) or headers[col_idx] is None:
+                    continue
+                rec[headers[col_idx]] = val
+
+            stk_name = str(rec.get("stockistname") or "").strip()
+            pcode = str(rec.get("pcode") or "").strip()
+            raw_product = str(rec.get("product") or "").strip()
+
+            # Skip rows with no stockist and no product/qty content
+            if not stk_name and not pcode and not raw_product:
+                blank_rows += 1
+                continue
+
+            total_data_rows += 1
+
+            if not stk_name:
+                unmatched_names["(blank stockist name)"] = unmatched_names.get("(blank stockist name)", 0) + 1
+                continue
+
+            match = stockist_name_cache.get(stk_name.lower())
+            if not match:
+                unmatched_names[stk_name] = unmatched_names.get(stk_name, 0) + 1
+                continue
+            if (match.get("status") or "Active") != "Active":
+                inactive_names[stk_name] = match["code"]
+                continue
+
+            stockist_code = match["code"]
+
+            # Product mapping is by CODE only
+            if pcode and pcode in product_code_cache:
+                product_code = pcode
+                mapping_status = "matched"
+            else:
+                product_code = None
+                mapping_status = "unmapped"
+                unmapped_products += 1
+
+            item = {
+                "raw_product_name": raw_product or pcode,
+                "row_type": "product",
+                "mapping_status": mapping_status,
+                "pts": _parse_num(rec.get("pts")),
+                "free_qty_scheme": 0,
+                "purchase_qty": 0,          # not present in secondary statement files
+                "return_qty": 0,
+                "misc_out_qty": 0,
+            }
+            for excel_col, field in _SECONDARY_QTY_COL_MAP.items():
+                item[field] = _parse_num(rec.get(excel_col))
+            if product_code:
+                item["product_code"] = product_code
+
+            groups.setdefault(stockist_code, []).append(item)
+
+        wb.close()
+
+    except Exception as e:
+        frappe.log_error(f"Secondary Sales Upload (read) Error: {str(e)}", "Secondary Sales Upload")
+        return {"success": False, "error": f"Could not read the Excel file: {str(e)}"}
+
+    # ── Create one Stockist Statement per stockist (DRAFT) ──
+    statements_created = 0
+    items_created = 0
+    skipped_existing = []       # list of {stockist, name}
+    create_errors = []          # per-stockist failures
+
+    for stockist_code, items in groups.items():
+        try:
+            existing = frappe.db.exists("Stockist Statement", {
+                "stockist_code": stockist_code,
+                "statement_month": statement_month,
+            })
+            if existing:
+                skipped_existing.append({
+                    "stockist": stockist_code,
+                    "name": existing,
+                })
+                continue
+
+            doc = frappe.new_doc("Stockist Statement")
+            doc.stockist_code = stockist_code
+            doc.statement_month = statement_month
+            doc.extracted_data_status = "Completed"
+            doc.extraction_notes = f"Backfilled via secondary sales bulk upload ({upload_month})."
+            for it in items:
+                doc.append("items", it)
+
+            # Controller computes conversion factor, values and totals on validate.
+            doc.insert(ignore_permissions=True)   # saved as Draft (docstatus = 0)
+            frappe.db.commit()
+
+            statements_created += 1
+            items_created += len(items)
+
+        except Exception as e:
+            frappe.db.rollback()
+            create_errors.append(f"{stockist_code}: {str(e)}")
+            frappe.log_error(frappe.get_traceback(), "Secondary Sales Upload (create) Error")
+
+    # ── Build human-readable messages (capped) ──
+    messages = []
+    if unmatched_names:
+        sample = list(unmatched_names.keys())[:15]
+        messages.append(
+            f"{len(unmatched_names)} stockist name(s) not found in Stockist Master "
+            f"(rows skipped): " + "; ".join(sample) +
+            (" ..." if len(unmatched_names) > 15 else "")
+        )
+    if inactive_names:
+        messages.append(
+            f"{len(inactive_names)} stockist(s) are inactive and were skipped: "
+            + "; ".join(list(inactive_names.keys())[:15])
+        )
+    if skipped_existing:
+        names = [f"{x['stockist']} ({x['name']})" for x in skipped_existing[:15]]
+        messages.append(
+            f"{len(skipped_existing)} stockist(s) already have a statement for this month "
+            f"and were skipped — delete those first to re-import: " + "; ".join(names) +
+            (" ..." if len(skipped_existing) > 15 else "")
+        )
+    if unmapped_products:
+        messages.append(
+            f"{unmapped_products} row(s) had a product code not found in Product Master — "
+            f"kept on the statement as unmapped (excluded from value totals)."
+        )
+    if create_errors:
+        messages.extend(create_errors[:15])
+
+    return {
+        "success": True,
+        "month": str(upload_month),
+        "division": user_division,
+        "total_data_rows": total_data_rows,
+        "statements_created": statements_created,
+        "items_created": items_created,
+        "stockists_in_file": len(groups),
+        "skipped_existing": len(skipped_existing),
+        "unmatched_stockists": len(unmatched_names),
+        "inactive_stockists": len(inactive_names),
+        "unmapped_products": unmapped_products,
+        "create_errors": len(create_errors),
+        "messages": messages,
+    }
+
+
+@frappe.whitelist()
+def export_secondary_sales_data(month, division=None, zone=None, region=None,
+                                team=None, hq=None, docstatus=None):
+    """Export secondary sales (stockist statement) data as Excel for a month.
+
+    Output columns mirror the import template so the file round-trips. Optional
+    org filters (zone/region/team/hq) narrow the export. Value columns are
+    recomputed from the stored quantities and per-line PTS.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from frappe.utils import get_first_day, get_last_day
+
+    if not division:
+        division = get_user_division() or "Prima"
+    if not month:
+        frappe.throw("Month is required")
+
+    month_str = str(month)[:7] + "-01"
+    first_day = get_first_day(month_str)
+    last_day = get_last_day(first_day)
+
+    conditions = ["ss.division = %(division)s",
+                  "ss.statement_month BETWEEN %(first_day)s AND %(last_day)s"]
+    params = {"division": division, "first_day": first_day, "last_day": last_day}
+
+    # docstatus: default include draft + submitted
+    if docstatus in ("0", "1", 0, 1):
+        conditions.append("ss.docstatus = %(docstatus)s"); params["docstatus"] = int(docstatus)
+    else:
+        conditions.append("ss.docstatus IN (0, 1)")
+
+    if zone:
+        conditions.append("ss.zone = %(zone)s"); params["zone"] = zone
+    if region:
+        conditions.append("ss.region = %(region)s"); params["region"] = region
+    if team:
+        conditions.append("ss.team = %(team)s"); params["team"] = team
+    if hq:
+        conditions.append("ss.hq = %(hq)s"); params["hq"] = hq
+
+    where = " AND ".join(conditions)
+    rows = frappe.db.sql(f"""
+        SELECT
+            ss.stockist_code, ss.stockist_name, ss.statement_month,
+            ss.team, ss.region, ss.zone,
+            si.product_code, si.product_name, si.raw_product_name, si.pack,
+            si.opening_qty, si.purchase_qty, si.sales_qty, si.free_qty,
+            si.closing_qty, si.conversion_factor, si.pts,
+            si.opening_value, si.sales_value_pts, si.sales_value_ptr, si.closing_value
+        FROM `tabStockist Statement` ss
+        INNER JOIN `tabStockist Statement Item` si
+            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+        WHERE {where}
+        ORDER BY ss.stockist_name, si.product_code
+    """, params, as_dict=True)
+
+    if not rows:
+        frappe.throw(f"No secondary sales data found for {str(month)[:7]} in {division} division")
+
+    # Resolve org codes → display names (cached)
+    team_names, region_names, zone_names = {}, {}, {}
+    prod_meta = {}   # product_code -> {mrp, ptr, product_group, pts, pack, product_name}
+
+    def _team_name(code):
+        if not code:
+            return ""
+        if code not in team_names:
+            team_names[code] = frappe.db.get_value("Team Master", code, "team_name") or code
+        return team_names[code]
+
+    def _region_name(code):
+        if not code:
+            return ""
+        if code not in region_names:
+            region_names[code] = frappe.db.get_value("Region Master", code, "region_name") or code
+        return region_names[code]
+
+    def _zone_name(code):
+        if not code:
+            return ""
+        if code not in zone_names:
+            zone_names[code] = frappe.db.get_value("Zone Master", code, "zone_name") or code
+        return zone_names[code]
+
+    def _prod(code):
+        if not code:
+            return {}
+        if code not in prod_meta:
+            prod_meta[code] = frappe.db.get_value(
+                "Product Master", code,
+                ["mrp", "ptr", "pts", "pack", "product_name", "product_group"],
+                as_dict=True) or {}
+        return prod_meta[code]
+
+    # Output headers (match import template order)
+    excel_headers = [
+        "stockistcode", "stockistname", "citypool", "team", "region", "act_region",
+        "zonee", "statementdate", "pcode", "product", "pack",
+        "quantity", "clstock", "freeqty", "opstock",
+        "pts", "ptsvalue", "ptr", "ptrvalue", "mrp", "mrpvalue",
+        "nrv", "nrvvalue", "clsvalue", "opsvalue", "product_head",
+    ]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"Secondary Sales {str(month)[:7]}"
+
+    header_font = Font(bold=True, size=11, color="FFFFFF")
+    header_fill = PatternFill(start_color="217346", end_color="217346", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(left=Side(style="thin"), right=Side(style="thin"),
+                         top=Side(style="thin"), bottom=Side(style="thin"))
+
+    for col_idx, header in enumerate(excel_headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    stmt_date = str(last_day)
+    for r_idx, row in enumerate(rows, 2):
+        prod = _prod(row.get("product_code"))
+        conv = flt(row.get("conversion_factor")) or 1
+        sales_base = flt(row.get("sales_qty")) / conv
+        pts_rate = flt(row.get("pts")) or flt(prod.get("pts") or 0)
+        mrp_rate = flt(prod.get("mrp") or 0)
+        ptr_rate = flt(prod.get("ptr") or 0)
+
+        out = [
+            row.get("stockist_code") or "",
+            row.get("stockist_name") or "",
+            "",                                                   # citypool (not stored)
+            _team_name(row.get("team")),
+            _region_name(row.get("region")),
+            _region_name(row.get("region")),                     # act_region ≈ region
+            _zone_name(row.get("zone")),
+            stmt_date,
+            row.get("product_code") or "",
+            row.get("product_name") or row.get("raw_product_name") or "",
+            row.get("pack") or prod.get("pack") or "",
+            flt(row.get("sales_qty")),
+            flt(row.get("closing_qty")),
+            flt(row.get("free_qty")),
+            flt(row.get("opening_qty")),
+            pts_rate,
+            flt(row.get("sales_value_pts")),
+            ptr_rate,
+            flt(row.get("sales_value_ptr")),
+            mrp_rate,
+            sales_base * mrp_rate,                                # mrpvalue
+            pts_rate,                                             # nrv ≈ pts
+            flt(row.get("sales_value_pts")),                      # nrvvalue ≈ ptsvalue
+            flt(row.get("closing_value")),                        # clsvalue
+            flt(row.get("opening_value")),                        # opsvalue
+            prod.get("product_group") or "",                      # product_head
+        ]
+        for c_idx, val in enumerate(out, 1):
+            cell = ws.cell(row=r_idx, column=c_idx, value=val)
+            cell.border = thin_border
+
+    for col in ws.columns:
+        max_length = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            if cell.value is not None:
+                max_length = max(max_length, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = min(max_length + 3, 32)
+
+    ws.freeze_panes = "A2"
+
+    fname = f"Secondary_Sales_{division}_{str(month)[:7]}.xlsx"
+    out_path = os.path.join(tempfile.gettempdir(), fname)
+    wb.save(out_path)
+    with open(out_path, "rb") as f:
+        file_content = f.read()
+    try:
+        os.remove(out_path)
+    except OSError:
+        pass
+
+    frappe.local.response.filename = fname
+    frappe.local.response.filecontent = file_content
+    frappe.local.response.type = "download"
