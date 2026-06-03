@@ -10435,13 +10435,9 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
         section_avg_lakhs = round(section_total_lakhs / active_months, 2)
         section_pc_lakhs = round(section_avg_lakhs / sanctioned_strength, 2) if sanctioned_strength else 0
 
-        # Proportional target split
-        cat_target = 0.0
-        cat_pct = 0.0
-        if target_value > 0 and grand_total_val > 0:
-            share = section_total_val / grand_total_val if grand_total_val else 0
-            cat_target = round(target_value * share, 2)
-            cat_pct = round((section_total_lakhs / cat_target) * 100) if cat_target else 0
+        # Total HQ target (no split across categories)
+        cat_target = round(target_value, 2) if target_value > 0 else 0.0
+        cat_pct = round((section_total_lakhs / cat_target) * 100) if cat_target else 0.0
 
         sections.append({
             "label": cat_label,
@@ -10709,12 +10705,9 @@ def get_primary_sales_moving_trend(division=None, entity_type="Team",
         section_avg_lakhs = round(section_total_lakhs / active_months, 2)
         section_pc_lakhs = round(section_avg_lakhs / sanctioned_strength, 2) if sanctioned_strength else 0
 
-        cat_target = 0.0
-        cat_pct = 0.0
-        if target_value > 0 and grand_total_val > 0:
-            share = section_total_val / grand_total_val if grand_total_val else 0
-            cat_target = round(target_value * share, 2)
-            cat_pct = round((section_total_lakhs / cat_target) * 100) if cat_target else 0
+        # Total HQ target (no split across categories)
+        cat_target = round(target_value, 2) if target_value > 0 else 0.0
+        cat_pct = round((section_total_lakhs / cat_target) * 100) if cat_target else 0.0
 
         sections.append({
             "label": cat_label,
