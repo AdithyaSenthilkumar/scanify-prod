@@ -12170,6 +12170,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         unmapped_products = 0
         blank_rows = 0
         total_data_rows = 0
+        skipped_informational = 0   # zero-movement rows (prev-month closing carry-over)
 
         for row in ws.iter_rows(min_row=2, values_only=True):
             if all(v is None for v in row):
@@ -12206,6 +12207,15 @@ def process_secondary_sales_upload(upload_month, file_url):
 
             stockist_code = match["code"]
 
+            # Skip pure no-movement rows: these are previous-month closing figures
+            # the source system repeats for continuity (sales = 0 and free = 0).
+            # Rows with free goods but no billed sales are kept (real secondary movement).
+            sales_q = _parse_num(rec.get("quantity"))
+            free_q = _parse_num(rec.get("freeqty"))
+            if sales_q == 0 and free_q == 0:
+                skipped_informational += 1
+                continue
+
             # Product mapping is by CODE only
             if pcode and pcode in product_code_cache:
                 product_code = pcode
@@ -12215,11 +12225,16 @@ def process_secondary_sales_upload(upload_month, file_url):
                 mapping_status = "unmapped"
                 unmapped_products += 1
 
+            # Valuation rate = NRV (the net / final price rate). It equals PTS when no
+            # discount was given and is lower when a discount was applied, so it is the
+            # true realised rate. Fall back to the file's PTS, then to the master rate.
+            rate = _parse_num(rec.get("nrv")) or _parse_num(rec.get("pts"))
+
             item = {
                 "raw_product_name": raw_product or pcode,
                 "row_type": "product",
                 "mapping_status": mapping_status,
-                "pts": _parse_num(rec.get("pts")),
+                "pts": rate,                # per-line valuation rate (NRV / final net rate)
                 "free_qty_scheme": 0,
                 "purchase_qty": 0,          # not present in secondary statement files
                 "return_qty": 0,
@@ -12266,6 +12281,7 @@ def process_secondary_sales_upload(upload_month, file_url):
             doc.stockist_code = stockist_code
             doc.statement_month = statement_month
             doc.extracted_data_status = "Completed"
+            doc.skip_conversion = 1   # quantities are already final → value = qty x rate
             doc.extraction_notes = f"Backfilled via secondary sales bulk upload ({upload_month})."
             for it in items:
                 doc.append("items", it)
@@ -12308,6 +12324,11 @@ def process_secondary_sales_upload(upload_month, file_url):
             f"{unmapped_products} row(s) had a product code not found in Product Master — "
             f"kept on the statement as unmapped (excluded from value totals)."
         )
+    if skipped_informational:
+        messages.append(
+            f"{skipped_informational} no-movement row(s) skipped (sales = 0 and free = 0 — "
+            f"previous-month closing carry-over)."
+        )
     if create_errors:
         messages.extend(create_errors[:15])
 
@@ -12320,6 +12341,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         f"Stockists in file      : {len(groups)}",
         f"Statements created     : {statements_created}",
         f"Item rows created      : {items_created}",
+        f"No-movement skipped    : {skipped_informational}",
         f"Skipped (existed)      : {len(skipped_existing)}",
         f"Unmatched stockists    : {len(unmatched_names)}",
         f"Inactive skipped       : {len(inactive_names)}",
@@ -12353,6 +12375,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         log_doc.inactive_stockists = len(inactive_names)
         log_doc.unmapped_products = unmapped_products
         log_doc.create_errors = len(create_errors)
+        log_doc.skipped_informational = skipped_informational
         log_doc.log = full_log[:140000]
         log_doc.save(ignore_permissions=True)
         frappe.db.commit()
@@ -12372,6 +12395,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         "unmatched_stockists": len(unmatched_names),
         "inactive_stockists": len(inactive_names),
         "unmapped_products": unmapped_products,
+        "skipped_informational": skipped_informational,
         "create_errors": len(create_errors),
         "messages": messages,
     }
@@ -12503,7 +12527,10 @@ def export_secondary_sales_data(month, division=None, zone=None, region=None,
         prod = _prod(row.get("product_code"))
         conv = flt(row.get("conversion_factor")) or 1
         sales_base = flt(row.get("sales_qty")) / conv
-        pts_rate = flt(row.get("pts")) or flt(prod.get("pts") or 0)
+        # net_rate = the stored per-line valuation rate (NRV / final net rate, after any discount).
+        # list_rate = the master PTS (standard price to stockist). Equal when no discount.
+        net_rate = flt(row.get("pts")) or flt(prod.get("pts") or 0)
+        list_rate = flt(prod.get("pts") or 0) or net_rate
         mrp_rate = flt(prod.get("mrp") or 0)
         ptr_rate = flt(prod.get("ptr") or 0)
 
@@ -12523,16 +12550,16 @@ def export_secondary_sales_data(month, division=None, zone=None, region=None,
             flt(row.get("closing_qty")),
             flt(row.get("free_qty")),
             flt(row.get("opening_qty")),
-            pts_rate,
-            flt(row.get("sales_value_pts")),
+            list_rate,                                            # pts  (list / master rate)
+            sales_base * list_rate,                               # ptsvalue (list value)
             ptr_rate,
-            flt(row.get("sales_value_ptr")),
+            flt(row.get("sales_value_ptr")),                      # ptrvalue
             mrp_rate,
             sales_base * mrp_rate,                                # mrpvalue
-            pts_rate,                                             # nrv ≈ pts
-            flt(row.get("sales_value_pts")),                      # nrvvalue ≈ ptsvalue
-            flt(row.get("closing_value")),                        # clsvalue
-            flt(row.get("opening_value")),                        # opsvalue
+            net_rate,                                             # nrv  (final net rate)
+            flt(row.get("sales_value_pts")),                      # nrvvalue (= qty x net rate)
+            flt(row.get("closing_value")),                        # clsvalue (net-based)
+            flt(row.get("opening_value")),                        # opsvalue (net-based)
             prod.get("product_group") or "",                      # product_head
         ]
         for c_idx, val in enumerate(out, 1):

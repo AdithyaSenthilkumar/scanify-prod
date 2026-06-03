@@ -20,6 +20,7 @@
     "uploaded_file",
     "extracted_data_status",
     "extraction_notes",
+    "skip_conversion",
     "ocr_raw_sales_total",
     "items_section",
     "items",
@@ -110,6 +111,14 @@
       "fieldname": "extraction_notes",
       "fieldtype": "Small Text",
       "label": "Extraction Notes"
+    },
+    {
+      "default": "0",
+      "fieldname": "skip_conversion",
+      "fieldtype": "Check",
+      "label": "Skip Pack Conversion",
+      "read_only": 1,
+      "description": "Set on bulk-backfilled statements: quantities are already final (no box-to-strip conversion); values are computed as qty x rate directly."
     },
     {
       "fieldname": "ocr_raw_sales_total",

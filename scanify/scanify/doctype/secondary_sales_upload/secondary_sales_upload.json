@@ -19,6 +19,7 @@
   "stockists_in_file",
   "statements_created",
   "items_created",
+  "skipped_informational",
   "column_break_counts",
   "skipped_existing",
   "unmatched_stockists",
@@ -117,6 +118,14 @@
    "label": "Item Rows Created",
    "read_only": 1,
    "default": "0"
+  },
+  {
+   "fieldname": "skipped_informational",
+   "fieldtype": "Int",
+   "label": "No-Movement Rows Skipped",
+   "read_only": 1,
+   "default": "0",
+   "description": "Rows with sales = 0 and free = 0 (previous-month closing carry-over) that were skipped."
   },
   {
    "fieldname": "column_break_counts",

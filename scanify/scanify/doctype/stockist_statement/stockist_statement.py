@@ -161,8 +161,13 @@ class StockistStatement(Document):
             item.pts = pts
 
             # -------- UNIT CONVERSION (BOX ➜ STRIP) --------
-            conversion_factor = flt(self.get_conversion_factor(product.pack)) or 1
-            item.conversion_factor = conversion_factor 
+            # Backfilled statements carry already-final quantities (value = qty x rate),
+            # so pack-based conversion is skipped for them (factor 1).
+            if getattr(self, "skip_conversion", 0):
+                conversion_factor = 1
+            else:
+                conversion_factor = flt(self.get_conversion_factor(product.pack)) or 1
+            item.conversion_factor = conversion_factor
 
             opening_qty_base = flt(item.opening_qty) / conversion_factor
             purchase_qty_base = flt(item.purchase_qty) / conversion_factor
