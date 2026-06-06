@@ -917,10 +917,16 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
    - Map each header to one of the standard fields below:
      . Opening Qty: "Op.Qty", "OPSTK", "Opening", "Open.Qty", "QpnStk", "Op.Stk"
      . Purchase Qty: "Purch.Qty", "PURCH", "Receipt", "Pr.Qty", "Pur", "Recv"
-     . Sales Qty: "Sales", "Sale", "Sl", "Sold", "Sales Qty"
+     . Sales Qty (PRIMARY): "Sales", "Sale", "Sl", "Sold", "Sales Qty", "S.Qty"
+     . ADDITIONAL SALES-QUANTITY columns — extra sales channels that MUST be ADDED into Sales Qty (see Rule 2C):
+         · Branch Sales Qty: "Br.S.Qty", "Br Sales", "Branch Sales", "Branch Sales Qty", or a "Br" column that is clearly a sales quantity
+         · Hospital Sales Qty: "HOS.SALES", "Hos", "Hosp", "Hospital Sales", "Hospital Sales Qty", "Hos.Qty"
+         · Transfer Sales Qty: "Transfer Sales", "Transfer Sales Qty", "Trf Sales"
+         · Other Sales Qty: "Other Sales", "Others Sales", "Oth Sales"
      . Free Qty: "Free Qty", "Free", "Scheme Qty", "Fre"
      . Return Qty: "Return", "Ret", "Sales Ret", "SR", "Sal.Ret"
      . Misc Out: "Misc.Out", "M.Out", "Transfer", "Trans", "Adj"
+       (NOTE: a plain "Transfer"/"Trans"/"Misc.Out" stock-movement column is NOT a sales channel — it stays as Misc Out and is NOT added to Sales Qty. Only an explicit "Transfer SALES" column counts as an additional sales channel.)
      . Closing Qty: "Closing", "Cls", "Cl.Bal", "ClsStk", "Closing Qty", "Balance", "Bal"
      . Closing Value: "Closing Value", "Closing Val", "Cl.Value", "Closing Amount", "Cls.Val"
    - IMPORTANT: Distinguish QUANTITY columns (integers) from VALUE/AMOUNT columns (decimals with currency).
@@ -967,6 +973,24 @@ def call_gemini_extraction_with_catalog(file_path, stockist_code, product_catalo
         aggregated figures (e.g. the sum of every other row in that column)
     Rule of thumb: if the row is a footer/summary line rather than an individual stock-keeping unit,
     EXCLUDE it — regardless of exact wording, language, or abbreviation used.
+
+2C. COMBINED SALES QUANTITY (CRITICAL):
+    - A statement may split sales across SEVERAL quantity columns. When ANY additional sales-quantity
+      column from Rule 1 is present, "sales_qty" MUST be the SUM of the primary Sales column PLUS every
+      additional sales-quantity column present in that row:
+        sales_qty = Sales + Branch Sales (Br / Br.S.Qty) + Hospital Sales (Hos / HOS.SALES)
+                    + Transfer Sales + Other Sales
+      Example (HOS.SALES present): Sales = 4 and HOS.SALES = 120  ->  sales_qty = 124.
+      Example (Br.S.Qty present):  S.Qty = 20 and Br.S.Qty = 20   ->  sales_qty = 40.
+    - Add ONLY quantity columns. NEVER add any VALUE/AMOUNT column (e.g. "Br.S.Val", "S.Val", "P.Val",
+      hospital value, "CL.Value"). Value columns are decimals/currency — they are not sales quantities.
+      Branch/Hospital quantity and value columns usually sit side by side; pick the QUANTITY one only.
+    - Add a column ONLY if it is ACTUALLY present in this statement. If a channel column is absent, add nothing for it.
+    - Do NOT add Free/Scheme qty, Return qty, or a plain Misc.Out/Transfer (stock-movement) column into sales_qty.
+    - Do NOT double-count: each sales-quantity column is added exactly once.
+    - This rule is about COLUMNS inside a normal product row. It is DISTINCT from the special
+      "OTHERS"/"BRANCH TRANSFER" ROWS in Rule 2A — those remain separate rows handled via operational_sales_qty.
+    - The math self-check (Opening + Purchase - Sales - Free - Return - MiscOut ≈ Closing) uses this COMBINED sales_qty.
 
 3. QUANTITY EXTRACTION (CRITICAL):
    - Extract quantities for all identified columns AND closing value if present.
