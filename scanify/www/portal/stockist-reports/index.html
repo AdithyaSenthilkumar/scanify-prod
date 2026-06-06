@@ -1208,12 +1208,16 @@ function renderPrimarySales(result, thead, tbody) {
 
 // ---------- Report 2: Secondary Sales (pivot) ----------
 // Rows = products (code + pack). Columns = stockists, each split into "Before" and "After"
-// scheme-deduction sub-columns. Trailing total column (Before / After) and a grand-total row.
+// scheme-deduction sub-columns. Trailing total column (Before / After in Rs Lakhs) and a grand-total row (also lakhs).
 function renderSecondarySales(result, thead, tbody) {
     var stockists = result.stockists || [];
     var products = result.products || [];
     var colTotals = result.col_totals || {};
     var grand = result.grand || {};
+
+    var LAKH = 100000;
+    var lakhStyle = 'style="background:#eff6ff;color:#1d4ed8;font-weight:800;"';
+    var lakhHdrStyle = 'style="background:#1e3a5f;color:#fff;font-weight:800;"';
 
     // Two-row header
     var hRow1 = "<tr>"
@@ -1224,8 +1228,8 @@ function renderSecondarySales(result, thead, tbody) {
         hRow1 += "<th colspan='2' style='text-align:center;'>" + esc(s.name) + "</th>";
         hRow2 += "<th style='font-weight:600;'>Before</th><th style='font-weight:600;'>After</th>";
     });
-    hRow1 += "<th colspan='2' style='text-align:center;background:#1e293b;'>Total</th></tr>";
-    hRow2 += "<th style='background:#1e293b;color:#fff;'>Before</th><th style='background:#1e293b;color:#fff;'>After</th></tr>";
+    hRow1 += "<th colspan='2' " + lakhHdrStyle + " style='text-align:center;background:#1e3a5f;color:#fff;font-weight:800;'>Total (Rs. Lakhs)</th></tr>";
+    hRow2 += "<th " + lakhHdrStyle + ">Before</th><th " + lakhHdrStyle + ">After</th></tr>";
     thead.innerHTML = hRow1 + hRow2;
 
     if (!products.length) { tbody.innerHTML = ""; return; }
@@ -1240,21 +1244,28 @@ function renderSecondarySales(result, thead, tbody) {
             row += "<td class='text-right'>" + fmtQtyNZ(c.before) + "</td>"
                  + "<td class='text-right'>" + fmtQtyNZ(c.after) + "</td>";
         });
-        row += "<td class='text-right font-weight-bold'>" + fmtQtyNZ(p.total_before) + "</td>"
-             + "<td class='text-right font-weight-bold'>" + fmtQtyNZ(p.total_after) + "</td></tr>";
+        // Total columns — value in lakhs, bold + blue
+        var tvb = fmtNZ((p.total_val_before || 0) / LAKH);
+        var tva = fmtNZ((p.total_val_after  || 0) / LAKH);
+        row += "<td class='text-right' " + lakhStyle + ">" + tvb + "</td>"
+             + "<td class='text-right' " + lakhStyle + ">" + tva + "</td></tr>";
         html += row;
     });
 
-    // Grand-total row
-    var gtRow = "<tr class='grand-total-row'>"
-        + "<td colspan='2' class='text-right font-weight-bold'>Total</td>";
+    // Grand-total row — value in lakhs per stockist column + grand total columns
+    var gtRow = "<tr class='value-lakhs-row' style='background:#eff6ff;'>"
+        + "<td colspan='2' style='font-weight:800;color:#1d4ed8;'>Value in Lakhs</td>";
     stockists.forEach(function (s) {
         var ct = colTotals[s.code] || {};
-        gtRow += "<td class='text-right font-weight-bold'>" + fmtQtyNZ(ct.before) + "</td>"
-              +  "<td class='text-right font-weight-bold'>" + fmtQtyNZ(ct.after) + "</td>";
+        var vb = fmtNZ((ct.val_before || 0) / LAKH);
+        var va = fmtNZ((ct.val_after  || 0) / LAKH);
+        gtRow += "<td class='text-right' style='font-weight:800;color:#1d4ed8;background:#eff6ff;'>" + vb + "</td>"
+              +  "<td class='text-right' style='font-weight:800;color:#1d4ed8;background:#eff6ff;'>" + va + "</td>";
     });
-    gtRow += "<td class='text-right font-weight-bold'>" + fmtQtyNZ(grand.before) + "</td>"
-          +  "<td class='text-right font-weight-bold'>" + fmtQtyNZ(grand.after) + "</td></tr>";
+    var gvb = fmtNZ((grand.val_before || 0) / LAKH);
+    var gva = fmtNZ((grand.val_after  || 0) / LAKH);
+    gtRow += "<td class='text-right' style='font-weight:800;color:#1d4ed8;background:#eff6ff;'>" + gvb + "</td>"
+          +  "<td class='text-right' style='font-weight:800;color:#1d4ed8;background:#eff6ff;'>" + gva + "</td></tr>";
     tbody.innerHTML = html + gtRow;
 }
 
@@ -1346,22 +1357,22 @@ function renderSecMovingTrend(result, thead, tbody) {
         + th("Total") + th("Average") + th("Per Capita") + th("%") + "</tr>";
 
     (result.sections || []).forEach(function(sec) {
-        // Section header row (colspan = code + pack + target + 12 months + total + average + per capita + % = 19)
-        tbody.innerHTML += '<tr class="section-header-row"><td colspan="19" style="background:#1e293b;color:#fff;font-weight:bold;padding:6px 10px;">' + esc(sec.label) + '</td></tr>';
+        // Section header row (category title — bold, prominent)
+        tbody.innerHTML += '<tr class="section-header-row"><td colspan="19" style="background:#1e3a5f;color:#fff;font-weight:800;font-size:13px;padding:7px 10px;letter-spacing:0.3px;">' + esc(sec.label) + '</td></tr>';
 
-        // Value in Lakhs row comes FIRST in each section
+        // Value in Lakhs row comes FIRST in each section — bold + blue
         var vl = sec.value_in_lakhs || {};
         var vlMonths = vl.months || [];
-        var vlCells = '<td colspan="2" style="font-weight:bold;">Value in Lakhs</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vl.target) + '</td>';
+        var vlCells = '<td colspan="2" style="font-weight:800;color:#1d4ed8;">Value in Lakhs</td>';
+        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vl.target) + '</td>';
         for (var mi = 0; mi < 12; mi++) {
-            vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vlMonths[mi]) + '</td>';
+            vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vlMonths[mi]) + '</td>';
         }
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vl.total) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vl.average) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vl.per_capita) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:bold;">' + fmtNZ(vl.pct) + '</td>';
-        tbody.innerHTML += '<tr class="value-lakhs-row" style="background:#f1f5f9;">' + vlCells + '</tr>';
+        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vl.total) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vl.average) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vl.per_capita) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vl.pct) + '</td>';
+        tbody.innerHTML += '<tr class="value-lakhs-row" style="background:#eff6ff;">' + vlCells + '</tr>';
 
         (sec.products || []).forEach(function(p) {
             var cells = td(p.code) + td(p.pack);
@@ -1544,12 +1555,12 @@ function renderSecVsClosing(result, thead, tbody) {
             html += row;
         });
 
-        // Region total row — bold, red — matches the screenshot
-        var rt = "<tr class='region-total-row' style='background:#fff2f2;'>"
-               + "<td style='font-weight:700;color:#c00000;'>" + esc(reg.region_name) + " Region Total</td>";
-        (reg.totals && reg.totals.monthly || []).forEach(function(m) {
-            rt += "<td class='text-right' style='font-weight:700;color:#c00000;'>" + fmtNZ(m.sec_val) + "</td>"
-               +  "<td class='text-right' style='font-weight:700;color:#c00000;'>" + fmtNZ(m.cls_val) + "</td>";
+        // Region total row — bold + red
+        var rt = "<tr class='region-total-row' style='background:#fde8e8;border-top:2px solid #dc2626;border-bottom:2px solid #dc2626;'>"
+               + "<td style='font-weight:800;color:#dc2626;font-size:12px;'>" + esc(reg.region_name) + " Region Total</td>";
+        ((reg.totals && reg.totals.monthly) || []).forEach(function(m) {
+            rt += "<td class='text-right' style='font-weight:800;color:#dc2626;'>" + fmtNZ(m.sec_val) + "</td>"
+               +  "<td class='text-right' style='font-weight:800;color:#dc2626;'>" + fmtNZ(m.cls_val) + "</td>";
         });
         rt += "</tr>";
         html += rt;
@@ -1587,8 +1598,9 @@ function downloadExcel() {
 // Download PDF (client-side jsPDF) – Consolidated with Summary & Charts
 // ─────────────────────────────────────────────────────────────
 
-// Helper: render a Chart.js chart off-screen and return a data URL
-function renderChartToImage(chartConfig, width, height) {
+// Helper: render a Chart.js chart off-screen and return a data URL.
+// useJpeg=true encodes as JPEG (much smaller than PNG for chart fills/gradients).
+function renderChartToImage(chartConfig, width, height, useJpeg) {
     return new Promise(function(resolve) {
         var cvs = document.createElement("canvas");
         cvs.width = width || 800;
@@ -1596,11 +1608,14 @@ function renderChartToImage(chartConfig, width, height) {
         cvs.style.position = "fixed";
         cvs.style.left = "-9999px";
         document.body.appendChild(cvs);
+        // White background needed for JPEG (no alpha channel)
         var ctx = cvs.getContext("2d");
+        if (useJpeg) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, cvs.width, cvs.height); }
         var chart = new Chart(ctx, chartConfig);
-        // Give chart a moment to render
         setTimeout(function() {
-            var img = cvs.toDataURL("image/png", 1.0);
+            var fmt = useJpeg ? "image/jpeg" : "image/png";
+            var quality = useJpeg ? 0.72 : 1.0;
+            var img = cvs.toDataURL(fmt, quality);
             chart.destroy();
             document.body.removeChild(cvs);
             resolve(img);
@@ -1686,17 +1701,19 @@ function buildSecondarySummary(result) {
     var products = result.products || [];
     var colTotals = result.col_totals || {};
     return stockists.map(function (s) {
-        var ct = colTotals[s.code] || { before: 0, after: 0 };
+        var ct = colTotals[s.code] || { before: 0, after: 0, val_before: 0, val_after: 0 };
         return {
             code: s.code,
             name: s.name,
             totalBefore: Number(ct.before) || 0,
             totalAfter: Number(ct.after) || 0,
+            totalValBefore: Number(ct.val_before) || 0,
+            totalValAfter: Number(ct.val_after) || 0,
             products: products.reduce(function (n, p) {
                 return n + (((p.cells || {})[s.code] || {}).after ? 1 : 0);
             }, 0),
         };
-    }).sort(function (a, b) { return b.totalAfter - a.totalAfter; });
+    }).sort(function (a, b) { return b.totalValAfter - a.totalValAfter; });
 }
 
 // Build summary for Report 5 (HQ Wise)
@@ -1769,7 +1786,9 @@ function buildAddressSummary(result) {
 async function downloadPDF() {
     if (!currentReportData) return;
     var { jsPDF } = window.jspdf;
-    var doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    // compress:true enables zlib deflate on the PDF content streams — biggest single
+    // size reduction for text-heavy reports; essentially free, no quality loss.
+    var doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
     var data = currentReportData;
     var startY;
 
@@ -1829,20 +1848,23 @@ async function downloadPDF() {
             halign: "center",
         },
         didParseCell: function(d) {
-            if (d.section === "body" && dBody[d.row]) {
-                var r = dBody[d.row];
+            if (d.section === "body" && dBody[d.row.index]) {
+                var r = dBody[d.row.index];
                 if (r.isGrandTotal) {
                     d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
                 } else if (r.isSectionHeader) {
-                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                    // Category title rows (Main Products, Hospital, etc.) — bold, prominent dark-blue
+                    d.cell.styles.fillColor = [30, 58, 95]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
                 } else if (r.isGroup) {
                     d.cell.styles.fillColor = [232, 237, 243]; d.cell.styles.fontStyle = "bold";
                 } else if (r.isSubtotal) {
                     d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = "bold";
                 } else if (r.isValueLakhs) {
-                    d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = "bold";
+                    // Value in Lakhs row — bold + blue (matches HTML: #eff6ff bg, #1d4ed8 text)
+                    d.cell.styles.fillColor = [239, 246, 255]; d.cell.styles.textColor = [29, 78, 216]; d.cell.styles.fontStyle = "bold";
                 } else if (r.isRegionTotal) {
-                    d.cell.styles.fillColor = [255, 242, 242]; d.cell.styles.textColor = [192, 0, 0]; d.cell.styles.fontStyle = "bold";
+                    // Report 11 region total — bold + vivid red (matches HTML: #fde8e8 bg, #dc2626 text)
+                    d.cell.styles.fillColor = [253, 232, 232]; d.cell.styles.textColor = [220, 38, 38]; d.cell.styles.fontStyle = "bold";
                 }
             }
         },
@@ -1897,7 +1919,7 @@ async function downloadPDF() {
             styles: { fontSize: 7, cellPadding: 1.5, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
-                if (d.section === "body" && d.row === summaryBody.length - 1) {
+                if (d.section === "body" && d.row.index === summaryBody.length - 1) {
                     d.cell.styles.fillColor = [30, 41, 59];
                     d.cell.styles.textColor = [255, 255, 255];
                     d.cell.styles.fontStyle = "bold";
@@ -1944,46 +1966,52 @@ async function downloadPDF() {
         doc.addImage(pieImg, "PNG", 190, startY, 95, 63);
 
     } else if (currentReportType === "secondary_sales") {
-        // Report 2: pivot shape. Summary by stockist (totals before/after).
+        // Report 2: pivot shape. Summary by stockist — value in lakhs.
         var ssSummary = buildSecondarySummary(data);
-        var grandBefore = (data.grand && data.grand.before) || 0;
-        var grandAfter = (data.grand && data.grand.after) || 0;
+        var grandValBefore = (data.grand && data.grand.val_before) || 0;
+        var grandValAfter  = (data.grand && data.grand.val_after)  || 0;
+        var LAKH_SS = 100000;
 
-        doc.setFillColor(241, 245, 249);
+        doc.setFillColor(239, 246, 255);
         doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
         doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
-        doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
-        doc.roundedRect(218, startY, 62, 18, 3, 3, "F");
-        doc.setFontSize(8); doc.setTextColor(100);
+        doc.roundedRect(150, startY, 82, 18, 3, 3, "F");
+        doc.roundedRect(238, startY, 50, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(29, 78, 216);
         doc.text("Total Stockists", 18, startY + 6);
         doc.text("Total Products", 86, startY + 6);
-        doc.text("Total Qty (Before)", 154, startY + 6);
-        doc.text("Total Qty (After)", 222, startY + 6);
-        doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+        doc.text("Value Before Ded. (Rs. Lakhs)", 154, startY + 6);
+        doc.text("Value After Ded. (Rs. Lakhs)", 242, startY + 6);
+        doc.setFontSize(14); doc.setTextColor(29, 78, 216);
         doc.text(String(ssSummary.length), 18, startY + 14);
         doc.text(String((data.products || []).length), 86, startY + 14);
-        doc.text(fmtQty(grandBefore), 154, startY + 14);
-        doc.text(fmtQty(grandAfter), 222, startY + 14);
+        doc.text((grandValBefore / LAKH_SS).toFixed(2), 154, startY + 14);
+        doc.text((grandValAfter  / LAKH_SS).toFixed(2), 242, startY + 14);
         doc.setTextColor(0);
 
         doc.setFontSize(10);
-        doc.text("Stockist-wise Quantity Summary (Before / After Scheme Deduction)", 14, startY + 26);
+        doc.text("Stockist-wise Value Summary (Rs. Lakhs — Before / After Scheme Deduction)", 14, startY + 26);
 
-        var ssHead = [["#", "Stockist", "Products", "Qty Before", "Qty After", "Scheme Deducted", "% Share (After)"]];
+        var ssHead = [["#", "Stockist", "Products", "Value Before (Lakhs)", "Value After (Lakhs)", "Scheme Ded. (Lakhs)", "% Share (After)"]];
         var ssBody = ssSummary.map(function(s, i) {
-            var deducted = (Number(s.totalBefore) || 0) - (Number(s.totalAfter) || 0);
-            var share = grandAfter > 0 ? ((s.totalAfter / grandAfter) * 100).toFixed(1) + "%" : "0%";
-            return [i + 1, s.name, s.products, fmtQty(s.totalBefore), fmtQty(s.totalAfter), fmtQty(deducted), share];
+            var vb = s.totalValBefore / LAKH_SS;
+            var va = s.totalValAfter  / LAKH_SS;
+            var share = grandValAfter > 0 ? ((s.totalValAfter / grandValAfter) * 100).toFixed(1) + "%" : "0%";
+            return [i + 1, s.name, s.products, vb.toFixed(2), va.toFixed(2), (vb - va).toFixed(2), share];
         });
-        ssBody.push(["", "GRAND TOTAL", "", fmtQty(grandBefore), fmtQty(grandAfter), fmtQty(grandBefore - grandAfter), "100%"]);
+        ssBody.push(["", "GRAND TOTAL", "",
+            (grandValBefore / LAKH_SS).toFixed(2),
+            (grandValAfter  / LAKH_SS).toFixed(2),
+            ((grandValBefore - grandValAfter) / LAKH_SS).toFixed(2),
+            "100%"]);
 
         doc.autoTable({
             head: ssHead, body: ssBody, startY: startY + 30,
             styles: { fontSize: 7, cellPadding: 1.5, lineColor: [120, 120, 120], lineWidth: 0.15 },
-            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            headStyles: { fillColor: [30, 58, 95], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
-                if (d.section === "body" && d.row === ssBody.length - 1) {
-                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
+                if (d.section === "body" && d.row.index === ssBody.length - 1) {
+                    d.cell.styles.fillColor = [239, 246, 255]; d.cell.styles.textColor = [29, 78, 216]; d.cell.styles.fontStyle = "bold";
                 }
             },
             margin: { left: 14, right: 14 },
@@ -1999,13 +2027,13 @@ async function downloadPDF() {
             data: {
                 labels: ssTop10.map(function(s) { return s.name.length > 18 ? s.name.substring(0, 18) + "…" : s.name; }),
                 datasets: [
-                    { label: "Before Deduction", data: ssTop10.map(function(s) { return s.totalBefore; }), backgroundColor: "#3b82f6" },
-                    { label: "After Deduction", data: ssTop10.map(function(s) { return s.totalAfter; }), backgroundColor: "#10b981" }
+                    { label: "Before Deduction (Lakhs)", data: ssTop10.map(function(s) { return (s.totalValBefore / LAKH_SS).toFixed(2); }), backgroundColor: "#3b82f6" },
+                    { label: "After Deduction (Lakhs)",  data: ssTop10.map(function(s) { return (s.totalValAfter  / LAKH_SS).toFixed(2); }), backgroundColor: "#1d4ed8" }
                 ]
             },
             options: { indexAxis: "y", responsive: false, animation: false,
-                plugins: { title: { display: true, text: "Top 10 Stockists - Quantity (Before vs After Scheme)", font: { size: 16 } }, legend: { position: "top" } },
-                scales: { x: { beginAtZero: true } }
+                plugins: { title: { display: true, text: "Top 10 Stockists - Value in Lakhs (Before vs After Scheme)", font: { size: 16 } }, legend: { position: "top" } },
+                scales: { x: { beginAtZero: true, title: { display: true, text: "Rs. Lakhs" } } }
             }
         }, 900, 450);
         doc.addImage(ssBarImg, "PNG", 14, startY, 170, 85);
@@ -2016,13 +2044,13 @@ async function downloadPDF() {
                 labels: ssTop10.slice(0, 5).map(function(s) { return s.name.length > 20 ? s.name.substring(0, 20) + "…" : s.name; })
                     .concat(ssSummary.length > 5 ? ["Others"] : []),
                 datasets: [{
-                    data: ssTop10.slice(0, 5).map(function(s) { return s.totalAfter; })
-                        .concat(ssSummary.length > 5 ? [ssSummary.slice(5).reduce(function(n, s) { return n + s.totalAfter; }, 0)] : []),
+                    data: ssTop10.slice(0, 5).map(function(s) { return (s.totalValAfter / LAKH_SS).toFixed(2); })
+                        .concat(ssSummary.length > 5 ? [(ssSummary.slice(5).reduce(function(n, s) { return n + s.totalValAfter; }, 0) / LAKH_SS).toFixed(2)] : []),
                     backgroundColor: ["#4f46e5", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#94a3b8"]
                 }]
             },
             options: { responsive: false, animation: false,
-                plugins: { title: { display: true, text: "Stockist Distribution - After Deduction", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
+                plugins: { title: { display: true, text: "Stockist Value Distribution - After Deduction (Rs. Lakhs)", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
         }, 600, 400);
         doc.addImage(ssPieImg, "PNG", 190, startY, 95, 63);
 
@@ -2039,7 +2067,7 @@ async function downloadPDF() {
             styles: { fontSize: 8, cellPadding: 1.5, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
-                if (d.section === "body" && d.row === hqBody.length - 1) {
+                if (d.section === "body" && d.row.index === hqBody.length - 1) {
                     d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
                 }
             },
@@ -2091,7 +2119,7 @@ async function downloadPDF() {
             styles: { fontSize: 8, cellPadding: 2, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
-                if (d.section === "body" && d.row === tBody.length - 1) {
+                if (d.section === "body" && d.row.index === tBody.length - 1) {
                     d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
                 }
             },
@@ -2166,7 +2194,7 @@ async function downloadPDF() {
             styles: { fontSize: 6, cellPadding: 1.2 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
-                if (d.section === "body" && d.row === mtBody.length - 1) {
+                if (d.section === "body" && d.row.index === mtBody.length - 1) {
                     d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
                 }
             },
@@ -2246,7 +2274,7 @@ async function downloadPDF() {
             styles: { fontSize: 7, cellPadding: 1.5, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
-                if (d.section === "body" && d.row === csBody.length - 1) {
+                if (d.section === "body" && d.row.index === csBody.length - 1) {
                     d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
                 }
             },
@@ -2316,7 +2344,7 @@ async function downloadPDF() {
             styles: { fontSize: 8, cellPadding: 2 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
-                if (d.section === "body" && d.row === addrBody.length - 1) {
+                if (d.section === "body" && d.row.index === addrBody.length - 1) {
                     d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
                 }
             },
@@ -2397,7 +2425,7 @@ async function downloadPDF() {
             styles: { fontSize: 6.5, cellPadding: 1.2, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
-                if (d.section === "body" && d.row === tBody.length - 1) {
+                if (d.section === "body" && d.row.index === tBody.length - 1) {
                     d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
                 }
             },
@@ -2490,7 +2518,7 @@ async function downloadPDF() {
             styles: { fontSize: 8, cellPadding: 2, lineColor: [120, 120, 120], lineWidth: 0.15 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
             didParseCell: function(d) {
-                if (d.section === "body" && d.row === psBody.length - 1) {
+                if (d.section === "body" && d.row.index === psBody.length - 1) {
                     d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
                 }
             },

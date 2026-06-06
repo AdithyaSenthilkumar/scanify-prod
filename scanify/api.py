@@ -6527,6 +6527,9 @@ def get_statement_summary(doc_name):
     """Get full metadata summary for a stockist statement"""
     try:
         doc = frappe.get_doc("Stockist Statement", doc_name)
+        # Resolve human-readable names for HQ and Region codes
+        hq_name = frappe.db.get_value("HQ Master", doc.hq, "hq_name") if doc.hq else doc.hq or ""
+        region_name = frappe.db.get_value("Region Master", doc.region, "region_name") if doc.region else doc.region or ""
         return {
             "success": True,
             "name": doc.name,
@@ -6534,8 +6537,10 @@ def get_statement_summary(doc_name):
             "stockist_name": doc.stockist_name,
             "statement_month": str(doc.statement_month) if doc.statement_month else None,
             "hq": doc.hq,
+            "hq_name": hq_name,
             "team": doc.team,
             "region": doc.region,
+            "region_name": region_name,
             "zone": doc.zone,
             "division": doc.division,
             "docstatus": doc.docstatus,
@@ -6625,6 +6630,123 @@ def get_stockists_by_region(region, division=None):
         s["hq_name"] = hq_names.get(s.hq, s.hq or "")
 
     return stockists
+
+
+@frappe.whitelist()
+def get_bulk_delete_preview(division=None, region=None, team=None, hq=None,
+                             stockist_code=None, from_month=None, to_month=None):
+    """Return a preview list of statements matching the bulk-delete filters."""
+    if not division:
+        division = get_user_division()
+
+    conditions = ["ss.division IN (%(division)s, 'Both')"]
+    params = {"division": division}
+
+    if region:
+        conditions.append("ss.region = %(region)s")
+        params["region"] = region
+    if team:
+        conditions.append("ss.team = %(team)s")
+        params["team"] = team
+    if hq:
+        conditions.append("ss.hq = %(hq)s")
+        params["hq"] = hq
+    if stockist_code:
+        conditions.append("ss.stockist_code = %(stockist_code)s")
+        params["stockist_code"] = stockist_code
+    if from_month:
+        if len(from_month) == 7:
+            from_month = from_month + "-01"
+        conditions.append("ss.statement_month >= %(from_month)s")
+        params["from_month"] = from_month
+    if to_month:
+        if len(to_month) == 7:
+            import calendar as _cal
+            y, m = int(to_month[:4]), int(to_month[5:7])
+            last_day = _cal.monthrange(y, m)[1]
+            to_month = f"{to_month}-{last_day:02d}"
+        conditions.append("ss.statement_month <= %(to_month)s")
+        params["to_month"] = to_month
+
+    where = " AND ".join(conditions)
+    rows = frappe.db.sql(f"""
+        SELECT ss.name, ss.stockist_name, ss.stockist_code,
+               ss.statement_month, ss.hq, ss.region, ss.docstatus
+          FROM `tabStockist Statement` ss
+         WHERE {where}
+         ORDER BY ss.statement_month DESC, ss.stockist_name ASC
+         LIMIT 500
+    """, params, as_dict=True)
+
+    # Enrich with human-readable names
+    hq_cache, region_cache = {}, {}
+    for r in rows:
+        if r.hq and r.hq not in hq_cache:
+            hq_cache[r.hq] = frappe.db.get_value("HQ Master", r.hq, "hq_name") or r.hq
+        if r.region and r.region not in region_cache:
+            region_cache[r.region] = frappe.db.get_value("Region Master", r.region, "region_name") or r.region
+        r["hq_name"] = hq_cache.get(r.hq, r.hq or "")
+        r["region_name"] = region_cache.get(r.region, r.region or "")
+        r["month_display"] = str(r.statement_month)[:7] if r.statement_month else ""
+
+    return {"success": True, "statements": rows, "count": len(rows)}
+
+
+@frappe.whitelist()
+def bulk_delete_stockist_statements(doc_names, reason, division=None):
+    """Delete multiple stockist statements with a mandatory reason logged to audit trail."""
+    import json as _json
+    if not division:
+        division = get_user_division()
+
+    reason = (reason or "").strip()
+    if not reason or len(reason) < 5:
+        return {"success": False, "message": "A reason of at least 5 characters is required."}
+
+    if isinstance(doc_names, str):
+        try:
+            doc_names = _json.loads(doc_names)
+        except Exception:
+            doc_names = [d.strip() for d in doc_names.split(",") if d.strip()]
+
+    if not doc_names:
+        return {"success": False, "message": "No statements provided for deletion."}
+
+    deleted, errors = [], []
+    for doc_name in doc_names:
+        try:
+            if not frappe.db.exists("Stockist Statement", doc_name):
+                errors.append(f"{doc_name}: not found")
+                continue
+            doc = frappe.get_doc("Stockist Statement", doc_name)
+            summary = (
+                f"Stockist: {doc.stockist_name} ({doc.stockist_code}), "
+                f"Month: {doc.statement_month}, HQ: {doc.hq}"
+            )
+            frappe.get_doc({
+                "doctype": "Comment",
+                "comment_type": "Info",
+                "reference_doctype": "Stockist Statement",
+                "reference_name": doc_name,
+                "content": (
+                    f"<b>Statement Deleted (Bulk)</b><br>"
+                    f"Reason: {frappe.utils.escape_html(reason)}<br>{summary}"
+                ),
+                "comment_email": frappe.session.user,
+            }).insert(ignore_permissions=True)
+            if doc.docstatus == 1:
+                doc.flags.ignore_permissions = True
+                doc.cancel()
+            frappe.delete_doc("Stockist Statement", doc_name, ignore_permissions=True, force=True)
+            deleted.append(doc_name)
+        except Exception as e:
+            errors.append(f"{doc_name}: {str(e)}")
+
+    frappe.db.commit()
+    msg = f"{len(deleted)} statement(s) deleted."
+    if errors:
+        msg += f" {len(errors)} error(s): " + "; ".join(errors[:3])
+    return {"success": True, "deleted": deleted, "errors": errors, "message": msg}
 
 
 # ===================== DUPLICATE STATEMENT CHECK =====================
@@ -7419,7 +7541,9 @@ def get_stockist_secondary_sales_report(division=None, region=None,
         SELECT ss.stockist_code, ss.stockist_name,
                si.product_code, si.product_name, si.pack,
                SUM((si.sales_qty + si.free_qty) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty_before,
-               SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty_after
+               SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty_after,
+               SUM(((si.sales_qty + si.free_qty) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0)) AS val_before,
+               SUM(((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * IFNULL(si.pts, 0)) AS val_after
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -7443,15 +7567,21 @@ def get_stockist_secondary_sales_report(division=None, region=None,
                 "cells": {},
                 "total_before": 0.0,
                 "total_after": 0.0,
+                "total_val_before": 0.0,
+                "total_val_after": 0.0,
             }
         if r.stockist_code and r.product_code:
             cell = products[r.product_code]["cells"].setdefault(
-                r.stockist_code, {"before": 0.0, "after": 0.0}
+                r.stockist_code, {"before": 0.0, "after": 0.0, "val_before": 0.0, "val_after": 0.0}
             )
             cell["before"] += flt(r.qty_before)
             cell["after"] += flt(r.qty_after)
+            cell["val_before"] += flt(r.val_before)
+            cell["val_after"] += flt(r.val_after)
             products[r.product_code]["total_before"] += flt(r.qty_before)
             products[r.product_code]["total_after"] += flt(r.qty_after)
+            products[r.product_code]["total_val_before"] += flt(r.val_before)
+            products[r.product_code]["total_val_after"] += flt(r.val_after)
 
     seq_map = {r[0]: (r[1] if r[1] is not None else 9999) for r in frappe.db.sql(
         "SELECT product_code, COALESCE(sequence, 9999) FROM `tabProduct Master` WHERE division=%s AND status='Active'",
@@ -7465,23 +7595,32 @@ def get_stockist_secondary_sales_report(division=None, region=None,
     )
 
     # Per-stockist column totals + grand totals
-    col_totals = {s["code"]: {"before": 0.0, "after": 0.0} for s in stockist_list}
+    col_totals = {s["code"]: {"before": 0.0, "after": 0.0, "val_before": 0.0, "val_after": 0.0} for s in stockist_list}
     grand_before = 0.0
     grand_after = 0.0
+    grand_val_before = 0.0
+    grand_val_after = 0.0
     for p in product_list:
         for sc, vals in p["cells"].items():
             if sc in col_totals:
                 col_totals[sc]["before"] += vals["before"]
                 col_totals[sc]["after"] += vals["after"]
+                col_totals[sc]["val_before"] += vals.get("val_before", 0.0)
+                col_totals[sc]["val_after"] += vals.get("val_after", 0.0)
         grand_before += p["total_before"]
         grand_after += p["total_after"]
+        grand_val_before += p["total_val_before"]
+        grand_val_after += p["total_val_after"]
 
     return {
         "success": True,
         "stockists": stockist_list,
         "products": product_list,
         "col_totals": col_totals,
-        "grand": {"before": grand_before, "after": grand_after},
+        "grand": {
+            "before": grand_before, "after": grand_after,
+            "val_before": grand_val_before, "val_after": grand_val_after,
+        },
         "from_date": from_date,
         "to_date": to_date,
     }
@@ -8151,7 +8290,24 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         row = write_title_rows(ws, f"Stockist Wise Secondary Sales Report – {division}",
                                f"Region: {region_label}  |  Period: {period_label}")
 
-        # Two-row header: Row 1 = "Product | Pack | <Stockist1 spans 2> ... | Total spans 2"
+        # Styles for bold+blue "value in lakhs" columns/row
+        lakh_header_font  = Font(bold=True, size=11, color="FFFFFF")
+        lakh_header_fill  = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+        lakh_cell_font    = Font(bold=True, size=11, color="1D4ED8")
+        lakh_cell_fill    = PatternFill(start_color="EFF6FF", end_color="EFF6FF", fill_type="solid")
+        lakh_cell_align   = Alignment(horizontal="right")
+
+        def write_lakh_header(ws, r, c, value):
+            cell = ws.cell(row=r, column=c, value=value)
+            cell.font = lakh_header_font; cell.fill = lakh_header_fill
+            cell.alignment = header_align; cell.border = thin_border
+
+        def write_lakh_cell(ws, r, c, value):
+            cell = ws.cell(row=r, column=c, value=value)
+            cell.font = lakh_cell_font; cell.fill = lakh_cell_fill
+            cell.alignment = lakh_cell_align; cell.border = thin_border
+
+        # Two-row header: Row 1 = "Product | Pack | <Stockist1 spans 2> ... | Total (₹ Lakhs) spans 2"
         # Row 2 = "Before | After" sub-columns repeated under each stockist
         hdr_row1 = row
         hdr_row2 = row + 1
@@ -8186,27 +8342,20 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
             ws.cell(row=hdr_row2, column=col_cursor + 1).border = thin_border
             col_cursor += 2
 
-        # Total column (Before / After)
-        cell = ws.cell(row=hdr_row1, column=col_cursor, value="Total")
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = header_align
-        cell.border = thin_border
+        # Total column header — bold blue to mark as "value in lakhs" columns
+        write_lakh_header(ws, hdr_row1, col_cursor, "Total (Rs. Lakhs)")
         ws.merge_cells(start_row=hdr_row1, start_column=col_cursor,
                        end_row=hdr_row1, end_column=col_cursor + 1)
-        ws.cell(row=hdr_row2, column=col_cursor, value="Before").font = header_font
-        ws.cell(row=hdr_row2, column=col_cursor).fill = header_fill
-        ws.cell(row=hdr_row2, column=col_cursor).alignment = header_align
-        ws.cell(row=hdr_row2, column=col_cursor).border = thin_border
-        ws.cell(row=hdr_row2, column=col_cursor + 1, value="After").font = header_font
-        ws.cell(row=hdr_row2, column=col_cursor + 1).fill = header_fill
-        ws.cell(row=hdr_row2, column=col_cursor + 1).alignment = header_align
-        ws.cell(row=hdr_row2, column=col_cursor + 1).border = thin_border
+        write_lakh_header(ws, hdr_row2, col_cursor,     "Before")
+        write_lakh_header(ws, hdr_row2, col_cursor + 1, "After")
 
+        total_col_start = col_cursor  # remember for per-product rows
         row = hdr_row2 + 1
 
         def _z(v):
             return v if v else None
+
+        LAKH = 100000.0
 
         for p in product_list:
             vals = [p["code"], p["pack"]]
@@ -8214,24 +8363,32 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                 cell_val = (p["cells"] or {}).get(s["code"], {"before": 0, "after": 0})
                 vals.append(_z(round(flt(cell_val.get("before")), 2)))
                 vals.append(_z(round(flt(cell_val.get("after")), 2)))
-            vals.append(_z(round(flt(p["total_before"]), 2)))
-            vals.append(_z(round(flt(p["total_after"]), 2)))
             write_data_row(ws, row, vals)
+            # Total columns in lakhs — bold + blue
+            vb = round(flt(p.get("total_val_before", 0)) / LAKH, 2)
+            va = round(flt(p.get("total_val_after",  0)) / LAKH, 2)
+            write_lakh_cell(ws, row, total_col_start,     _z(vb))
+            write_lakh_cell(ws, row, total_col_start + 1, _z(va))
             row += 1
 
-        # Grand total row
-        tot_vals = ["TOTAL", ""]
-        for s in stockist_list:
-            ct = col_totals.get(s["code"], {"before": 0, "after": 0})
-            tot_vals.append(_z(round(flt(ct.get("before")), 2)))
-            tot_vals.append(_z(round(flt(ct.get("after")), 2)))
-        tot_vals.append(_z(round(flt(grand.get("before", 0)), 2)))
-        tot_vals.append(_z(round(flt(grand.get("after", 0)), 2)))
-        for c, v in enumerate(tot_vals, 1):
+        # Grand total row — value in lakhs per stockist + grand total columns
+        # First two cells label
+        for c, v in enumerate(["Value in Lakhs", ""], 1):
             cell = ws.cell(row=row, column=c, value=v)
-            cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+            cell.font = lakh_cell_font; cell.fill = lakh_cell_fill
             cell.border = thin_border
+        c_cur = 3
+        for s in stockist_list:
+            ct = col_totals.get(s["code"], {})
+            vb = round(flt(ct.get("val_before", 0)) / LAKH, 2)
+            va = round(flt(ct.get("val_after",  0)) / LAKH, 2)
+            write_lakh_cell(ws, row, c_cur,     _z(vb))
+            write_lakh_cell(ws, row, c_cur + 1, _z(va))
+            c_cur += 2
+        gvb = round(flt(grand.get("val_before", 0)) / LAKH, 2)
+        gva = round(flt(grand.get("val_after",  0)) / LAKH, 2)
+        write_lakh_cell(ws, row, c_cur,     _z(gvb))
+        write_lakh_cell(ws, row, c_cur + 1, _z(gva))
         row += 1
 
     elif report_type == "moving_trend":

@@ -104,6 +104,157 @@
     </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════
+     BULK DELETE SECTION
+═══════════════════════════════════════════════════════════════ -->
+<div class="card mb-4" id="bulkDeleteToggleCard">
+    <div class="card-body py-3 d-flex align-items-center justify-content-between">
+        <div>
+            <strong><i class="fa fa-layer-group mr-1 text-danger"></i> Bulk Delete Statements</strong>
+            <small class="text-muted ml-2">Delete multiple statements at once using filters</small>
+        </div>
+        <button class="btn btn-outline-danger btn-sm" id="toggleBulkBtn" onclick="toggleBulkDelete()">
+            <i class="fa fa-chevron-down mr-1"></i> Open Bulk Delete
+        </button>
+    </div>
+</div>
+
+<div id="bulkDeleteSection" style="display:none;">
+    <!-- Filters Card -->
+    <div class="card mb-3">
+        <div class="card-header"><i class="fa fa-filter mr-1"></i> Filter Statements to Delete</div>
+        <div class="card-body">
+            <div class="row">
+                <!-- Region -->
+                <div class="col-md-3 mb-3">
+                    <label class="bulk-filter-label">Region</label>
+                    <select class="form-control form-control-sm" id="bd-region" onchange="onBDRegionChange()">
+                        <option value="">All Regions</option>
+                        {% for r in regions %}
+                        <option value="{{ r.code }}" data-zone="{{ r.zone }}">{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <!-- Team (cascades) -->
+                <div class="col-md-3 mb-3">
+                    <label class="bulk-filter-label">Team</label>
+                    <select class="form-control form-control-sm" id="bd-team" onchange="onBDTeamChange()">
+                        <option value="">All Teams</option>
+                        {% for t in teams %}
+                        <option value="{{ t.code }}" data-region="{{ t.region }}">{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <!-- HQ (cascades) -->
+                <div class="col-md-3 mb-3">
+                    <label class="bulk-filter-label">HQ</label>
+                    <select class="form-control form-control-sm" id="bd-hq" onchange="onBDHQChange()">
+                        <option value="">All HQs</option>
+                        {% for h in hqs %}
+                        <option value="{{ h.code }}" data-region="{{ h.region }}" data-team="{{ h.team }}">{{ h.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <!-- Stockist (cascades from HQ) -->
+                <div class="col-md-3 mb-3">
+                    <label class="bulk-filter-label">Stockist</label>
+                    <select class="form-control form-control-sm" id="bd-stockist">
+                        <option value="">All Stockists</option>
+                        {% for s in stockists %}
+                        <option value="{{ s.code }}">{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <!-- From Month -->
+                <div class="col-md-3 mb-3">
+                    <label class="bulk-filter-label">From Month</label>
+                    <input type="month" class="form-control form-control-sm" id="bd-from-month">
+                </div>
+                <!-- To Month -->
+                <div class="col-md-3 mb-3">
+                    <label class="bulk-filter-label">To Month</label>
+                    <input type="month" class="form-control form-control-sm" id="bd-to-month">
+                </div>
+                <div class="col-md-6 mb-3 d-flex align-items-end">
+                    <button class="btn btn-primary btn-sm mr-2" onclick="previewBulkDelete()">
+                        <i class="fa fa-search mr-1"></i> Preview Statements
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="clearBulkFilters()">
+                        <i class="fa fa-times mr-1"></i> Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Results Card -->
+    <div class="card mb-3" id="bulkPreviewCard" style="display:none;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="fa fa-list mr-1"></i> Statements to be Deleted (<span id="bulkPreviewCount">0</span>)</span>
+            <span class="badge badge-danger" id="bulkPreviewBadge">0 selected</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive" style="max-height:360px;overflow-y:auto;">
+                <table class="table table-sm table-bordered mb-0" id="bulkPreviewTable">
+                    <thead style="position:sticky;top:0;z-index:2;">
+                        <tr style="background:#1e293b;color:#fff;">
+                            <th style="width:36px;">
+                                <input type="checkbox" id="bdSelectAll" title="Select / Deselect all" onchange="toggleSelectAll(this)">
+                            </th>
+                            <th>Statement</th>
+                            <th>Stockist</th>
+                            <th>HQ</th>
+                            <th>Region</th>
+                            <th>Month</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bulkPreviewBody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <small class="text-muted">Check the statements you want to delete, then click Delete Selected.</small>
+            <button class="btn btn-danger btn-sm" id="btnBulkDelete" onclick="openBulkDeleteModal()" disabled>
+                <i class="fa fa-trash-alt mr-1"></i> Delete Selected
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Delete Confirmation Modal -->
+<div class="modal fade" id="bulkDeleteModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fa fa-exclamation-triangle mr-1"></i> Confirm Bulk Deletion</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger mb-3">
+                    <strong><i class="fa fa-exclamation-circle mr-1"></i> Warning:</strong>
+                    You are about to permanently delete <strong id="bulkDeleteCountLabel">0</strong> statement(s).
+                    <br><strong>This action cannot be undone.</strong>
+                </div>
+                <div class="mb-3" id="bulkDeleteSummaryList" style="max-height:200px;overflow-y:auto;font-size:12px;background:#f8f9fa;border-radius:6px;padding:10px;">
+                </div>
+                <div class="form-group mb-0">
+                    <label><strong>Reason for Deletion <span class="text-danger">*</span></strong></label>
+                    <textarea id="bulkDeleteReason" class="form-control" rows="3"
+                        placeholder="Please provide a reason for deleting these statements..."></textarea>
+                    <small class="text-muted">This will be logged in the audit trail for each deleted statement.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmBulkDeleteBtn" onclick="confirmBulkDelete()">
+                    <i class="fa fa-trash-alt mr-1"></i> Delete Permanently
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Delete Confirmation Modal -->
 <div class="modal fade" id="deleteModal" tabindex="-1">
     <div class="modal-dialog">
@@ -164,6 +315,19 @@
     .stmt-search-dropdown .search-result-item:last-child {
         border-bottom: none;
     }
+    .bulk-filter-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: #64748b;
+        letter-spacing: 0.4px;
+        margin-bottom: 4px;
+        display: block;
+    }
+    #bulkPreviewTable th { font-size: 11px; padding: 7px 8px; }
+    #bulkPreviewTable td { font-size: 12px; padding: 5px 8px; vertical-align: middle; }
+    #bulkPreviewTable tbody tr.selected-row { background: #fef2f2; }
+    #bulkDeleteSection .card-header { background: #fff5f5; color: #b91c1c; font-weight: 600; }
 </style>
 {% endblock %}
 
@@ -302,8 +466,8 @@ function loadStatementSummary(name) {
                 $('#sumStockistName').text(d.stockist_name || '—');
                 $('#sumStockistCode').text(d.stockist_code || '');
                 $('#sumMonth').text(d.statement_month ? formatMonth(d.statement_month) : '—');
-                $('#sumHQ').text(d.hq || '—');
-                $('#sumRegion').text(d.region || '—');
+                $('#sumHQ').text(d.hq_name || d.hq || '—');
+                $('#sumRegion').text(d.region_name || d.region || '—');
                 $('#sumCreated').text(d.creation ? new Date(d.creation).toLocaleDateString('en-IN') : '—');
                 $('#sumItems').text(d.total_items || 0);
                 $('#sumOpening').text('₹ ' + formatCurrency(d.total_opening_value || 0));
@@ -412,6 +576,270 @@ function showAlert(msg, type) {
         <button type="button" class="close" data-dismiss="alert">&times;</button></div>`);
     $('body').append(a);
     setTimeout(() => a.fadeOut(() => a.remove()), 5000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BULK DELETE
+// ═══════════════════════════════════════════════════════════════
+
+// Pre-loaded context for cascading filters
+var BD_TEAMS_RAW = {{ teams | tojson }};
+var BD_HQS_RAW   = {{ hqs | tojson }};
+var BD_STKS_RAW  = {{ stockists | tojson }};
+var bdPreviewData = [];  // current preview list
+
+var BD_TEAMS_BY_REGION = {};
+BD_TEAMS_RAW.forEach(function(t) {
+    if (t.region) {
+        if (!BD_TEAMS_BY_REGION[t.region]) BD_TEAMS_BY_REGION[t.region] = [];
+        BD_TEAMS_BY_REGION[t.region].push(t);
+    }
+});
+var BD_HQS_BY_TEAM = {};
+BD_HQS_RAW.forEach(function(h) {
+    if (h.team) {
+        if (!BD_HQS_BY_TEAM[h.team]) BD_HQS_BY_TEAM[h.team] = [];
+        BD_HQS_BY_TEAM[h.team].push(h);
+    }
+});
+var BD_HQS_BY_REGION = {};
+BD_HQS_RAW.forEach(function(h) {
+    if (h.region) {
+        if (!BD_HQS_BY_REGION[h.region]) BD_HQS_BY_REGION[h.region] = [];
+        BD_HQS_BY_REGION[h.region].push(h);
+    }
+});
+var BD_STKS_BY_HQ = {};
+BD_STKS_RAW.forEach(function(s) {
+    // stockists don't have hq in context — will load on demand if hq is selected
+});
+
+function toggleBulkDelete() {
+    var $sec = $('#bulkDeleteSection');
+    var $btn = $('#toggleBulkBtn');
+    if ($sec.is(':visible')) {
+        $sec.slideUp(200);
+        $btn.html('<i class="fa fa-chevron-down mr-1"></i> Open Bulk Delete');
+    } else {
+        $sec.slideDown(250);
+        $btn.html('<i class="fa fa-chevron-up mr-1"></i> Close Bulk Delete');
+    }
+}
+
+function rebuildBDSelect(id, items, placeholder, codeKey, nameKey) {
+    codeKey = codeKey || 'code';
+    nameKey = nameKey || 'name';
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    sel.innerHTML = '<option value="">' + placeholder + '</option>';
+    items.forEach(function(item) {
+        var opt = document.createElement('option');
+        opt.value = item[codeKey];
+        opt.textContent = item[nameKey];
+        sel.appendChild(opt);
+    });
+}
+
+function onBDRegionChange() {
+    var region = document.getElementById('bd-region').value;
+    var teams = region ? (BD_TEAMS_BY_REGION[region] || []) : BD_TEAMS_RAW;
+    rebuildBDSelect('bd-team', teams, 'All Teams');
+    onBDTeamChange();
+}
+
+function onBDTeamChange() {
+    var team = document.getElementById('bd-team').value;
+    var region = document.getElementById('bd-region').value;
+    var hqs;
+    if (team) {
+        hqs = BD_HQS_BY_TEAM[team] || [];
+    } else if (region) {
+        hqs = BD_HQS_BY_REGION[region] || BD_HQS_RAW;
+    } else {
+        hqs = BD_HQS_RAW;
+    }
+    rebuildBDSelect('bd-hq', hqs, 'All HQs');
+    onBDHQChange();
+}
+
+function onBDHQChange() {
+    // Stockist list: all by default (server does the filtering)
+    // We can't filter client-side without hq on stockist objects,
+    // so just leave the stockist dropdown as-is for now
+    rebuildBDSelect('bd-stockist', BD_STKS_RAW, 'All Stockists');
+}
+
+function clearBulkFilters() {
+    ['bd-region','bd-team','bd-hq','bd-stockist','bd-from-month','bd-to-month'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    rebuildBDSelect('bd-team', BD_TEAMS_RAW, 'All Teams');
+    rebuildBDSelect('bd-hq', BD_HQS_RAW, 'All HQs');
+    rebuildBDSelect('bd-stockist', BD_STKS_RAW, 'All Stockists');
+    $('#bulkPreviewCard').hide();
+    bdPreviewData = [];
+}
+
+function previewBulkDelete() {
+    var params = {
+        division: getActiveDivision(),
+        region:   document.getElementById('bd-region').value || null,
+        team:     document.getElementById('bd-team').value || null,
+        hq:       document.getElementById('bd-hq').value || null,
+        stockist_code: document.getElementById('bd-stockist').value || null,
+        from_month: document.getElementById('bd-from-month').value || null,
+        to_month:   document.getElementById('bd-to-month').value || null,
+    };
+
+    $.ajax({
+        url: '/api/method/scanify.api.get_bulk_delete_preview',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify(params),
+        success: function(r) {
+            if (r.message && r.message.success) {
+                bdPreviewData = r.message.statements || [];
+                renderBulkPreview(bdPreviewData);
+            } else {
+                showAlert((r.message && r.message.message) || 'Failed to load preview', 'danger');
+            }
+        },
+        error: function() { showAlert('Error loading preview', 'danger'); }
+    });
+}
+
+function renderBulkPreview(statements) {
+    var tbody = document.getElementById('bulkPreviewBody');
+    if (!statements.length) {
+        $('#bulkPreviewCard').show();
+        $('#bulkPreviewCount').text(0);
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No statements found for the selected filters.</td></tr>';
+        updateBulkDeleteBtn();
+        return;
+    }
+    var html = '';
+    statements.forEach(function(s) {
+        var statusBadge = s.docstatus === 1
+            ? '<span class="badge badge-success">Submitted</span>'
+            : '<span class="badge badge-warning">Draft</span>';
+        var monthDisplay = s.month_display || (s.statement_month ? s.statement_month.toString().substring(0, 7) : '—');
+        try {
+            var d = new Date(monthDisplay + '-01');
+            monthDisplay = d.toLocaleDateString('en-IN', {month: 'short', year: 'numeric'});
+        } catch(e) {}
+        html += '<tr data-name="' + escapeHtml(s.name) + '">'
+             +  '<td><input type="checkbox" class="bd-row-check" value="' + escapeHtml(s.name) + '" onchange="updateBulkDeleteBtn()"></td>'
+             +  '<td><small class="text-muted">' + escapeHtml(s.name) + '</small></td>'
+             +  '<td>' + escapeHtml(s.stockist_name || '') + '<br><small class="text-muted">' + escapeHtml(s.stockist_code || '') + '</small></td>'
+             +  '<td>' + escapeHtml(s.hq_name || s.hq || '') + '</td>'
+             +  '<td>' + escapeHtml(s.region_name || s.region || '') + '</td>'
+             +  '<td>' + escapeHtml(monthDisplay) + '</td>'
+             +  '<td>' + statusBadge + '</td>'
+             +  '</tr>';
+    });
+    tbody.innerHTML = html;
+    $('#bulkPreviewCount').text(statements.length);
+    $('#bulkPreviewCard').show();
+    $('#bdSelectAll').prop('checked', false);
+    updateBulkDeleteBtn();
+}
+
+function toggleSelectAll(checkbox) {
+    $('.bd-row-check').prop('checked', checkbox.checked);
+    $('.bd-row-check').closest('tr').toggleClass('selected-row', checkbox.checked);
+    updateBulkDeleteBtn();
+}
+
+function updateBulkDeleteBtn() {
+    var checked = $('.bd-row-check:checked').length;
+    var total = $('.bd-row-check').length;
+    $('#bulkPreviewBadge').text(checked + ' selected');
+    $('#btnBulkDelete').prop('disabled', checked === 0);
+    // Update select-all checkbox state
+    if (total > 0) {
+        $('#bdSelectAll').prop('indeterminate', checked > 0 && checked < total);
+        $('#bdSelectAll').prop('checked', checked === total);
+    }
+}
+
+function openBulkDeleteModal() {
+    var selected = [];
+    $('.bd-row-check:checked').each(function() { selected.push($(this).val()); });
+    if (!selected.length) return;
+
+    $('#bulkDeleteCountLabel').text(selected.length);
+    $('#bulkDeleteReason').val('');
+
+    // Build summary list
+    var summaryHtml = '<strong>' + selected.length + ' statement(s) will be deleted:</strong><ul class="mt-2 mb-0 pl-3">';
+    selected.forEach(function(name) {
+        var stmt = bdPreviewData.find(function(s) { return s.name === name; });
+        if (stmt) {
+            summaryHtml += '<li>' + escapeHtml(stmt.stockist_name || name)
+                + ' &mdash; ' + escapeHtml(stmt.hq_name || stmt.hq || '')
+                + ' &mdash; ' + escapeHtml((stmt.month_display || '').substring(0, 7)) + '</li>';
+        } else {
+            summaryHtml += '<li>' + escapeHtml(name) + '</li>';
+        }
+    });
+    summaryHtml += '</ul>';
+    $('#bulkDeleteSummaryList').html(summaryHtml);
+    $('#bulkDeleteModal').modal('show');
+}
+
+function confirmBulkDelete() {
+    var reason = $('#bulkDeleteReason').val().trim();
+    if (!reason || reason.length < 5) {
+        showAlert('Please provide a reason of at least 5 characters.', 'warning');
+        $('#bulkDeleteReason').focus();
+        return;
+    }
+
+    var selected = [];
+    $('.bd-row-check:checked').each(function() { selected.push($(this).val()); });
+    if (!selected.length) return;
+
+    var $btn = $('#confirmBulkDeleteBtn');
+    $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i> Deleting...');
+
+    $.ajax({
+        url: '/api/method/scanify.api.bulk_delete_stockist_statements',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify({
+            doc_names: JSON.stringify(selected),
+            reason: reason,
+            division: getActiveDivision()
+        }),
+        success: function(r) {
+            $btn.prop('disabled', false).html('<i class="fa fa-trash-alt mr-1"></i> Delete Permanently');
+            $('#bulkDeleteModal').modal('hide');
+            if (r.message) {
+                showAlert(r.message.message || 'Bulk deletion complete.', r.message.errors && r.message.errors.length ? 'warning' : 'success');
+                // Remove deleted rows from preview
+                (r.message.deleted || []).forEach(function(name) {
+                    $('tr[data-name="' + name + '"]').fadeOut(300, function() { $(this).remove(); updateBulkDeleteBtn(); });
+                });
+                bdPreviewData = bdPreviewData.filter(function(s) { return !(r.message.deleted || []).includes(s.name); });
+                var remaining = bdPreviewData.length;
+                $('#bulkPreviewCount').text(remaining);
+                if (!remaining) $('#bulkPreviewCard').fadeOut(300);
+            } else {
+                showAlert('Bulk deletion failed', 'danger');
+            }
+        },
+        error: function(xhr) {
+            $btn.prop('disabled', false).html('<i class="fa fa-trash-alt mr-1"></i> Delete Permanently');
+            $('#bulkDeleteModal').modal('hide');
+            const errMsg = xhr.responseJSON && xhr.responseJSON._server_messages
+                ? JSON.parse(JSON.parse(xhr.responseJSON._server_messages)[0]).message
+                : 'Deletion failed. Please try again.';
+            showAlert(errMsg, 'danger');
+        }
+    });
 }
 </script>
 {% endblock %}
