@@ -8891,7 +8891,26 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
     output.seek(0)
     xlsx_data = output.getvalue()
 
-    filename = f"Stockist_Report_{report_type}_{division}.xlsx"
+    _report_titles = {
+        "primary_sales": "Stockist Wise Primary Sales Report",
+        "secondary_sales": "Stockist Wise Secondary Sales Report",
+        "moving_trend": "Moving Trend Stockist Wise",
+        "closing_stock": "Closing Stock Report",
+        "hq_wise": "HQ Wise Stockist Report",
+        "address": "Stockist Address Report",
+        "sec_moving_trend": "Secondary Sales Moving Trend",
+        "region_stockist_trend": "Region wise Stockist Secondary Sales Moving Trend",
+        "region_product_stock": "Product Closing Stock Region Summary",
+        "primary_moving_trend": "Primary Sales Moving Trend",
+        "sec_vs_closing": "Secondary Sales vs Closing Stock Value",
+    }
+    import re as _re
+    from datetime import date as _date
+    _title = _report_titles.get(report_type, report_type)
+    _today = _date.today().strftime("%Y-%m-%d")
+    _safe = _re.sub(r'[^\w\s]', ' ', _title).strip()
+    _safe = _re.sub(r'\s+', '_', _safe)
+    filename = f"{_safe}_{division}_{_today}.xlsx"
     frappe.local.response.filename = filename
     frappe.local.response.filecontent = xlsx_data
     frappe.local.response.type = "download"

@@ -2654,7 +2654,10 @@ async function downloadPDF() {
 
     addPageFooter(doc);
 
-    var filename = currentReportType + "_" + DIVISION + "_" + new Date().toISOString().slice(0, 10) + ".pdf";
+    var reportLabel = (currentReportMeta.title || currentReportType)
+        .replace(/[^\w\s]/g, " ").trim().replace(/\s+/g, "_");
+    var today = new Date().toISOString().slice(0, 10);
+    var filename = reportLabel + "_" + today + ".pdf";
     doc.save(filename);
 }
 </script>
