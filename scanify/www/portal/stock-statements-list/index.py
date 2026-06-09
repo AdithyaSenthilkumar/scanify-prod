@@ -29,22 +29,23 @@ def get_context(context):
     context.teams = opts.get("teams", [])
     context.hqs = opts.get("hqs", [])
 
-    # We need to filter statements by the user's division. Stockist Statement doesn't have division directly.
-    # It has stockist_code. Let's fetch the stockists belonging to the user's division or "Both".
-    stockists = frappe.get_all("Stockist Master", {"division": ["in", [user_division, "Both"]], "status": "Active"}, pluck="name")
-
-    if not stockists:
-        context.statements = []
-        return
-
-    # Get all statements for these stockists (draft + submitted)
+    # Stockist Statement carries its own `division` field, kept in sync with the stockist on
+    # every save (set_division_from_stockist), so we filter on it directly. This is more robust
+    # than the old approach of re-deriving the stockist set with a status="Active" filter, which
+    # silently hid statements whose stockist had since been deactivated.
+    #
+    # We also load ALL matching statements (no page cap). Filtering/search on this page happens
+    # client-side over the rows rendered into the DOM, so any statement not fetched here is
+    # invisible to every filter AND the name search. The previous limit_page_length=300 meant
+    # that once a division exceeded 300 statements, the older ones (e.g. a freshly QC-reviewed
+    # batch for a single region) simply could not be found by any means.
     statements = frappe.get_all(
         "Stockist Statement",
-        filters={"docstatus": ["in", [0, 1]], "stockist_code": ["in", stockists]},
+        filters={"docstatus": ["in", [0, 1]], "division": ["in", [user_division, "Both"]]},
         fields=["name", "stockist_code", "statement_month", "extracted_data_status", "docstatus",
                 "creation", "qc_confidence", "confidence_score", "hq", "team", "region", "zone"],
         order_by="creation desc",
-        limit_page_length=300
+        limit_page_length=0,
     )
 
     # Enrich with stockist names + HQ display names

@@ -47,6 +47,22 @@
 
     <!-- Pagination -->
     <div id="bkl-pagination" class="d-flex justify-content-between align-items-center mt-3"></div>
+
+    <!-- Delete-job confirmation modal -->
+    <div id="bkl-delete-modal" class="bkl-modal-overlay" style="display:none;">
+        <div class="bkl-modal">
+            <div class="bkl-modal-head">
+                <i class="fa fa-exclamation-triangle text-warning"></i> Delete Bulk Job Entry?
+            </div>
+            <div class="bkl-modal-body" id="bkl-delete-body">…</div>
+            <div class="bkl-modal-foot">
+                <button class="btn btn-sm btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+                <button class="btn btn-sm btn-danger" id="bkl-delete-confirm" disabled>
+                    <i class="fa fa-trash"></i> Delete Job Entry
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <style>
@@ -160,6 +176,32 @@
     .chip-qc-red { background: #fee2e2; color: #dc2626; }
     .chip-qcr-reviewed { background: #ccfbf1; color: #0d9488; }
     .chip-qcr-pending { background: #f1f5f9; color: #64748b; }
+
+    /* Delete confirmation modal */
+    .bkl-modal-overlay {
+        position: fixed; inset: 0; z-index: 1080;
+        background: rgba(15, 23, 42, 0.55);
+        display: flex; align-items: center; justify-content: center;
+        padding: 1rem;
+    }
+    .bkl-modal {
+        background: #fff; border-radius: 14px; width: 100%; max-width: 480px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3); overflow: hidden;
+    }
+    .bkl-modal-head {
+        padding: 16px 20px; font-size: 16px; font-weight: 700;
+        border-bottom: 1px solid #e2e8f0; color: #0f172a;
+    }
+    .bkl-modal-body { padding: 18px 20px; font-size: 13px; color: #334155; }
+    .bkl-modal-foot {
+        padding: 12px 20px; border-top: 1px solid #e2e8f0;
+        display: flex; justify-content: flex-end; gap: 8px;
+    }
+    .bkl-warn-box {
+        background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412;
+        border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.5;
+    }
+    .bkl-warn-box .fa { color: #ea580c; }
 </style>
 {% endblock %}
 
@@ -294,11 +336,16 @@
                 <td>${chips}</td>
                 <td>${qcChips}</td>
                 <td><small class="text-muted">${formatDate(job.creation)}</small></td>
-                <td class="text-center">
+                <td class="text-center" style="white-space:nowrap;">
                     <a href="/portal/bulk-ocr-view?name=${encodeURIComponent(job.name)}"
                        class="btn btn-sm btn-primary">
                         <i class="fa fa-eye"></i> View
                     </a>
+                    <button class="btn btn-sm btn-outline-danger ml-1"
+                            title="Delete this job entry only — the extracted statements are kept"
+                            onclick="askDeleteJob('${(job.name || '').replace(/'/g, "\\'")}')">
+                        <i class="fa fa-trash"></i>
+                    </button>
                 </td>
             </tr>`;
             }).join('');
@@ -325,6 +372,55 @@
             bklAllJobs = res.jobs;
             renderBklPage();
         }
+
+        // ---- Delete-job flow ----
+        let deleteJobName = null;
+
+        window.askDeleteJob = async function (jobName) {
+            deleteJobName = jobName;
+            const body = document.getElementById('bkl-delete-body');
+            const confirmBtn = document.getElementById('bkl-delete-confirm');
+            confirmBtn.disabled = true;
+            body.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Checking linked statements…';
+            document.getElementById('bkl-delete-modal').style.display = 'flex';
+
+            const info = await apiCall('scanify.api.get_bulk_job_delete_info', { docname: jobName });
+            if (!info || !info.success) {
+                body.innerHTML = '<span class="text-danger">Could not load job info: '
+                    + ((info && info.message) || 'unknown error') + '</span>';
+                return;
+            }
+            const n = info.existing_statements || 0;
+            body.innerHTML =
+                '<p class="mb-2">You are about to delete the bulk job entry <strong>' + jobName + '</strong>.</p>'
+                + '<div class="bkl-warn-box"><i class="fa fa-shield-alt"></i> '
+                + 'This removes <strong>only the job record</strong>. The <strong>' + n + '</strong> extracted statement'
+                + (n === 1 ? '' : 's') + ' created by this job <strong>will NOT be deleted</strong> '
+                + 'and remain available in the Stockist Statements list.</div>'
+                + '<p class="mt-2 mb-0 text-muted" style="font-size:12px;">Use this to clear a failed/garbage job and re-upload cleanly.</p>';
+            confirmBtn.disabled = false;
+        };
+
+        window.closeDeleteModal = function () {
+            document.getElementById('bkl-delete-modal').style.display = 'none';
+            deleteJobName = null;
+        };
+
+        document.getElementById('bkl-delete-confirm').addEventListener('click', async function () {
+            if (!deleteJobName) return;
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Deleting…';
+            const res = await apiCall('scanify.api.delete_bulk_job', { docname: deleteJobName });
+            btn.innerHTML = '<i class="fa fa-trash"></i> Delete Job Entry';
+            if (res && res.success) {
+                closeDeleteModal();
+                loadJobs();
+            } else {
+                btn.disabled = false;
+                alert('Delete failed: ' + ((res && res.message) || 'unknown error'));
+            }
+        });
 
         // Load on page ready
         document.addEventListener('DOMContentLoaded', loadJobs);

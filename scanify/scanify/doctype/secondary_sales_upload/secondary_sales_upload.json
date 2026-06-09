@@ -20,6 +20,7 @@
   "statements_created",
   "items_created",
   "skipped_informational",
+  "skipped_prev_month_free",
   "column_break_counts",
   "skipped_existing",
   "unmatched_stockists",
@@ -126,6 +127,14 @@
    "read_only": 1,
    "default": "0",
    "description": "Rows with sales = 0 and free = 0 (previous-month closing carry-over) that were skipped."
+  },
+  {
+   "fieldname": "skipped_prev_month_free",
+   "fieldtype": "Int",
+   "label": "Prev-Month Free Rows Skipped",
+   "read_only": 1,
+   "default": "0",
+   "description": "Rows with sales = 0 and free > 0 dated a prior month (carry-over) that were skipped."
   },
   {
    "fieldname": "column_break_counts",

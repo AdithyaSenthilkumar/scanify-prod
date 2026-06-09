@@ -1789,6 +1789,18 @@ async function downloadPDF() {
     // compress:true enables zlib deflate on the PDF content streams — biggest single
     // size reduction for text-heavy reports; essentially free, no quality loss.
     var doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+
+    // Force pure-black body text on every table. autoTable's default 'striped' theme
+    // renders body cells in dull grey (textColor 80); the client wants crisp black
+    // numbers for readability. We inject a default bodyStyles.textColor once here so
+    // all tables inherit it — per-cell overrides in didParseCell (totals, section
+    // headers, etc.) still win because they run afterwards.
+    var _autoTable = doc.autoTable.bind(doc);
+    doc.autoTable = function (opts) {
+        opts.bodyStyles = Object.assign({ textColor: [0, 0, 0] }, opts.bodyStyles || {});
+        return _autoTable(opts);
+    };
+
     var data = currentReportData;
     var startY;
 

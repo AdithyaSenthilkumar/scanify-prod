@@ -17,7 +17,8 @@
             <ul class="mb-0 mt-1 pl-3">
                 <li>Stockists are matched <strong>strictly by name</strong> &mdash; the file's <code>stockistcode</code> is ignored. Unmatched names are skipped and reported.</li>
                 <li>Products are mapped by <code>pcode</code> only. Unknown codes are kept on the row as <em>unmapped</em>.</li>
-                <li>Rows with <strong>no movement</strong> (sales = 0 <em>and</em> free = 0) are skipped &mdash; these are previous-month closing carry-over rows, not current-month sales.</li>
+                <li>Rows with <strong>no movement</strong> (sales = 0 <em>and</em> free = 0) are skipped &mdash; previous-month closing carry-over, not current-month sales.</li>
+                <li>A <strong>free-only</strong> row (sales = 0, free &gt; 0) is kept only when its <code>statementdate</code> is in the selected month; dated to a prior month it is skipped as carry-over.</li>
                 <li>Quantities are imported <strong>as-is</strong> (already final &mdash; no pack/box conversion). Values are computed as <code>qty &times; rate</code>.</li>
                 <li>The valuation rate is <code>nrv</code> (the net / final price rate) &mdash; equal to <code>pts</code> when no discount, lower when a discount was given. Falls back to <code>pts</code> if <code>nrv</code> is blank.</li>
                 <li>A stockist that already has a statement for the month is <strong>skipped</strong> &mdash; delete it first to re-import.</li>
@@ -318,6 +319,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 (r.unmatched_stockists ? r.unmatched_stockists + ' stockist name(s) unmatched. ' : '') +
                                 (r.unmapped_products ? r.unmapped_products + ' unmapped product row(s). ' : '') +
                                 (r.skipped_informational ? r.skipped_informational + ' no-movement row(s) skipped. ' : '') +
+                                (r.skipped_prev_month_free ? r.skipped_prev_month_free + ' prev-month free row(s) skipped. ' : '') +
                                 msgHtml +
                                 '</div>';
                             showAlert('Secondary sales imported: ' + r.statements_created + ' statement(s)', 'success');

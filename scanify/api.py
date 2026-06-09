@@ -1573,6 +1573,105 @@ def create_bulk_ocr_job(statement_month, zip_file_url, division=None, job_name=N
         return {"success": False, "message": str(e)}
 
 
+def _bulk_job_statement_names(doc):
+    """
+    Return the list of Stockist Statement names a bulk job created.
+    The only link from a job to its statements is the `extraction_log` JSON —
+    each successful entry records its `statement` name. There is no Link/parent
+    field on Stockist Statement pointing back to the job, which is exactly why
+    deleting the job leaves the statements intact.
+    """
+    names = []
+    if doc.extraction_log:
+        try:
+            for entry in json.loads(doc.extraction_log):
+                if isinstance(entry, dict) and entry.get("statement"):
+                    names.append(entry["statement"])
+        except Exception:
+            pass
+    return names
+
+
+def _count_existing_statements(names):
+    """How many of the given statement names still exist in the DB."""
+    if not names:
+        return 0
+    return frappe.db.count("Stockist Statement", {"name": ["in", names]})
+
+
+@frappe.whitelist()
+def get_bulk_job_delete_info(docname):
+    """
+    Info for the delete-confirmation dialog of a bulk OCR job.
+
+    Returns how many statements this job created (per its log) and how many of
+    those still exist. Deleting the job does NOT delete any statement — they are
+    independent documents — so this lets the UI warn the user with real numbers.
+    """
+    try:
+        if not frappe.db.exists("Bulk Statement Upload", docname):
+            return {"success": False, "message": f"Job {docname} does not exist."}
+        doc = frappe.get_doc("Bulk Statement Upload", docname)
+        names = _bulk_job_statement_names(doc)
+        return {
+            "success": True,
+            "job_name": doc.job_name or doc.name,
+            "existing_statements": _count_existing_statements(names),
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def delete_bulk_job(docname):
+    """
+    Delete ONLY the Bulk Statement Upload job entry.
+
+    The Stockist Statements the job created are deliberately left untouched: they
+    are standalone documents and the job merely references them in its
+    extraction_log. This lets a failed/garbage job be cleared and re-uploaded
+    without losing any real statement data. Returns the number of statements that
+    remain after the job is removed.
+
+    Permissioning matches the portal's other delete flow (delete_stockist_statement):
+    the @frappe.whitelist decorator already blocks Guests, and the delete itself runs
+    with ignore_permissions because portal roles (e.g. UATadmin/Sales Manager) hold a
+    read/write-only DocPerm on this submittable doctype. The action is non-destructive
+    to statement data and is recorded to the audit trail below.
+    """
+    try:
+        if not frappe.db.exists("Bulk Statement Upload", docname):
+            return {"success": False, "message": f"Job {docname} does not exist."}
+
+        doc = frappe.get_doc("Bulk Statement Upload", docname)
+        kept = _count_existing_statements(_bulk_job_statement_names(doc))
+
+        # Audit trail — persists after the job document is deleted.
+        frappe.get_doc({
+            "doctype": "Comment",
+            "comment_type": "Info",
+            "reference_doctype": "Bulk Statement Upload",
+            "reference_name": docname,
+            "content": (
+                f"<b>Bulk Job Entry Deleted</b><br>By: {frappe.session.user}<br>"
+                f"{kept} extracted statement(s) preserved — only the job record was removed."
+            ),
+            "comment_email": frappe.session.user,
+        }).insert(ignore_permissions=True)
+
+        # Submittable doctype — a submitted job must be cancelled before deletion.
+        if doc.docstatus == 1:
+            doc.flags.ignore_permissions = True
+            doc.cancel()
+
+        frappe.delete_doc("Bulk Statement Upload", docname, ignore_permissions=True, force=True)
+        frappe.db.commit()
+        return {"success": True, "kept_statements": kept}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Delete Bulk Job Error")
+        return {"success": False, "message": str(e)}
+
+
 # ========== REST OF THE API FILE (UNCHANGED) ==========
 @frappe.whitelist()
 def bulk_extract_statements_async(docname):
@@ -12240,6 +12339,23 @@ _SECONDARY_QTY_COL_MAP = {
 }
 
 
+def _secondary_row_month(val):
+    """Extract YYYY-MM from a statementdate cell (datetime, 'YYYY-MM-DD', or 'DD/MM/YYYY')."""
+    from datetime import datetime, date
+    if val is None:
+        return None
+    if isinstance(val, (datetime, date)):
+        return val.strftime("%Y-%m")
+    s = str(val).strip()
+    m = re.match(r"^(\d{4})-(\d{2})", s)               # 2026-03-31 / 2026-03
+    if m:
+        return f"{m.group(1)}-{m.group(2)}"
+    m = re.match(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})", s)  # 31/03/2026
+    if m:
+        return f"{m.group(3)}-{int(m.group(2)):02d}"
+    return None
+
+
 @frappe.whitelist()
 def get_secondary_sales_count(month, division=None, zone=None, region=None, team=None, hq=None):
     """Count statements + line items of secondary sales data for a month (with optional org filters)."""
@@ -12364,6 +12480,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         blank_rows = 0
         total_data_rows = 0
         skipped_informational = 0   # zero-movement rows (prev-month closing carry-over)
+        skipped_prev_month_free = 0  # sales=0 & free>0 rows dated a prior month
 
         for row in ws.iter_rows(min_row=2, values_only=True):
             if all(v is None for v in row):
@@ -12402,12 +12519,18 @@ def process_secondary_sales_upload(upload_month, file_url):
 
             # Skip pure no-movement rows: these are previous-month closing figures
             # the source system repeats for continuity (sales = 0 and free = 0).
-            # Rows with free goods but no billed sales are kept (real secondary movement).
             sales_q = _parse_num(rec.get("quantity"))
             free_q = _parse_num(rec.get("freeqty"))
             if sales_q == 0 and free_q == 0:
                 skipped_informational += 1
                 continue
+            # A free-only row (sales = 0, free > 0) is kept only when it belongs to the
+            # statement month. Dated to a prior month it is carry-over, not a dispatch.
+            if sales_q == 0 and free_q > 0:
+                row_month = _secondary_row_month(rec.get("statementdate"))
+                if row_month and row_month != str(upload_month):
+                    skipped_prev_month_free += 1
+                    continue
 
             # Product mapping is by CODE only
             if pcode and pcode in product_code_cache:
@@ -12522,6 +12645,11 @@ def process_secondary_sales_upload(upload_month, file_url):
             f"{skipped_informational} no-movement row(s) skipped (sales = 0 and free = 0 — "
             f"previous-month closing carry-over)."
         )
+    if skipped_prev_month_free:
+        messages.append(
+            f"{skipped_prev_month_free} free-only row(s) skipped (sales = 0, free > 0 but "
+            f"dated a prior month — carry-over, not a current-month dispatch)."
+        )
     if create_errors:
         messages.extend(create_errors[:15])
 
@@ -12535,6 +12663,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         f"Statements created     : {statements_created}",
         f"Item rows created      : {items_created}",
         f"No-movement skipped    : {skipped_informational}",
+        f"Prev-month free skipped: {skipped_prev_month_free}",
         f"Skipped (existed)      : {len(skipped_existing)}",
         f"Unmatched stockists    : {len(unmatched_names)}",
         f"Inactive skipped       : {len(inactive_names)}",
@@ -12569,6 +12698,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         log_doc.unmapped_products = unmapped_products
         log_doc.create_errors = len(create_errors)
         log_doc.skipped_informational = skipped_informational
+        log_doc.skipped_prev_month_free = skipped_prev_month_free
         log_doc.log = full_log[:140000]
         log_doc.save(ignore_permissions=True)
         frappe.db.commit()
@@ -12589,6 +12719,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         "inactive_stockists": len(inactive_names),
         "unmapped_products": unmapped_products,
         "skipped_informational": skipped_informational,
+        "skipped_prev_month_free": skipped_prev_month_free,
         "create_errors": len(create_errors),
         "messages": messages,
     }

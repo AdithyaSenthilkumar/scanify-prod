@@ -18,6 +18,11 @@
             <button class="btn btn-primary btn-sm" id="bkv-rerun-btn" style="display:none;" onclick="rerunJob()">
                 <i class="fa fa-redo"></i> Re-run Job
             </button>
+            <button class="btn btn-outline-danger btn-sm" id="bkv-delete-btn"
+                    title="Delete this job entry only — the extracted statements are kept"
+                    onclick="askDeleteJob()">
+                <i class="fa fa-trash"></i> Delete Job
+            </button>
         </div>
     </div>
 
@@ -137,6 +142,22 @@
         </div>
 
     </div><!-- /bkv-content -->
+
+    <!-- Delete-job confirmation modal -->
+    <div id="bkv-delete-modal" class="bkv-modal-overlay" style="display:none;">
+        <div class="bkv-modal">
+            <div class="bkv-modal-head">
+                <i class="fa fa-exclamation-triangle text-warning"></i> Delete Bulk Job Entry?
+            </div>
+            <div class="bkv-modal-body" id="bkv-delete-body">…</div>
+            <div class="bkv-modal-foot">
+                <button class="btn btn-sm btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+                <button class="btn btn-sm btn-danger" id="bkv-delete-confirm" disabled>
+                    <i class="fa fa-trash"></i> Delete Job Entry
+                </button>
+            </div>
+        </div>
+    </div>
 
 </div><!-- /bkv-page -->
 
@@ -423,6 +444,32 @@
         flex-wrap: wrap;
         gap: 8px;
     }
+
+    /* Delete confirmation modal */
+    .bkv-modal-overlay {
+        position: fixed; inset: 0; z-index: 1080;
+        background: rgba(15, 23, 42, 0.55);
+        display: flex; align-items: center; justify-content: center;
+        padding: 1rem;
+    }
+    .bkv-modal {
+        background: #fff; border-radius: 14px; width: 100%; max-width: 480px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3); overflow: hidden;
+    }
+    .bkv-modal-head {
+        padding: 16px 20px; font-size: 16px; font-weight: 700;
+        border-bottom: 1px solid #e2e8f0; color: #0f172a;
+    }
+    .bkv-modal-body { padding: 18px 20px; font-size: 13px; color: #334155; }
+    .bkv-modal-foot {
+        padding: 12px 20px; border-top: 1px solid #e2e8f0;
+        display: flex; justify-content: flex-end; gap: 8px;
+    }
+    .bkv-warn-box {
+        background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412;
+        border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.5;
+    }
+    .bkv-warn-box .fa { color: #ea580c; }
 </style>
 {% endblock %}
 
@@ -604,6 +651,50 @@
             btn.disabled = false; btn.innerHTML = '<i class="fa fa-redo"></i> Re-run Job';
         }
     }
+
+    // ---- Delete-job flow ----
+    async function askDeleteJob() {
+        const body = document.getElementById('bkv-delete-body');
+        const confirmBtn = document.getElementById('bkv-delete-confirm');
+        confirmBtn.disabled = true;
+        body.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Checking linked statements…';
+        document.getElementById('bkv-delete-modal').style.display = 'flex';
+
+        const info = await apiCall('scanify.api.get_bulk_job_delete_info', { docname: DOC_NAME });
+        if (!info || !info.success) {
+            body.innerHTML = '<span class="text-danger">Could not load job info: '
+                + ((info && info.message) || 'unknown error') + '</span>';
+            return;
+        }
+        const n = info.existing_statements || 0;
+        body.innerHTML =
+            '<p class="mb-2">You are about to delete the bulk job entry <strong>' + DOC_NAME + '</strong>.</p>'
+            + '<div class="bkv-warn-box"><i class="fa fa-shield-alt"></i> '
+            + 'This removes <strong>only the job record</strong>. The <strong>' + n + '</strong> extracted statement'
+            + (n === 1 ? '' : 's') + ' created by this job <strong>will NOT be deleted</strong> '
+            + 'and remain available in the Stockist Statements list.</div>'
+            + '<p class="mt-2 mb-0 text-muted" style="font-size:12px;">Use this to clear a failed/garbage job and re-upload cleanly.</p>';
+        confirmBtn.disabled = false;
+    }
+
+    function closeDeleteModal() {
+        document.getElementById('bkv-delete-modal').style.display = 'none';
+    }
+
+    document.getElementById('bkv-delete-confirm').addEventListener('click', async function () {
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Deleting…';
+        const res = await apiCall('scanify.api.delete_bulk_job', { docname: DOC_NAME });
+        if (res && res.success) {
+            // Job is gone — return to the list.
+            window.location.href = '/portal/bulk-ocr-list';
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa fa-trash"></i> Delete Job Entry';
+            alert('Delete failed: ' + ((res && res.message) || 'unknown error'));
+        }
+    });
 
     // Search / filter
     document.getElementById('bkv-log-search').addEventListener('input', () => renderLog(allLogData));
