@@ -1678,12 +1678,12 @@
     function render_sv_page() {
         // Update page title
         const monthStr = sv_doc.statement_month ? sv_doc.statement_month.substring(0, 7) : '';
-        document.title = `${sv_doc.stockist_name || sv_doc.stockist_code} — ${monthStr}`;
-        $('#sv-page-title').html('<i class="fa fa-file-invoice"></i> ' + sv_escape(sv_doc.stockist_name || sv_doc.stockist_code));
+        document.title = `${sv_doc.stockist_name || sv_doc.stockist_display_code} — ${monthStr}`;
+        $('#sv-page-title').html('<i class="fa fa-file-invoice"></i> ' + sv_escape(sv_doc.stockist_name || sv_doc.stockist_display_code));
         $('#sv-page-sub').text(`Statement for ${monthStr}`);
 
-        // Info bar
-        $('#sv-stockist').text(`${sv_doc.stockist_code} — ${sv_doc.stockist_name || ''}`);
+        // Info bar — show the human-facing stockist code, not the internal id
+        $('#sv-stockist').text(`${sv_doc.stockist_display_code || ''} — ${sv_doc.stockist_name || ''}`);
         const [y, m] = (sv_doc.statement_month || '').split('-');
         const monthLabel = m && y ? new Date(y, m - 1).toLocaleString('default', { month: 'long', year: 'numeric' }) : sv_doc.statement_month;
         $('#sv-month').text(monthLabel);
@@ -1867,7 +1867,7 @@
         const itemCount = sv_items.length;
         const unmapped = sv_items.filter(i => (i.mappingstatus || 'matched') === 'unmapped').length;
         const autoMapped = sv_items.filter(i => (i.mappingstatus || 'matched') === 'auto_mapped').length;
-        let subParts = [sv_escape(sv_doc.stockist_name || sv_doc.stockist_code || ''), itemCount + ' items'];
+        let subParts = [sv_escape(sv_doc.stockist_name || sv_doc.stockist_display_code || ''), itemCount + ' items'];
         if (unmapped) subParts.push(unmapped + ' unmapped');
         if (autoMapped) subParts.push(autoMapped + ' auto-mapped');
         $('#qc-header-sub').text(subParts.join(' · '));

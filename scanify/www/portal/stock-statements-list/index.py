@@ -51,9 +51,11 @@ def get_context(context):
     # Enrich with stockist names + HQ display names
     if statements:
         found_stockist_codes = list({s.stockist_code for s in statements})
-        stockist_names = {
-            row.name: row.stockist_name
-            for row in frappe.get_all("Stockist Master", {"name": ["in", found_stockist_codes]}, ["name", "stockist_name"])
+        # stockist_code on the statement is the internal id; map to name + human code.
+        stockist_master = {
+            row.name: row
+            for row in frappe.get_all("Stockist Master", {"name": ["in", found_stockist_codes]},
+                                      ["name", "stockist_name", "stockist_code"])
         }
         hq_codes = list({s.hq for s in statements if s.hq})
         hq_names = {}
@@ -63,7 +65,10 @@ def get_context(context):
                 for row in frappe.get_all("HQ Master", {"name": ["in", hq_codes]}, ["name", "hq_name"])
             }
         for stmt in statements:
-            stmt.stockist_name = stockist_names.get(stmt.stockist_code, stmt.stockist_code)
+            master = stockist_master.get(stmt.stockist_code)
+            stmt.stockist_name = (master.stockist_name if master else None) or stmt.stockist_code
+            # Display the human-facing Stockist Code instead of the internal id.
+            stmt.stockist_code = (master.stockist_code if master else None) or stmt.stockist_code
             stmt.hq_name = hq_names.get(stmt.hq, stmt.hq or "")
 
     context.statements = statements

@@ -150,7 +150,8 @@ class StockistPerformanceReport(Document):
             # Initialize stockist entry
             if stockist_code not in stockist_data:
                 stockist_data[stockist_code] = {
-                    "stockist_code": stockist_code,
+                    # Display the human-facing code; keep the dict keyed by the internal id.
+                    "stockist_code": stockist.stockist_code or stockist_code,
                     "stockist_name": stockist.stockist_name,
                     "hq": stockist.hq if hasattr(stockist, 'hq') else "N/A",
                     "primary_qty": 0,

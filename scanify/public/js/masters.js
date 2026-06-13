@@ -36,7 +36,7 @@ const masterConfigs = {
         title: 'Stockist Master',
         doctype: 'Stockist Master',
         fields: [
-            { name: 'stockist_code', label: 'Stockist Code', type: 'text', readonly_on_edit: true, system_generated: true },
+            { name: 'stockist_code', label: 'Stockist Code', type: 'text', system_generated: true, editable_on_edit: true },
             { name: 'stockist_name', label: 'Stockist Name', type: 'text', required: true },
             // Hierarchy - HQ is a dropdown, others auto-fill
             { name: 'hq', label: 'HQ', type: 'hq_select', required: true },
@@ -60,8 +60,11 @@ const masterConfigs = {
         ],
         columns: ['stockist_code', 'stockist_name', 'hq_label', 'team_label', 'region_label', 'zone_label', 'phone', 'status'],
         searchFields: ['stockist_code', 'stockist_name', 'city', 'phone'],
-        excelColumns: ['Stockist Name', 'HQ', 'Team', 'Region', 'Zone', 'Address', 'Contact Person', 'Phone', 'Email', 'Status'],
-        excelSample: ['ABC Pharma Distributors', 'Chennai Central', 'Team A', 'South', 'Zone 1', '123 Main St', 'John Smith', '9876543210', 'abc@example.com', 'Active']
+        // ID is the primary key (S####). Fill it to UPDATE that record (e.g. bulk code
+        // changes); leave it blank to CREATE a new stockist. Stockist Code auto-fills from
+        // the ID on create if left blank.
+        excelColumns: ['ID', 'Stockist Code', 'Stockist Name', 'HQ', 'Team', 'Region', 'Zone', 'Address', 'Contact Person', 'Phone', 'Email', 'Status'],
+        excelSample: ['', 'STK-001', 'ABC Pharma Distributors', 'Chennai Central', 'Team A', 'South', 'Zone 1', '123 Main St', 'John Smith', '9876543210', 'abc@example.com', 'Active']
     },
     product: {
         title: 'Product Master',
@@ -619,9 +622,18 @@ function buildForm(config, data) {
             return;
         }
 
-        // System-generated code fields: show readonly info on edit, skip entirely on new
+        // System-generated code fields: show readonly info on edit, skip entirely on new.
+        // Exception: fields flagged editable_on_edit render as an editable input on edit —
+        // the backend persists them on update and they're not used as link targets, so
+        // changing the code won't cascade to statements/reports (those link by internal ID).
         if (field.system_generated) {
-            if (data) {
+            if (data && field.editable_on_edit) {
+                html += `<div class="col-md-6 mb-3">`;
+                html += `<label>${field.label} <small class="text-info"><i class="fa fa-pencil"></i> editable</small></label>`;
+                html += `<input type="text" class="form-control" name="${field.name}" value="${data[field.name] || ''}">`;
+                html += `<small class="form-text text-muted">Must be unique. Changing it won't affect existing statements or reports.</small>`;
+                html += `</div>`;
+            } else if (data) {
                 // Edit mode: show current value as readonly
                 html += `<div class="col-md-6 mb-3">`;
                 html += `<label>${field.label} <small class="text-muted">(system generated)</small></label>`;

@@ -221,7 +221,7 @@ class SchemeNotReflectedReport(Document):
                     "team": doctor.team if hasattr(doctor, 'team') else "N/A",
                     "region": doctor.region if hasattr(doctor, 'region') else "N/A",
                     "city_pool": doctor.city_pool if hasattr(doctor, 'city_pool') else "N/A",
-                    "stockist_code": scheme_doc.stockist_code,
+                    "stockist_code": stockist.stockist_code or scheme_doc.stockist_code,
                     "stockist_name": stockist.stockist_name,
                     "stockist_hq": stockist.hq if hasattr(stockist, 'hq') else "N/A",
                     "approval_date": str(scheme_doc.approval_date),

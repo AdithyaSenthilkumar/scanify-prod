@@ -15,10 +15,10 @@
         <div>
             This creates one <strong>Stockist Statement</strong> (saved as <strong>Draft</strong>) per stockist for the selected month.
             <ul class="mb-0 mt-1 pl-3">
-                <li>Stockists are matched <strong>strictly by name</strong> &mdash; the file's <code>stockistcode</code> is ignored. Unmatched names are skipped and reported.</li>
+                <li>Stockists are matched by <strong>stockist code</strong> (the file's <code>stockistcode</code> vs. the editable Stockist Code in the master), falling back to <code>stockistname</code>. Unmatched stockists are skipped and reported.</li>
                 <li>Products are mapped by <code>pcode</code> only. Unknown codes are kept on the row as <em>unmapped</em>.</li>
-                <li>Rows with <strong>no movement</strong> (sales = 0 <em>and</em> free = 0) are skipped &mdash; previous-month closing carry-over, not current-month sales.</li>
-                <li>A <strong>free-only</strong> row (sales = 0, free &gt; 0) is kept only when its <code>statementdate</code> is in the selected month; dated to a prior month it is skipped as carry-over.</li>
+                <li>The <code>quantity</code> column is the <strong>final sales figure</strong>. Free quantity is <strong>not counted</strong> toward sales and is ignored.</li>
+                <li>Any row with <strong>sales (quantity) = 0</strong> is dropped &mdash; these are the previous-month closing carry-over rows, not current-month sales.</li>
                 <li>Quantities are imported <strong>as-is</strong> (already final &mdash; no pack/box conversion). Values are computed as <code>qty &times; rate</code>.</li>
                 <li>The valuation rate is <code>nrv</code> (the net / final price rate) &mdash; equal to <code>pts</code> when no discount, lower when a discount was given. Falls back to <code>pts</code> if <code>nrv</code> is blank.</li>
                 <li>A stockist that already has a statement for the month is <strong>skipped</strong> &mdash; delete it first to re-import.</li>
@@ -92,7 +92,7 @@
                 </div>
                 <div class="modal-body p-0">
                     <div class="px-3 pt-3 pb-2 d-flex justify-content-between align-items-center">
-                        <p class="mb-0 text-muted" style="font-size:13px;">Columns in this exact order. Only <code>stockistname</code> is required; <code>pcode</code> maps the product and <code>nrv</code> (net/final rate) drives valuation.</p>
+                        <p class="mb-0 text-muted" style="font-size:13px;">Columns in this exact order. <code>stockistcode</code> is required (matched against the editable Stockist Code); <code>pcode</code> maps the product and <code>nrv</code> (net/final rate) drives valuation.</p>
                         <button type="button" class="btn btn-sm btn-success" onclick="downloadSecondarySalesTemplate()" style="white-space:nowrap;">
                             <i class="fa fa-download mr-1"></i> Download Sample Template
                         </button>
@@ -109,8 +109,8 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr><td>1</td><td><code>stockistcode</code></td><td>Legacy stockist code</td><td>&mdash; (ignored, name is authoritative)</td><td><span class="badge badge-secondary">Info</span></td></tr>
-                                <tr><td>2</td><td><code>stockistname</code></td><td>Stockist Name</td><td>Stockist Master &rarr; stockist_name (strict)</td><td><span class="badge badge-danger">Required</span></td></tr>
+                                <tr><td>1</td><td><code>stockistcode</code></td><td>Stockist Code</td><td>Stockist Master &rarr; stockist_code (match key)</td><td><span class="badge badge-danger">Required</span></td></tr>
+                                <tr><td>2</td><td><code>stockistname</code></td><td>Stockist Name</td><td>Stockist Master &rarr; stockist_name (fallback match)</td><td><span class="badge badge-secondary">Info</span></td></tr>
                                 <tr><td>3</td><td><code>citypool</code></td><td>City / Pool</td><td>&mdash;</td><td><span class="badge badge-secondary">Info</span></td></tr>
                                 <tr><td>4</td><td><code>team</code></td><td>Team</td><td>&mdash; (derived from stockist)</td><td><span class="badge badge-secondary">Info</span></td></tr>
                                 <tr><td>5</td><td><code>region</code></td><td>Region</td><td>&mdash; (derived from stockist)</td><td><span class="badge badge-secondary">Info</span></td></tr>
@@ -120,9 +120,9 @@
                                 <tr><td>9</td><td><code>pcode</code></td><td>Product Code</td><td>Product Master &rarr; product_code</td><td><span class="badge badge-success">Mapping</span></td></tr>
                                 <tr><td>10</td><td><code>product</code></td><td>Product Name (raw)</td><td>Stored as raw name (not mapped)</td><td><span class="badge badge-info">Stored</span></td></tr>
                                 <tr><td>11</td><td><code>pack</code></td><td>Pack</td><td>&mdash; (fetched from product)</td><td><span class="badge badge-secondary">Info</span></td></tr>
-                                <tr><td>12</td><td><code>quantity</code></td><td>Secondary sales qty</td><td>Item &rarr; sales_qty</td><td><span class="badge badge-success">Value</span></td></tr>
+                                <tr><td>12</td><td><code>quantity</code></td><td>Secondary sales qty (<strong>final</strong>)</td><td>Item &rarr; sales_qty &mdash; if 0, row is dropped</td><td><span class="badge badge-success">Value</span></td></tr>
                                 <tr><td>13</td><td><code>clstock</code></td><td>Closing stock qty</td><td>Item &rarr; closing_qty</td><td><span class="badge badge-success">Value</span></td></tr>
-                                <tr><td>14</td><td><code>freeqty</code></td><td>Free qty</td><td>Item &rarr; free_qty</td><td><span class="badge badge-success">Value</span></td></tr>
+                                <tr><td>14</td><td><code>freeqty</code></td><td>Free qty</td><td>&mdash; (not counted toward sales)</td><td><span class="badge badge-secondary">Ignored</span></td></tr>
                                 <tr><td>15</td><td><code>opstock</code></td><td>Opening stock qty</td><td>Item &rarr; opening_qty</td><td><span class="badge badge-success">Value</span></td></tr>
                                 <tr><td>16</td><td><code>pts</code></td><td>Price to Stockist (list)</td><td>Fallback rate if <code>nrv</code> is blank</td><td><span class="badge badge-info">Fallback</span></td></tr>
                                 <tr><td>17</td><td><code>ptsvalue</code></td><td>PTS &times; Qty</td><td>&mdash; (recomputed)</td><td><span class="badge badge-secondary">Info</span></td></tr>
@@ -318,8 +318,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 (r.skipped_existing ? r.skipped_existing + ' already existed (skipped). ' : '') +
                                 (r.unmatched_stockists ? r.unmatched_stockists + ' stockist name(s) unmatched. ' : '') +
                                 (r.unmapped_products ? r.unmapped_products + ' unmapped product row(s). ' : '') +
-                                (r.skipped_informational ? r.skipped_informational + ' no-movement row(s) skipped. ' : '') +
-                                (r.skipped_prev_month_free ? r.skipped_prev_month_free + ' prev-month free row(s) skipped. ' : '') +
+                                (r.skipped_zero_sales ? r.skipped_zero_sales + ' zero-sales row(s) skipped. ' : '') +
                                 msgHtml +
                                 '</div>';
                             showAlert('Secondary sales imported: ' + r.statements_created + ' statement(s)', 'success');

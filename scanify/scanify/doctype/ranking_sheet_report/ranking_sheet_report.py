@@ -339,7 +339,8 @@ class RankingSheetReport(Document):
             
             if stockist_key not in stockist_sales:
                 stockist_sales[stockist_key] = {
-                    "stockist_code": stockist_key,
+                    # Display the human-facing code; keep the dict keyed by the internal id.
+                    "stockist_code": stockist.stockist_code or stockist_key,
                     "stockist_name": stockist.stockist_name,
                     "hq": stockist.hq,
                     "primary_value": 0,

@@ -411,7 +411,7 @@
         $('#d-schemeId').html(`<strong>${d.name}</strong>`);
         $('#d-appDate').text(d.application_date || '-');
         $('#d-hq').text(d.hq || '-');
-        $('#d-stockist').html(`${d.stockist_name || '-'} <small class="text-muted">(${d.stockist_code || ''})</small>`);
+        $('#d-stockist').html(`${d.stockist_name || '-'} <small class="text-muted">(${d.stockist_display_code || ''})</small>`);
         $('#d-division').text(d.division || '-');
         $('#d-requestedBy').text(d.requested_by || '-');
 

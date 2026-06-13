@@ -686,6 +686,25 @@ def save_draft_statement(doc_name, data):
         return {"success": False, "message": str(e)}
 
 
+def get_stockist_code_map(pks):
+    """Map Stockist Master id (PK, e.g. S1685) -> editable business code (e.g. S0009).
+
+    Used for DISPLAY only: records link to stockists by the internal id, but screens and
+    reports must show the human-facing Stockist Code. Falls back to the id when a stockist
+    has no code set so nothing renders blank.
+    """
+    pks = [p for p in set(pks or []) if p]
+    if not pks:
+        return {}
+    rows = frappe.get_all(
+        "Stockist Master",
+        filters={"name": ["in", pks]},
+        fields=["name", "stockist_code"],
+        limit_page_length=0,
+    )
+    return {r.name: (r.stockist_code or r.name) for r in rows}
+
+
 @frappe.whitelist()
 def get_statement_for_view(doc_name):
     """
@@ -739,6 +758,9 @@ def get_statement_for_view(doc_name):
             "doc": {
                 "name": doc.name,
                 "stockist_code": doc.stockist_code,
+                # Human-facing code for display; stockist_code stays the internal id so the
+                # primary-sales lookup keeps working.
+                "stockist_display_code": get_stockist_code_map([doc.stockist_code]).get(doc.stockist_code, doc.stockist_code),
                 "stockist_name": doc.stockist_name,
                 "statement_month": str(doc.statement_month),
                 "hq": doc.hq,
@@ -4354,6 +4376,8 @@ def import_master_data(doctype, division):
                 _resolve_import_links(doctype, data, row_division)
 
                 # ---- Strip auto-generated code fields (backend creates them) ----
+                # Stockist Code is intentionally NOT stripped: it's user-editable and
+                # bulk-updatable. before_save still auto-fills it from the id when blank.
                 for _dt, _cf in [
                     ("HQ Master", "hq_code"),
                     ("Doctor Master", "doctor_code"),
@@ -4361,7 +4385,6 @@ def import_master_data(doctype, division):
                     ("Team Master", "team_code"),
                     ("Zone Master", "zone_code"),
                     ("State Master", "state_code"),
-                    ("Stockist Master", "stockist_code"),
                 ]:
                     if doctype == _dt:
                         data.pop(_cf, None)
@@ -4370,8 +4393,20 @@ def import_master_data(doctype, division):
                 if doctype == "Team Master":
                     data.pop("sanctioned_strength", None)
 
-                # ---- Upsert: find existing record by name-field + division ----
-                existing = _find_existing_master(doctype, data, row_division)
+                # ---- Upsert ----
+                # If an explicit ID (pk) is supplied, update that exact record and never
+                # create a new one. The id itself is never written into the doc — autoname
+                # owns it on create, and on update it's only used to locate the record.
+                pk = data.pop("name", None)
+                if pk:
+                    if not frappe.db.exists(doctype, pk):
+                        raise frappe.ValidationError(
+                            f"ID '{pk}' not found — leave the ID column blank to create a new record"
+                        )
+                    existing = pk
+                else:
+                    # No id: fall back to identifying-field + division matching
+                    existing = _find_existing_master(doctype, data, row_division)
 
                 if existing:
                     doc = frappe.get_doc(doctype, existing)
@@ -4506,6 +4541,8 @@ def get_column_mapping(doctype):
             "Status": "status"
         },
         "Stockist Master": {
+            "ID": "name",
+            "Stockist Code": "stockist_code",
             "Stockist Name": "stockist_name",
             "HQ": "hq",
             "Team": "team",
@@ -4741,6 +4778,9 @@ def get_scheme_detail(scheme_name):
             "region": doc.region,
             "team": doc.team,
             "stockist_code": doc.stockist_code,
+            # Human-facing code for display; stockist_code stays the internal id so the
+            # deduction screen's statement lookup keeps working.
+            "stockist_display_code": get_stockist_code_map([doc.stockist_code]).get(doc.stockist_code, doc.stockist_code),
             "stockist_name": doc.stockist_name,
             "approval_status": doc.approval_status,
             "total_scheme_value": flt(doc.total_scheme_value),
@@ -5259,6 +5299,11 @@ def get_scheme_list_portal(division=None, filters=None):
             ORDER BY sr.application_date DESC, sr.creation DESC
             LIMIT 200
         """, params, as_dict=True)
+
+        # Display the human-facing Stockist Code instead of the internal id.
+        code_map = get_stockist_code_map([r["stockist_code"] for r in rows])
+        for r in rows:
+            r["stockist_code"] = code_map.get(r["stockist_code"], r["stockist_code"])
 
         return {"success": True, "data": rows, "division": division}
     except Exception as e:
@@ -6257,8 +6302,8 @@ _EXPORT_MASTER_CONFIGS = {
     "stockist": {
         "title": "Stockist Master",
         "doctype": "Stockist Master",
-        "columns": ["stockist_code", "stockist_name", "hq", "team", "region", "zone", "address", "contact_person", "phone", "email", "division", "status"],
-        "headers": ["Stockist Code", "Stockist Name", "HQ", "Team", "Region", "Zone", "Address", "Contact Person", "Phone", "Email", "Division", "Status"],
+        "columns": ["name", "stockist_code", "stockist_name", "hq", "team", "region", "zone", "address", "contact_person", "phone", "email", "division", "status"],
+        "headers": ["ID", "Stockist Code", "Stockist Name", "HQ", "Team", "Region", "Zone", "Address", "Contact Person", "Phone", "Email", "Division", "Status"],
         "resolve": {"hq": "HQ Master:hq_name", "team": "Team Master:team_name", "region": "Region Master:region_name", "zone": "Zone Master:zone_name"},
     },
     "product": {
@@ -6316,7 +6361,8 @@ def _fetch_export_data(config, division):
     data = frappe.get_all(
         doctype,
         filters=filters,
-        fields=["name"] + config["columns"],
+        # dedupe: a config may list "name" as an exportable ID column
+        fields=list(dict.fromkeys(["name"] + config["columns"])),
         order_by="name asc",
         limit_page_length=0,
     )
@@ -6630,17 +6676,36 @@ def search_stockist_statements(search_term="", division=None):
         division_clause = "AND ss.division IN (%(division)s, 'Both')"
         params["division"] = division
 
+    # stockist_code is the internal id; also resolve the term against the human-facing
+    # Stockist Code so the box matches what the user actually sees.
+    code_pks = frappe.get_all(
+        "Stockist Master", filters={"stockist_code": ["like", term]},
+        pluck="name", limit_page_length=0,
+    )
+    code_clause = ""
+    if code_pks:
+        ph = ", ".join(f"%(scp{i})s" for i in range(len(code_pks)))
+        for i, pk in enumerate(code_pks):
+            params[f"scp{i}"] = pk
+        code_clause = f" OR ss.stockist_code IN ({ph})"
+
     results = frappe.db.sql("""
         SELECT ss.name, ss.stockist_code, ss.stockist_name, ss.statement_month,
                ss.hq, ss.region, ss.docstatus, ss.division
         FROM `tabStockist Statement` ss
         WHERE (ss.stockist_name LIKE %(term)s
                OR ss.stockist_code LIKE %(term)s
-               OR ss.name LIKE %(term)s)
+               OR ss.name LIKE %(term)s
+               {code_clause})
         {division_clause}
         ORDER BY ss.modified DESC
         LIMIT 20
-    """.format(division_clause=division_clause), params, as_dict=True)
+    """.format(division_clause=division_clause, code_clause=code_clause), params, as_dict=True)
+
+    # Display the human-facing code instead of the internal id.
+    code_map = get_stockist_code_map([r["stockist_code"] for r in results])
+    for r in results:
+        r["stockist_code"] = code_map.get(r["stockist_code"], r["stockist_code"])
 
     return results
 
@@ -6656,7 +6721,7 @@ def get_statement_summary(doc_name):
         return {
             "success": True,
             "name": doc.name,
-            "stockist_code": doc.stockist_code,
+            "stockist_code": get_stockist_code_map([doc.stockist_code]).get(doc.stockist_code, doc.stockist_code),
             "stockist_name": doc.stockist_name,
             "statement_month": str(doc.statement_month) if doc.statement_month else None,
             "hq": doc.hq,
@@ -7019,8 +7084,9 @@ def process_primary_sales_upload(upload_month, file_url):
             else:
                 headers.append(str(h).strip().lower())
 
-        # Validate required columns exist
-        required_cols = {"stockistname", "iscancelled"}
+        # Validate required columns exist. Stockist Code is the match key (compared
+        # against the editable Stockist Code in the master); name is an optional fallback.
+        required_cols = {"stockistcode", "iscancelled"}
         found_cols = set(h for h in headers if h)
         missing = required_cols - found_cols
         if missing:
@@ -7030,15 +7096,21 @@ def process_primary_sales_upload(upload_month, file_url):
             frappe.db.commit()
             return {"success": False, "error": f"Missing required columns: {', '.join(missing)}"}
 
-        # Build caches for validation
-        # Keyed by lowercase stockist_name -> stockist_code from master
+        # Build caches for stockist resolution.
+        # Primary match key: the editable Stockist Code; fallback: Stockist Name.
+        # Both map to the master's internal id (name, e.g. S0001) — that is what
+        # Stockist Statement links to and what every report filters on, so resolving
+        # to the id keeps primary sales aligned even after a code is edited.
+        stockist_code_cache = {}
         stockist_name_cache = {}
         for s in frappe.get_all("Stockist Master",
                                 filters={"division": ["in", [user_division, "Both"]]},
-                                fields=["stockist_code", "stockist_name"],
+                                fields=["name", "stockist_code", "stockist_name"],
                                 limit_page_length=0):
+            if s.stockist_code:
+                stockist_code_cache[str(s.stockist_code).strip().lower()] = s.name
             if s.stockist_name:
-                stockist_name_cache[s.stockist_name.strip().lower()] = s.stockist_code
+                stockist_name_cache[s.stockist_name.strip().lower()] = s.name
 
         product_cache = {}
         for p in frappe.get_all("Product Master",
@@ -7081,18 +7153,27 @@ def process_primary_sales_upload(upload_month, file_url):
 
             is_cancelled = row_data.get("iscancelled", 0)
 
-            # Resolve stockist by name (required)
+            # Resolve stockist: match the Excel Stockist Code against the editable code in
+            # the master first, then fall back to Stockist Name. Store the master's internal
+            # id (name, S####) so statements/reports keep matching regardless of code edits.
+            excel_stockist_code = (row_data.get("stockist_code") or "").strip()
             excel_stockist_name = (row_data.get("stockist_name") or "").strip()
-            if not excel_stockist_name:
-                errors.append(f"Row {row_idx}: Missing stockist name")
+            if not excel_stockist_code and not excel_stockist_name:
+                errors.append(f"Row {row_idx}: Missing stockist code and name")
                 continue
 
-            matched_code = stockist_name_cache.get(excel_stockist_name.lower())
-            if matched_code:
-                row_data["stockist_code"] = matched_code
+            matched_name = None
+            if excel_stockist_code:
+                matched_name = stockist_code_cache.get(excel_stockist_code.lower())
+            if not matched_name and excel_stockist_name:
+                matched_name = stockist_name_cache.get(excel_stockist_name.lower())
+
+            if matched_name:
+                row_data["stockist_code"] = matched_name
             else:
-                errors.append(f"Row {row_idx}: Stockist name '{excel_stockist_name}' not found in Stockist Master (data saved anyway)")
-                # Keep whatever stockist_code came from Excel, or leave blank
+                ident = excel_stockist_code or excel_stockist_name
+                errors.append(f"Row {row_idx}: Stockist '{ident}' not found in Stockist Master (data saved anyway)")
+                # Leave the raw Excel stockist_code on the row so the data isn't lost
 
             # For non-cancelled rows, validate product code if present
             pcode = row_data.get("pcode", "")
@@ -7220,8 +7301,21 @@ def get_primary_sales_data(division, page=1, page_size=50,
         params["iscancelled"] = int(iscancelled)
 
     if stockist_search:
-        conditions.append("(stockist_code LIKE %(stockist_search)s OR stockist_name LIKE %(stockist_search)s)")
-        params["stockist_search"] = f"%{stockist_search}%"
+        like = f"%{stockist_search}%"
+        params["stockist_search"] = like
+        # stockist_code stores the internal id; also resolve the search against the
+        # human-facing Stockist Code so users can search by either.
+        code_pks = frappe.get_all(
+            "Stockist Master", filters={"stockist_code": ["like", like]},
+            pluck="name", limit_page_length=0,
+        )
+        search_conds = ["stockist_name LIKE %(stockist_search)s", "stockist_code LIKE %(stockist_search)s"]
+        if code_pks:
+            ph = ", ".join(f"%(scp{i})s" for i in range(len(code_pks)))
+            for i, pk in enumerate(code_pks):
+                params[f"scp{i}"] = pk
+            search_conds.append(f"stockist_code IN ({ph})")
+        conditions.append("(" + " OR ".join(search_conds) + ")")
 
     if pcode:
         conditions.append("pcode LIKE %(pcode)s")
@@ -7258,6 +7352,11 @@ def get_primary_sales_data(division, page=1, page_size=50,
         LIMIT %(page_size)s OFFSET %(offset)s""",
         params, as_dict=True
     )
+
+    # Display the human-facing Stockist Code instead of the internal id.
+    code_map = get_stockist_code_map([r["stockist_code"] for r in rows])
+    for r in rows:
+        r["stockist_code"] = code_map.get(r["stockist_code"], r["stockist_code"])
 
     return {
         "rows": rows,
@@ -7302,6 +7401,11 @@ def export_primary_sales_data(month, division):
 
     if not rows:
         frappe.throw(f"No data found for {month} in {division} division")
+
+    # Export the human-facing Stockist Code so a re-upload matches by code.
+    code_map = get_stockist_code_map([r["stockist_code"] for r in rows])
+    for r in rows:
+        r["stockist_code"] = code_map.get(r["stockist_code"], r["stockist_code"])
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -7581,7 +7685,7 @@ def get_stockist_primary_sales_report(division=None, sales_type="primary", regio
     where = " AND ".join(conditions)
 
     rows = frappe.db.sql(f"""
-        SELECT psd.stockist_code, psd.stockist_name,
+        SELECT COALESCE(sm.stockist_code, psd.stockist_code) AS stockist_code, psd.stockist_name,
                COALESCE(hm.hq_name, sm.hq, '') AS hq_name,
                psd.pcode AS product_code,
                psd.product AS product_name, psd.pack,
@@ -7590,7 +7694,7 @@ def get_stockist_primary_sales_report(division=None, sales_type="primary", regio
         LEFT JOIN `tabStockist Master` sm ON sm.name = psd.stockist_code AND sm.division = %(division)s
         LEFT JOIN `tabHQ Master` hm ON hm.name = sm.hq AND hm.division = %(division)s
         WHERE {where}
-        GROUP BY psd.stockist_code, psd.stockist_name, hm.hq_name, sm.hq,
+        GROUP BY psd.stockist_code, sm.stockist_code, psd.stockist_name, hm.hq_name, sm.hq,
                  psd.pcode, psd.product, psd.pack
         ORDER BY psd.stockist_name, psd.pcode
     """, params, as_dict=True)
@@ -7675,6 +7779,13 @@ def get_stockist_secondary_sales_report(division=None, region=None,
                  si.product_code, si.product_name, si.pack
         ORDER BY ss.stockist_name, si.product_code
     """, params, as_dict=True)
+
+    # Remap the internal id to the human-facing Stockist Code up front so the pivot
+    # columns, cell keys and labels all stay consistent.
+    code_map = get_stockist_code_map([r.stockist_code for r in rows])
+    for r in rows:
+        if r.stockist_code:
+            r.stockist_code = code_map.get(r.stockist_code, r.stockist_code)
 
     # Stockist order (alphabetical by name) and product order (master sequence)
     stockists = {}
@@ -8189,7 +8300,7 @@ def get_hq_wise_stockist_report(division=None, region=None, team=None, hq=None):
     where = " AND ".join(conditions)
 
     rows = frappe.db.sql(f"""
-        SELECT sm.name AS stockist_code, sm.stockist_name,
+        SELECT COALESCE(sm.stockist_code, sm.name) AS stockist_code, sm.stockist_name,
                sm.hq, COALESCE(hm.hq_name, sm.hq) AS hq_name,
                COALESCE(hm.team, sm.team, '') AS team,
                COALESCE(tm.team_name, hm.team, sm.team, '') AS team_name,
@@ -8256,7 +8367,7 @@ def get_stockist_address_report(division=None, region=None, criteria="ALL", team
     order_by = order_map.get(criteria, "sm.stockist_name")
 
     rows = frappe.db.sql(f"""
-        SELECT sm.name AS stockist_code, sm.stockist_name,
+        SELECT COALESCE(sm.stockist_code, sm.name) AS stockist_code, sm.stockist_name,
                sm.address, sm.city, sm.phone,
                sm.hq, COALESCE(hm.hq_name, sm.hq, '') AS hq_name,
                sm.team, COALESCE(tm.team_name, sm.team, '') AS team_name,
@@ -11087,7 +11198,8 @@ def get_region_wise_stockist_moving_trend(division=None, region=None, financial_
 
     # ── Get all active stockists in this region ──
     stockists = frappe.db.sql("""
-        SELECT sm.name AS code, sm.stockist_name, sm.hq,
+        SELECT sm.name AS code, COALESCE(sm.stockist_code, sm.name) AS display_code,
+               sm.stockist_name, sm.hq,
                COALESCE(hm.hq_name, sm.hq, '') AS hq_name,
                COALESCE(hm.team, '') AS team,
                COALESCE(tm.team_name, hm.team, '') AS team_name
@@ -11202,7 +11314,7 @@ def get_region_wise_stockist_moving_trend(division=None, region=None, financial_
         closing = to_lakhs(closing_by_stockist.get(s.code, 0))
 
         teams_dict[team_key]["stockists"].append({
-            "stockist_code": s.code,
+            "stockist_code": s.display_code or s.code,
             "stockist_name": s.stockist_name,
             "hq": s.hq_name or s.hq or "",
             "opening": opening,
@@ -12334,26 +12446,8 @@ def chatbot_query(message, conversation_history=None):
 _SECONDARY_QTY_COL_MAP = {
     "quantity": "sales_qty",
     "clstock": "closing_qty",
-    "freeqty": "free_qty",
     "opstock": "opening_qty",
 }
-
-
-def _secondary_row_month(val):
-    """Extract YYYY-MM from a statementdate cell (datetime, 'YYYY-MM-DD', or 'DD/MM/YYYY')."""
-    from datetime import datetime, date
-    if val is None:
-        return None
-    if isinstance(val, (datetime, date)):
-        return val.strftime("%Y-%m")
-    s = str(val).strip()
-    m = re.match(r"^(\d{4})-(\d{2})", s)               # 2026-03-31 / 2026-03
-    if m:
-        return f"{m.group(1)}-{m.group(2)}"
-    m = re.match(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})", s)  # 31/03/2026
-    if m:
-        return f"{m.group(3)}-{int(m.group(2)):02d}"
-    return None
 
 
 @frappe.whitelist()
@@ -12442,26 +12536,34 @@ def process_secondary_sales_upload(upload_month, file_url):
         raw_headers = [cell.value for cell in ws[1]]
         headers = [str(h).strip().lower() if h is not None else None for h in raw_headers]
 
-        # Require at least the stockist name column — everything else is lenient
-        if "stockistname" not in [h for h in headers if h]:
+        # Require the stockist code column — it's the match key (compared against the
+        # editable Stockist Code in the master). Stockist name is an optional fallback.
+        if "stockistcode" not in [h for h in headers if h]:
             wb.close()
             log_doc.reload()
             log_doc.status = "Failed"
-            log_doc.log = "Missing required column: stockistname"
+            log_doc.log = "Missing required column: stockistcode"
             log_doc.save(ignore_permissions=True)
             frappe.db.commit()
-            return {"success": False, "error": "Missing required column: stockistname", "log_name": log_doc.name}
+            return {"success": False, "error": "Missing required column: stockistcode", "log_name": log_doc.name}
 
         # ── Caches ──
-        # Stockist: STRICT name → code (division-scoped, includes 'Both')
-        stockist_name_cache = {}
+        # Stockist resolution: primary match by the editable Stockist Code, fallback by
+        # name. Both map to the master's internal id (name, S####) — that is what the
+        # Stockist Statement Link stores, so resolving to the id keeps the backfill valid
+        # even after a code is edited.
+        stockist_code_cache = {}   # editable code -> {id, status}
+        stockist_name_cache = {}   # name          -> {id, status}
         for s in frappe.get_all("Stockist Master",
                                 filters={"division": ["in", [user_division, "Both"]]},
-                                fields=["stockist_code", "stockist_name", "status"],
+                                fields=["name", "stockist_code", "stockist_name", "status"],
                                 limit_page_length=0):
+            if s.stockist_code:
+                stockist_code_cache[str(s.stockist_code).strip().lower()] = {
+                    "id": s.name, "status": s.status}
             if s.stockist_name:
                 stockist_name_cache[s.stockist_name.strip().lower()] = {
-                    "code": s.stockist_code, "status": s.status}
+                    "id": s.name, "status": s.status}
 
         # Product: code → name (authoritative mapping by code only)
         product_code_cache = set()
@@ -12479,8 +12581,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         unmapped_products = 0
         blank_rows = 0
         total_data_rows = 0
-        skipped_informational = 0   # zero-movement rows (prev-month closing carry-over)
-        skipped_prev_month_free = 0  # sales=0 & free>0 rows dated a prior month
+        skipped_zero_sales = 0   # rows where the sales (quantity) column is 0
 
         for row in ws.iter_rows(min_row=2, values_only=True):
             if all(v is None for v in row):
@@ -12492,45 +12593,48 @@ def process_secondary_sales_upload(upload_month, file_url):
                     continue
                 rec[headers[col_idx]] = val
 
+            stk_code = str(rec.get("stockistcode") or "").strip()
             stk_name = str(rec.get("stockistname") or "").strip()
             pcode = str(rec.get("pcode") or "").strip()
             raw_product = str(rec.get("product") or "").strip()
 
             # Skip rows with no stockist and no product/qty content
-            if not stk_name and not pcode and not raw_product:
+            if not stk_code and not stk_name and not pcode and not raw_product:
                 blank_rows += 1
                 continue
 
             total_data_rows += 1
 
-            if not stk_name:
-                unmatched_names["(blank stockist name)"] = unmatched_names.get("(blank stockist name)", 0) + 1
+            # Identify the stockist by code first (against the editable Stockist Code),
+            # then fall back to name.
+            ident = stk_code or stk_name
+            if not ident:
+                unmatched_names["(blank stockist code/name)"] = unmatched_names.get("(blank stockist code/name)", 0) + 1
                 continue
 
-            match = stockist_name_cache.get(stk_name.lower())
+            match = None
+            if stk_code:
+                match = stockist_code_cache.get(stk_code.lower())
+            if not match and stk_name:
+                match = stockist_name_cache.get(stk_name.lower())
             if not match:
-                unmatched_names[stk_name] = unmatched_names.get(stk_name, 0) + 1
+                unmatched_names[ident] = unmatched_names.get(ident, 0) + 1
                 continue
             if (match.get("status") or "Active") != "Active":
-                inactive_names[stk_name] = match["code"]
+                inactive_names[ident] = match["id"]
                 continue
 
-            stockist_code = match["code"]
+            # Group by and link via the internal id (S####) — required for the
+            # Stockist Statement Link field, and stable across code edits.
+            stockist_code = match["id"]
 
-            # Skip pure no-movement rows: these are previous-month closing figures
-            # the source system repeats for continuity (sales = 0 and free = 0).
+            # The "quantity" column is the final sales figure. Free quantity is NOT
+            # counted toward sales. Any row with zero sales is dropped (these are the
+            # previous-month closing carry-over rows the source repeats).
             sales_q = _parse_num(rec.get("quantity"))
-            free_q = _parse_num(rec.get("freeqty"))
-            if sales_q == 0 and free_q == 0:
-                skipped_informational += 1
+            if sales_q == 0:
+                skipped_zero_sales += 1
                 continue
-            # A free-only row (sales = 0, free > 0) is kept only when it belongs to the
-            # statement month. Dated to a prior month it is carry-over, not a dispatch.
-            if sales_q == 0 and free_q > 0:
-                row_month = _secondary_row_month(rec.get("statementdate"))
-                if row_month and row_month != str(upload_month):
-                    skipped_prev_month_free += 1
-                    continue
 
             # Product mapping is by CODE only
             if pcode and pcode in product_code_cache:
@@ -12551,6 +12655,7 @@ def process_secondary_sales_upload(upload_month, file_url):
                 "row_type": "product",
                 "mapping_status": mapping_status,
                 "pts": rate,                # per-line valuation rate (NRV / final net rate)
+                "free_qty": 0,              # free quantity is not counted toward sales
                 "free_qty_scheme": 0,
                 "purchase_qty": 0,          # not present in secondary statement files
                 "return_qty": 0,
@@ -12619,7 +12724,7 @@ def process_secondary_sales_upload(upload_month, file_url):
     if unmatched_names:
         sample = list(unmatched_names.keys())[:15]
         messages.append(
-            f"{len(unmatched_names)} stockist name(s) not found in Stockist Master "
+            f"{len(unmatched_names)} stockist(s) not found in Stockist Master by code or name "
             f"(rows skipped): " + "; ".join(sample) +
             (" ..." if len(unmatched_names) > 15 else "")
         )
@@ -12640,15 +12745,10 @@ def process_secondary_sales_upload(upload_month, file_url):
             f"{unmapped_products} row(s) had a product code not found in Product Master — "
             f"kept on the statement as unmapped (excluded from value totals)."
         )
-    if skipped_informational:
+    if skipped_zero_sales:
         messages.append(
-            f"{skipped_informational} no-movement row(s) skipped (sales = 0 and free = 0 — "
-            f"previous-month closing carry-over)."
-        )
-    if skipped_prev_month_free:
-        messages.append(
-            f"{skipped_prev_month_free} free-only row(s) skipped (sales = 0, free > 0 but "
-            f"dated a prior month — carry-over, not a current-month dispatch)."
+            f"{skipped_zero_sales} row(s) skipped (sales/quantity = 0). The quantity column "
+            f"is the final sales figure; free quantity is not counted."
         )
     if create_errors:
         messages.extend(create_errors[:15])
@@ -12662,8 +12762,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         f"Stockists in file      : {len(groups)}",
         f"Statements created     : {statements_created}",
         f"Item rows created      : {items_created}",
-        f"No-movement skipped    : {skipped_informational}",
-        f"Prev-month free skipped: {skipped_prev_month_free}",
+        f"Zero-sales rows skipped: {skipped_zero_sales}",
         f"Skipped (existed)      : {len(skipped_existing)}",
         f"Unmatched stockists    : {len(unmatched_names)}",
         f"Inactive skipped       : {len(inactive_names)}",
@@ -12671,7 +12770,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         f"Create errors          : {len(create_errors)}",
     ]
     if unmatched_names:
-        log_lines += ["", "── Unmatched stockist names (name × row-count) ──"]
+        log_lines += ["", "── Unmatched stockists (code/name × row-count) ──"]
         log_lines += [f"  • {nm}  (×{cnt})" for nm, cnt in sorted(unmatched_names.items())]
     if inactive_names:
         log_lines += ["", "── Inactive stockists skipped ──"]
@@ -12697,8 +12796,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         log_doc.inactive_stockists = len(inactive_names)
         log_doc.unmapped_products = unmapped_products
         log_doc.create_errors = len(create_errors)
-        log_doc.skipped_informational = skipped_informational
-        log_doc.skipped_prev_month_free = skipped_prev_month_free
+        log_doc.skipped_zero_sales = skipped_zero_sales
         log_doc.log = full_log[:140000]
         log_doc.save(ignore_permissions=True)
         frappe.db.commit()
@@ -12718,8 +12816,7 @@ def process_secondary_sales_upload(upload_month, file_url):
         "unmatched_stockists": len(unmatched_names),
         "inactive_stockists": len(inactive_names),
         "unmapped_products": unmapped_products,
-        "skipped_informational": skipped_informational,
-        "skipped_prev_month_free": skipped_prev_month_free,
+        "skipped_zero_sales": skipped_zero_sales,
         "create_errors": len(create_errors),
         "messages": messages,
     }
@@ -12770,7 +12867,7 @@ def export_secondary_sales_data(month, division=None, zone=None, region=None,
     rows = frappe.db.sql(f"""
         SELECT
             ss.stockist_code, ss.stockist_name, ss.statement_month,
-            ss.team, ss.region, ss.zone,
+            ss.hq, ss.team, ss.region, ss.zone,
             si.product_code, si.product_name, si.raw_product_name, si.pack,
             si.opening_qty, si.purchase_qty, si.sales_qty, si.free_qty,
             si.closing_qty, si.conversion_factor, si.pts,
@@ -12786,8 +12883,25 @@ def export_secondary_sales_data(month, division=None, zone=None, region=None,
         frappe.throw(f"No secondary sales data found for {str(month)[:7]} in {division} division")
 
     # Resolve org codes → display names (cached)
-    team_names, region_names, zone_names = {}, {}, {}
+    team_names, region_names, zone_names, hq_names = {}, {}, {}, {}
+    stk_codes = {}   # Stockist Master PK (S####) -> real stockist_code
     prod_meta = {}   # product_code -> {mrp, ptr, product_group, pts, pack, product_name}
+
+    def _stk_code(pk):
+        # ss.stockist_code is a Link to Stockist Master, so it holds the PK (S####),
+        # not the human stockist code. Resolve to the real code for export.
+        if not pk:
+            return ""
+        if pk not in stk_codes:
+            stk_codes[pk] = frappe.db.get_value("Stockist Master", pk, "stockist_code") or pk
+        return stk_codes[pk]
+
+    def _hq_name(code):
+        if not code:
+            return ""
+        if code not in hq_names:
+            hq_names[code] = frappe.db.get_value("HQ Master", code, "hq_name") or code
+        return hq_names[code]
 
     def _team_name(code):
         if not code:
@@ -12859,9 +12973,9 @@ def export_secondary_sales_data(month, division=None, zone=None, region=None,
         ptr_rate = flt(prod.get("ptr") or 0)
 
         out = [
-            row.get("stockist_code") or "",
+            _stk_code(row.get("stockist_code")),                  # real stockist code, not Master PK
             row.get("stockist_name") or "",
-            "",                                                   # citypool (not stored)
+            _hq_name(row.get("hq")),                              # citypool (mapped from stockist HQ)
             _team_name(row.get("team")),
             _region_name(row.get("region")),
             _region_name(row.get("region")),                     # act_region ≈ region
