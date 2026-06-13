@@ -1,0 +1,434 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Reload Statements{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page reload-statements-page">
+    <div class="page-header d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="page-title"><i class="fa fa-sync-alt"></i> Reload Statements</h1>
+            <p class="page-subtitle">Recompute statement totals from the latest masters for <strong>{{ division }}</strong> division</p>
+        </div>
+        <a href="/portal/stock-statements-list" class="btn btn-secondary">
+            <i class="fa fa-arrow-left"></i> Statements List
+        </a>
+    </div>
+
+    <!-- Info banner -->
+    <div class="alert alert-info d-flex align-items-start" role="alert">
+        <i class="fa fa-info-circle mr-2 mt-1"></i>
+        <div>
+            <strong>When to use this:</strong> Statements store their own totals at the time they were entered.
+            When you update a master (e.g. a product's PTS/PTR/pack, or a stockist's division/HQ), existing
+            statements and the reports built from them keep showing the old values until they are refreshed.
+            Filter the affected statements below and reload them to recompute their totals from the current masters —
+            no need to open and re-save each one manually.
+        </div>
+    </div>
+
+    <!-- Filters Card -->
+    <div class="card mb-3">
+        <div class="card-header"><i class="fa fa-filter mr-1"></i> Filter Statements to Reload</div>
+        <div class="card-body">
+            <div class="row">
+                <!-- Region -->
+                <div class="col-md-3 mb-3">
+                    <label class="rl-filter-label">Region</label>
+                    <select class="form-control form-control-sm" id="rl-region" onchange="onRLRegionChange()">
+                        <option value="">All Regions</option>
+                        {% for r in regions %}
+                        <option value="{{ r.code }}" data-zone="{{ r.zone }}">{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <!-- Team (cascades) -->
+                <div class="col-md-3 mb-3">
+                    <label class="rl-filter-label">Team</label>
+                    <select class="form-control form-control-sm" id="rl-team" onchange="onRLTeamChange()">
+                        <option value="">All Teams</option>
+                        {% for t in teams %}
+                        <option value="{{ t.code }}" data-region="{{ t.region }}">{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <!-- HQ (cascades) -->
+                <div class="col-md-3 mb-3">
+                    <label class="rl-filter-label">HQ</label>
+                    <select class="form-control form-control-sm" id="rl-hq" onchange="onRLHQChange()">
+                        <option value="">All HQs</option>
+                        {% for h in hqs %}
+                        <option value="{{ h.code }}" data-region="{{ h.region }}" data-team="{{ h.team }}">{{ h.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <!-- Stockist (cascades from HQ) -->
+                <div class="col-md-3 mb-3">
+                    <label class="rl-filter-label">Stockist</label>
+                    <select class="form-control form-control-sm" id="rl-stockist">
+                        <option value="">All Stockists</option>
+                        {% for s in stockists %}
+                        <option value="{{ s.code }}">{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <!-- From Month -->
+                <div class="col-md-3 mb-3">
+                    <label class="rl-filter-label">From Month</label>
+                    <input type="month" class="form-control form-control-sm" id="rl-from-month">
+                </div>
+                <!-- To Month -->
+                <div class="col-md-3 mb-3">
+                    <label class="rl-filter-label">To Month</label>
+                    <input type="month" class="form-control form-control-sm" id="rl-to-month">
+                </div>
+                <div class="col-md-6 mb-3 d-flex align-items-end">
+                    <button class="btn btn-primary btn-sm mr-2" onclick="previewReload()">
+                        <i class="fa fa-search mr-1"></i> Preview Statements
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="clearReloadFilters()">
+                        <i class="fa fa-times mr-1"></i> Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Results Card -->
+    <div class="card mb-3" id="reloadPreviewCard" style="display:none;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="fa fa-list mr-1"></i> Statements to Reload (<span id="reloadPreviewCount">0</span>)</span>
+            <span class="badge badge-primary" id="reloadPreviewBadge">0 selected</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive" style="max-height:360px;overflow-y:auto;">
+                <table class="table table-sm table-bordered mb-0" id="reloadPreviewTable">
+                    <thead style="position:sticky;top:0;z-index:2;">
+                        <tr style="background:#1e293b;color:#fff;">
+                            <th style="width:36px;">
+                                <input type="checkbox" id="rlSelectAll" title="Select / Deselect all" onchange="toggleReloadSelectAll(this)">
+                            </th>
+                            <th>Statement</th>
+                            <th>Stockist</th>
+                            <th>HQ</th>
+                            <th>Region</th>
+                            <th>Month</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reloadPreviewBody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <small class="text-muted">Check the statements to refresh, then click Reload Selected. Totals are recomputed from the current masters.</small>
+            <button class="btn btn-primary btn-sm" id="btnReload" onclick="openReloadModal()" disabled>
+                <i class="fa fa-sync-alt mr-1"></i> Reload Selected
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Reload Confirmation Modal -->
+<div class="modal fade" id="reloadModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fa fa-sync-alt mr-1"></i> Confirm Reload</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info mb-3">
+                    <i class="fa fa-info-circle mr-1"></i>
+                    You are about to recompute totals for <strong id="reloadCountLabel">0</strong> statement(s)
+                    using the current master values. This is safe and reversible (just reload again) — it only
+                    refreshes computed totals and does not change the entered quantities.
+                </div>
+                <div class="mb-0" id="reloadSummaryList" style="max-height:240px;overflow-y:auto;font-size:12px;background:#f8f9fa;border-radius:6px;padding:10px;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmReloadBtn" onclick="confirmReload()">
+                    <i class="fa fa-sync-alt mr-1"></i> Reload Now
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .rl-filter-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: #64748b;
+        letter-spacing: 0.4px;
+        margin-bottom: 4px;
+        display: block;
+    }
+    #reloadPreviewTable th { font-size: 11px; padding: 7px 8px; }
+    #reloadPreviewTable td { font-size: 12px; padding: 5px 8px; vertical-align: middle; }
+    #reloadPreviewTable tbody tr.selected-row { background: #eff6ff; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function getActiveDivision() {
+    try {
+        const btn = document.querySelector('.division-name');
+        if (btn && btn.textContent.trim()) return btn.textContent.trim();
+    } catch (e) {}
+    const match = document.cookie.match(/(?:^|;\s*)division=([^;]*)/);
+    if (match) return decodeURIComponent(match[1]);
+    return 'Prima';
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str == null ? '' : str;
+    return div.innerHTML;
+}
+
+function showAlert(msg, type) {
+    const a = $(`<div class="alert alert-${type} alert-dismissible fade show" role="alert"
+        style="position:fixed;top:70px;right:20px;z-index:9999;min-width:350px;box-shadow:0 4px 6px rgba(0,0,0,.15);max-width:500px;">
+        <strong>${msg}</strong>
+        <button type="button" class="close" data-dismiss="alert">&times;</button></div>`);
+    $('body').append(a);
+    setTimeout(() => a.fadeOut(() => a.remove()), 5000);
+}
+
+// Cascading filter context
+var RL_TEAMS_RAW = {{ teams | tojson }};
+var RL_HQS_RAW   = {{ hqs | tojson }};
+var RL_STKS_RAW  = {{ stockists | tojson }};
+var rlPreviewData = [];
+
+var RL_TEAMS_BY_REGION = {};
+RL_TEAMS_RAW.forEach(function(t) {
+    if (t.region) {
+        if (!RL_TEAMS_BY_REGION[t.region]) RL_TEAMS_BY_REGION[t.region] = [];
+        RL_TEAMS_BY_REGION[t.region].push(t);
+    }
+});
+var RL_HQS_BY_TEAM = {};
+RL_HQS_RAW.forEach(function(h) {
+    if (h.team) {
+        if (!RL_HQS_BY_TEAM[h.team]) RL_HQS_BY_TEAM[h.team] = [];
+        RL_HQS_BY_TEAM[h.team].push(h);
+    }
+});
+var RL_HQS_BY_REGION = {};
+RL_HQS_RAW.forEach(function(h) {
+    if (h.region) {
+        if (!RL_HQS_BY_REGION[h.region]) RL_HQS_BY_REGION[h.region] = [];
+        RL_HQS_BY_REGION[h.region].push(h);
+    }
+});
+
+function rebuildRLSelect(id, items, placeholder, codeKey, nameKey) {
+    codeKey = codeKey || 'code';
+    nameKey = nameKey || 'name';
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    sel.innerHTML = '<option value="">' + placeholder + '</option>';
+    items.forEach(function(item) {
+        var opt = document.createElement('option');
+        opt.value = item[codeKey];
+        opt.textContent = item[nameKey];
+        sel.appendChild(opt);
+    });
+}
+
+function onRLRegionChange() {
+    var region = document.getElementById('rl-region').value;
+    var teams = region ? (RL_TEAMS_BY_REGION[region] || []) : RL_TEAMS_RAW;
+    rebuildRLSelect('rl-team', teams, 'All Teams');
+    onRLTeamChange();
+}
+
+function onRLTeamChange() {
+    var team = document.getElementById('rl-team').value;
+    var region = document.getElementById('rl-region').value;
+    var hqs;
+    if (team) {
+        hqs = RL_HQS_BY_TEAM[team] || [];
+    } else if (region) {
+        hqs = RL_HQS_BY_REGION[region] || RL_HQS_RAW;
+    } else {
+        hqs = RL_HQS_RAW;
+    }
+    rebuildRLSelect('rl-hq', hqs, 'All HQs');
+    onRLHQChange();
+}
+
+function onRLHQChange() {
+    rebuildRLSelect('rl-stockist', RL_STKS_RAW, 'All Stockists');
+}
+
+function clearReloadFilters() {
+    ['rl-region','rl-team','rl-hq','rl-stockist','rl-from-month','rl-to-month'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    rebuildRLSelect('rl-team', RL_TEAMS_RAW, 'All Teams');
+    rebuildRLSelect('rl-hq', RL_HQS_RAW, 'All HQs');
+    rebuildRLSelect('rl-stockist', RL_STKS_RAW, 'All Stockists');
+    $('#reloadPreviewCard').hide();
+    rlPreviewData = [];
+}
+
+function previewReload() {
+    var params = {
+        division: getActiveDivision(),
+        region:   document.getElementById('rl-region').value || null,
+        team:     document.getElementById('rl-team').value || null,
+        hq:       document.getElementById('rl-hq').value || null,
+        stockist_code: document.getElementById('rl-stockist').value || null,
+        from_month: document.getElementById('rl-from-month').value || null,
+        to_month:   document.getElementById('rl-to-month').value || null,
+    };
+
+    $.ajax({
+        url: '/api/method/scanify.api.get_statements_for_reload',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify(params),
+        success: function(r) {
+            if (r.message && r.message.success) {
+                rlPreviewData = r.message.statements || [];
+                renderReloadPreview(rlPreviewData);
+            } else {
+                showAlert((r.message && r.message.message) || 'Failed to load preview', 'danger');
+            }
+        },
+        error: function() { showAlert('Error loading preview', 'danger'); }
+    });
+}
+
+function renderReloadPreview(statements) {
+    var tbody = document.getElementById('reloadPreviewBody');
+    if (!statements.length) {
+        $('#reloadPreviewCard').show();
+        $('#reloadPreviewCount').text(0);
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No statements found for the selected filters.</td></tr>';
+        updateReloadBtn();
+        return;
+    }
+    var html = '';
+    statements.forEach(function(s) {
+        var statusBadge = s.docstatus === 1
+            ? '<span class="badge badge-success">Submitted</span>'
+            : '<span class="badge badge-warning">Draft</span>';
+        var monthDisplay = s.month_display || (s.statement_month ? s.statement_month.toString().substring(0, 7) : '—');
+        try {
+            var d = new Date(monthDisplay + '-01');
+            monthDisplay = d.toLocaleDateString('en-IN', {month: 'short', year: 'numeric'});
+        } catch(e) {}
+        html += '<tr data-name="' + escapeHtml(s.name) + '">'
+             +  '<td><input type="checkbox" class="rl-row-check" value="' + escapeHtml(s.name) + '" onchange="updateReloadBtn()"></td>'
+             +  '<td><small class="text-muted">' + escapeHtml(s.name) + '</small></td>'
+             +  '<td>' + escapeHtml(s.stockist_name || '') + '<br><small class="text-muted">' + escapeHtml(s.stockist_code || '') + '</small></td>'
+             +  '<td>' + escapeHtml(s.hq_name || s.hq || '') + '</td>'
+             +  '<td>' + escapeHtml(s.region_name || s.region || '') + '</td>'
+             +  '<td>' + escapeHtml(monthDisplay) + '</td>'
+             +  '<td>' + statusBadge + '</td>'
+             +  '</tr>';
+    });
+    tbody.innerHTML = html;
+    $('#reloadPreviewCount').text(statements.length);
+    $('#reloadPreviewCard').show();
+    $('#rlSelectAll').prop('checked', false);
+    updateReloadBtn();
+}
+
+function toggleReloadSelectAll(checkbox) {
+    $('.rl-row-check').prop('checked', checkbox.checked);
+    $('.rl-row-check').closest('tr').toggleClass('selected-row', checkbox.checked);
+    updateReloadBtn();
+}
+
+function updateReloadBtn() {
+    var checked = $('.rl-row-check:checked').length;
+    var total = $('.rl-row-check').length;
+    $('#reloadPreviewBadge').text(checked + ' selected');
+    $('#btnReload').prop('disabled', checked === 0);
+    $('.rl-row-check').each(function() {
+        $(this).closest('tr').toggleClass('selected-row', this.checked);
+    });
+    if (total > 0) {
+        $('#rlSelectAll').prop('indeterminate', checked > 0 && checked < total);
+        $('#rlSelectAll').prop('checked', checked === total);
+    }
+}
+
+function openReloadModal() {
+    var selected = [];
+    $('.rl-row-check:checked').each(function() { selected.push($(this).val()); });
+    if (!selected.length) return;
+
+    $('#reloadCountLabel').text(selected.length);
+
+    var summaryHtml = '<strong>' + selected.length + ' statement(s) will be refreshed:</strong><ul class="mt-2 mb-0 pl-3">';
+    selected.forEach(function(name) {
+        var stmt = rlPreviewData.find(function(s) { return s.name === name; });
+        if (stmt) {
+            summaryHtml += '<li>' + escapeHtml(stmt.stockist_name || name)
+                + ' &mdash; ' + escapeHtml(stmt.hq_name || stmt.hq || '')
+                + ' &mdash; ' + escapeHtml((stmt.month_display || '').substring(0, 7)) + '</li>';
+        } else {
+            summaryHtml += '<li>' + escapeHtml(name) + '</li>';
+        }
+    });
+    summaryHtml += '</ul>';
+    $('#reloadSummaryList').html(summaryHtml);
+    $('#reloadModal').modal('show');
+}
+
+function confirmReload() {
+    var selected = [];
+    $('.rl-row-check:checked').each(function() { selected.push($(this).val()); });
+    if (!selected.length) return;
+
+    var $btn = $('#confirmReloadBtn');
+    $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i> Reloading...');
+
+    $.ajax({
+        url: '/api/method/scanify.api.reload_stockist_statements',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify({
+            doc_names: JSON.stringify(selected),
+            division: getActiveDivision()
+        }),
+        success: function(r) {
+            $btn.prop('disabled', false).html('<i class="fa fa-sync-alt mr-1"></i> Reload Now');
+            $('#reloadModal').modal('hide');
+            if (r.message) {
+                showAlert(r.message.message || 'Reload complete.', r.message.errors && r.message.errors.length ? 'warning' : 'success');
+                (r.message.reloaded || []).forEach(function(name) {
+                    var $row = $('tr[data-name="' + name + '"]');
+                    $row.find('.rl-row-check').prop('checked', false);
+                    $row.removeClass('selected-row').addClass('table-success');
+                    setTimeout(function() { $row.removeClass('table-success'); }, 2500);
+                });
+                updateReloadBtn();
+            } else {
+                showAlert('Reload failed', 'danger');
+            }
+        },
+        error: function(xhr) {
+            $btn.prop('disabled', false).html('<i class="fa fa-sync-alt mr-1"></i> Reload Now');
+            $('#reloadModal').modal('hide');
+            const errMsg = xhr.responseJSON && xhr.responseJSON._server_messages
+                ? JSON.parse(JSON.parse(xhr.responseJSON._server_messages)[0]).message
+                : 'Reload failed. Please try again.';
+            showAlert(errMsg, 'danger');
+        }
+    });
+}
+</script>
+{% endblock %}

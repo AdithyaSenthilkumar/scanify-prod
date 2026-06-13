@@ -6937,6 +6937,88 @@ def bulk_delete_stockist_statements(doc_names, reason, division=None):
     return {"success": True, "deleted": deleted, "errors": errors, "message": msg}
 
 
+# ===================== RELOAD / REFRESH STATEMENT TOTALS =====================
+
+@frappe.whitelist()
+def get_statements_for_reload(division=None, region=None, team=None, hq=None,
+                              stockist_code=None, from_month=None, to_month=None):
+    """Return statements matching the filters, for the bulk 'Reload Statements' screen.
+
+    Reuses the same filter query as the bulk-delete preview (pure filter + list,
+    no destructive action), so the two screens stay in sync.
+    """
+    return get_bulk_delete_preview(
+        division=division, region=region, team=team, hq=hq,
+        stockist_code=stockist_code, from_month=from_month, to_month=to_month,
+    )
+
+
+@frappe.whitelist()
+def reload_stockist_statements(doc_names, division=None):
+    """Recompute totals for the given statements using the live masters.
+
+    Replicates what manually re-saving a Stockist Statement does — re-runs the
+    division, closing/total value and QC-confidence calculations against the
+    current Product Master (PTS/PTR/pack) — but for many statements at once and
+    WITHOUT re-triggering submit-time side effects (e.g. next-month opening).
+    Use this after masters are updated so report/statement totals reflect the
+    new master values.
+    """
+    import json as _json
+    if not division:
+        division = get_user_division()
+
+    if isinstance(doc_names, str):
+        try:
+            doc_names = _json.loads(doc_names)
+        except Exception:
+            doc_names = [d.strip() for d in doc_names.split(",") if d.strip()]
+
+    if not doc_names:
+        return {"success": False, "message": "No statements provided to reload."}
+
+    reloaded, errors = [], []
+    for doc_name in doc_names:
+        try:
+            if not frappe.db.exists("Stockist Statement", doc_name):
+                errors.append(f"{doc_name}: not found")
+                continue
+
+            doc = frappe.get_doc("Stockist Statement", doc_name)
+
+            # Force the PTS rate to be re-read from the live Product Master.
+            # On a normal statement item.pts holds a cached copy of the master PTS
+            # (written back on every save), so the calc's "non-zero item.pts wins"
+            # rule would otherwise keep the OLD rate and defeat the point of a
+            # master-driven refresh. Backfilled statements (skip_conversion) carry a
+            # genuine per-line source net-rate in item.pts, so leave those untouched.
+            if not getattr(doc, "skip_conversion", 0):
+                for item in doc.items:
+                    if item.product_code:
+                        item.pts = 0
+
+            # Re-run the same calculations the form does on validate, but persist
+            # only the derived fields so submitted statements can be refreshed too.
+            doc.set_division_from_stockist()
+            doc.calculate_closing_and_totals()
+            doc.calculate_qc_confidence()
+
+            for item in doc.items:
+                item.db_update()
+            doc.db_update()
+
+            reloaded.append(doc_name)
+        except Exception as e:
+            frappe.log_error(frappe.get_traceback(), "Reload Statement Totals Error")
+            errors.append(f"{doc_name}: {str(e)}")
+
+    frappe.db.commit()
+    msg = f"{len(reloaded)} statement(s) refreshed."
+    if errors:
+        msg += f" {len(errors)} error(s): " + "; ".join(errors[:3])
+    return {"success": True, "reloaded": reloaded, "errors": errors, "message": msg}
+
+
 # ===================== DUPLICATE STATEMENT CHECK =====================
 
 @frappe.whitelist()
