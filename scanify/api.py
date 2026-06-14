@@ -9117,8 +9117,9 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         # Two-row header
         hdr_row1 = row
         hdr_row2 = row + 1
-        # First col: "HQ"
-        cell = ws.cell(row=hdr_row1, column=1, value="Months")
+        # First col: "HQ" (merged vertically across both header rows — set the
+        # anchor cell only; the merged cell below it is read-only in openpyxl)
+        cell = ws.cell(row=hdr_row1, column=1, value="HQ")
         cell.font = header_font; cell.fill = header_fill; cell.alignment = header_align; cell.border = thin_border
         ws.merge_cells(start_row=hdr_row1, start_column=1, end_row=hdr_row2, end_column=1)
         # Per-month header pairs
@@ -9132,12 +9133,6 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                 c = ws.cell(row=hdr_row2, column=col_cursor + sub, value=lbl)
                 c.font = header_font; c.fill = header_fill; c.alignment = header_align; c.border = thin_border
             col_cursor += 2
-
-        # Override row-1 col-1 label to "HQ"
-        ws.cell(row=hdr_row2, column=1, value="HQ").font = header_font
-        ws.cell(row=hdr_row2, column=1).fill = header_fill
-        ws.cell(row=hdr_row2, column=1).alignment = header_align
-        ws.cell(row=hdr_row2, column=1).border = thin_border
 
         row = hdr_row2 + 1
 
