@@ -36,6 +36,7 @@
                         <option value="region_product_stock">9. Product Closing Stock – Region Summary (HQ &amp; Stockist-wise)</option>
                         <option value="primary_moving_trend">10. Primary Sales Moving Trend</option>
                         <option value="sec_vs_closing">11. Secondary Sales Value vs Closing Stock Value (HQ-wise)</option>
+                        <option value="monthly_org">13. Full Monthly Organizational Report (Zone › Region › Team › HQ)</option>
                     </select>
                 </div>
                 <div class="col-md-5 col-lg-6 mt-3 mt-md-0 d-flex align-items-end" style="gap:8px;">
@@ -275,6 +276,29 @@
             <div class="sr-filter-item filter-field" data-reports="sec_vs_closing" style="min-width:260px;flex:1 1 260px;max-width:420px;">
                 <label class="sr-filter-label">Regions <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-svc-regions" multiple>
+                    {% for r in regions %}
+                    <option value="{{ r.code }}">{{ r.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <!-- Month (Report 13 — single month) -->
+            <div class="sr-filter-item filter-field" data-reports="monthly_org">
+                <label class="sr-filter-label">Month</label>
+                <input type="month" class="form-control form-control-sm sr-filter-select" id="f-org-month">
+            </div>
+            <!-- Zones multi-select (Report 13, optional) -->
+            <div class="sr-filter-item filter-field" data-reports="monthly_org" style="min-width:220px;flex:1 1 220px;max-width:380px;">
+                <label class="sr-filter-label">Zones <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-org-zones" multiple>
+                    {% for z in zones %}
+                    <option value="{{ z.code }}">{{ z.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <!-- Regions multi-select (Report 13, optional) -->
+            <div class="sr-filter-item filter-field" data-reports="monthly_org" style="min-width:240px;flex:1 1 240px;max-width:400px;">
+                <label class="sr-filter-label">Regions <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-org-regions" multiple>
                     {% for r in regions %}
                     <option value="{{ r.code }}">{{ r.name }}</option>
                     {% endfor %}
@@ -760,6 +784,21 @@ $(document).ready(function() {
         dropdownParent: $(".sr-filters-panel"),
         closeOnSelect: false,
     });
+    // Multi-select zones/regions for Report 13
+    $("#f-org-zones").select2({
+        width: "100%",
+        placeholder: "All zones",
+        allowClear: true,
+        dropdownParent: $(".sr-filters-panel"),
+        closeOnSelect: false,
+    });
+    $("#f-org-regions").select2({
+        width: "100%",
+        placeholder: "All regions",
+        allowClear: true,
+        dropdownParent: $(".sr-filters-panel"),
+        closeOnSelect: false,
+    });
     // Pre-populate team and HQ dropdowns with all options
     rebuildSelect("f-team", CTX_TEAMS_RAW, "All Teams");
     rebuildSelect("f-hq", CTX_HQS_RAW, "All HQs");
@@ -888,6 +927,7 @@ function generateReport() {
         region_product_stock: "scanify.api.get_region_product_closing_stock",
         primary_moving_trend: "scanify.api.get_primary_sales_moving_trend",
         sec_vs_closing: "scanify.api.get_secondary_vs_closing_value_report",
+        monthly_org: "scanify.api.get_monthly_organizational_report",
     };
 
     document.getElementById("report-loading").style.display = "block";
@@ -1024,6 +1064,17 @@ function buildParams() {
         var regs = $("#f-svc-regions").val() || [];
         if (regs.length) p.region_codes = JSON.stringify(regs);
         p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
+    } else if (currentReportType === "monthly_org") {
+        const mo = document.getElementById("f-org-month").value;
+        if (!mo) {
+            showAlert("Please pick a month.", "warning");
+            return null;
+        }
+        p.month = mo;
+        var ozones = $("#f-org-zones").val() || [];
+        if (ozones.length) p.zone_codes = JSON.stringify(ozones);
+        var oregs = $("#f-org-regions").val() || [];
+        if (oregs.length) p.region_codes = JSON.stringify(oregs);
     }
     return p;
 }
@@ -1049,6 +1100,7 @@ function renderReport(result) {
         region_product_stock: renderRegionProductStock,
         primary_moving_trend: renderSecMovingTrend,  // Same shape as Report 7
         sec_vs_closing: renderSecVsClosing,
+        monthly_org: renderMonthlyOrg,
     };
 
     const renderer = renderers[currentReportType];
@@ -1082,6 +1134,7 @@ function renderReport(result) {
         region_product_stock: "Product Closing Stock – Region Summary",
         primary_moving_trend: "Primary Sales Moving Trend",
         sec_vs_closing: "Secondary Sales vs Closing Stock Value",
+        monthly_org: "Full Monthly Organizational Report",
     };
     const regionSel = document.getElementById("f-region");
     const region = regionSel.options[regionSel.selectedIndex]?.text || "All Regions";
@@ -1127,6 +1180,11 @@ function renderReport(result) {
         subtitle += ` | Values in Rs. Lakhs`;
     }
 
+    if (currentReportType === "monthly_org") {
+        subtitle = `Month: ${result.month_label || ""}`;
+        subtitle += ` | Net = Billed + Free − Scheme | Values in Rs. Lakhs`;
+    }
+
     currentReportMeta = {
         title: titles[currentReportType] + " – " + DIVISION,
         subtitle: subtitle,
@@ -1156,6 +1214,15 @@ function getDataLength(result) {
     }
     if (currentReportType === "sec_vs_closing") {
         return (result.regions || []).reduce(function(s, r) { return s + (r.hqs || []).length; }, 0);
+    }
+    if (currentReportType === "monthly_org") {
+        var n = 0;
+        (result.zones || []).forEach(function(z) {
+            (z.regions || []).forEach(function(r) {
+                (r.teams || []).forEach(function(t) { n += (t.hqs || []).length; });
+            });
+        });
+        return n;
     }
     if (currentReportType === "secondary_sales") {
         return (result.products || []).length;
@@ -1580,6 +1647,62 @@ function renderSecVsClosing(result, thead, tbody) {
     tbody.innerHTML = html;
 }
 
+// ---------- Report 13: Full Monthly Organizational Report ----------
+function renderMonthlyOrg(result, thead, tbody) {
+    var zones = result.zones || [];
+
+    function lk(v) {
+        var n = (Number(v) || 0) / 100000;
+        return n ? n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+    }
+    function valCells(t, style) {
+        return ["opening", "billed", "free", "scheme", "net", "closing"].map(function(k) {
+            return "<td class='text-right' style='" + (style || "") + "'>" + lk(t[k]) + "</td>";
+        }).join("");
+    }
+
+    thead.innerHTML =
+        "<tr>"
+        + "<th style='text-align:left;'>Geography</th>"
+        + "<th class='text-right'>Opening</th>"
+        + "<th class='text-right'>Billed Sales</th>"
+        + "<th class='text-right'>Free Goods</th>"
+        + "<th class='text-right'>Scheme Deduction</th>"
+        + "<th class='text-right'>Net Sales</th>"
+        + "<th class='text-right'>Closing</th>"
+        + "</tr>";
+
+    var html = "";
+    zones.forEach(function(z) {
+        html += "<tr class='section-header-row' style='background:#1e293b;color:#fff;'>"
+              + "<td style='font-weight:700;'>ZONE: " + esc(z.zone_name) + "</td>"
+              + valCells(z.totals, "font-weight:700;color:#fff;") + "</tr>";
+
+        (z.regions || []).forEach(function(reg) {
+            html += "<tr class='group-row' style='background:#d9e2f3;'>"
+                  + "<td style='font-weight:700;padding-left:16px;'>" + esc(reg.region_name) + "</td>"
+                  + valCells(reg.totals, "font-weight:700;") + "</tr>";
+
+            (reg.teams || []).forEach(function(tm) {
+                html += "<tr class='subtotal-row' style='background:#f1f5f9;'>"
+                      + "<td style='font-weight:600;padding-left:30px;'>Team: " + esc(tm.team_name) + "</td>"
+                      + valCells(tm.totals, "font-weight:600;") + "</tr>";
+
+                (tm.hqs || []).forEach(function(h) {
+                    html += "<tr><td style='padding-left:46px;'>" + esc(h.hq_name) + "</td>"
+                          + valCells(h, "") + "</tr>";
+                });
+            });
+        });
+    });
+
+    if (result.grand_total) {
+        html += "<tr class='grand-total-row'><td style='font-weight:800;'>GRAND TOTAL</td>"
+              + valCells(result.grand_total, "font-weight:800;") + "</tr>";
+    }
+    tbody.innerHTML = html;
+}
+
 // ─────────────────────────────────────────────────────────────
 // Download Excel (server-side)
 // ─────────────────────────────────────────────────────────────
@@ -1890,7 +2013,9 @@ async function downloadPDF() {
 
     // ═══════════════════════════════════════════════
     // FINAL PAGES: Consolidated Summary + Charts (LAST per client requirement)
+    // Report 13 (monthly_org) is detail-table only — no consolidated summary page.
     // ═══════════════════════════════════════════════
+    if (currentReportType !== "monthly_org") {
     doc.addPage();
     startY = addPDFHeader(doc, currentReportMeta.title, "Consolidated Summary");
 
@@ -2663,6 +2788,7 @@ async function downloadPDF() {
         doc.text("Total records: " + rowCount, 14, startY + 12);
         doc.setTextColor(0);
     }
+    }  // end summary section (skipped for monthly_org)
 
     addPageFooter(doc);
 

@@ -9183,6 +9183,68 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                     cell.alignment = Alignment(horizontal="right")
             row += 1
 
+    elif report_type == "monthly_org":
+        # Report 13 – Full Monthly Organizational Report (Zone → Region → Team → HQ)
+        month = kwargs.get("month", "")
+        zone_codes = kwargs.get("zone_codes", "")
+        region_codes = kwargs.get("region_codes", "")
+        ws.title = "Monthly Org Report"
+        result = get_monthly_organizational_report(division, month or None,
+                                                    zone_codes or None, region_codes or None)
+        zones = result.get("zones", [])
+        grand = result.get("grand_total", {})
+        month_label = result.get("month_label", month)
+
+        row = write_title_rows(
+            ws, f"Full Monthly Organizational Report – {division}",
+            f"Month: {month_label}  |  Net = Billed + Free - Scheme  |  Values in Rs. Lakhs")
+        headers = ["Geography", "Opening", "Billed Sales", "Free Goods",
+                   "Scheme Deduction", "Net Sales", "Closing"]
+        write_header_row(ws, row, headers)
+        row += 1
+
+        LAKH = 100000.0
+
+        def _L(v):
+            return round(flt(v) / LAKH, 2) if v else None
+
+        def _tv(t):
+            return [_L(t.get("opening")), _L(t.get("billed")), _L(t.get("free")),
+                    _L(t.get("scheme")), _L(t.get("net")), _L(t.get("closing"))]
+
+        zone_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+        zone_font = Font(bold=True, size=11, color="FFFFFF")
+        region_fill = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
+        region_font = Font(bold=True, size=11, color="1E293B")
+        team_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+        team_font = Font(bold=True, size=10)
+        grand_fill = PatternFill(start_color="C00000", end_color="C00000", fill_type="solid")
+        grand_font = Font(bold=True, size=12, color="FFFFFF")
+        right_align = Alignment(horizontal="right")
+
+        def _emit(rownum, label, vals, fill=None, font=None):
+            for c, v in enumerate([label] + vals, 1):
+                cell = ws.cell(row=rownum, column=c, value=v)
+                cell.border = thin_border
+                if fill:
+                    cell.fill = fill
+                if font:
+                    cell.font = font
+                if c > 1:
+                    cell.alignment = right_align
+
+        for z in zones:
+            _emit(row, f"ZONE: {z['zone_name']}", _tv(z["totals"]), zone_fill, zone_font); row += 1
+            for reg in z["regions"]:
+                _emit(row, "  " + reg["region_name"], _tv(reg["totals"]), region_fill, region_font); row += 1
+                for tm in reg["teams"]:
+                    _emit(row, "    Team: " + tm["team_name"], _tv(tm["totals"]), team_fill, team_font); row += 1
+                    for h in tm["hqs"]:
+                        _emit(row, "      " + h["hq_name"],
+                              [_L(h["opening"]), _L(h["billed"]), _L(h["free"]),
+                               _L(h["scheme"]), _L(h["net"]), _L(h["closing"])]); row += 1
+        _emit(row, "GRAND TOTAL", _tv(grand), grand_fill, grand_font); row += 1
+
     else:
         frappe.throw("Invalid report type")
 
@@ -9214,6 +9276,7 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         "region_product_stock": "Product Closing Stock Region Summary",
         "primary_moving_trend": "Primary Sales Moving Trend",
         "sec_vs_closing": "Secondary Sales vs Closing Stock Value",
+        "monthly_org": "Full Monthly Organizational Report",
     }
     import re as _re
     from datetime import date as _date
@@ -11625,6 +11688,136 @@ def get_secondary_vs_closing_value_report(division=None, from_month=None, to_mon
         "from_month": from_month,
         "to_month": to_month,
         "sales_mode": sales_mode,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# REPORT 13 – FULL MONTHLY ORGANIZATIONAL REPORT
+# Single month, whole-organization rollup grouped Zone → Region → Team → HQ.
+# Reconciling value columns (₹): Opening | Billed Sales | Free Goods |
+# Scheme Deduction | Net Sales | Closing, where Net = Billed + Free − Scheme.
+# Billed ties to the export's nrvvalue (stored sales_value_pts) and Closing to
+# clsvalue, so the headline numbers match the Secondary Sales export exactly.
+# ═══════════════════════════════════════════════════════════════
+
+@frappe.whitelist()
+def get_monthly_organizational_report(division=None, month=None,
+                                      zone_codes=None, region_codes=None):
+    """Report 13 – Full Monthly Organizational secondary-sales report.
+
+    month: YYYY-MM (any day resolves to that calendar month; defaults to current).
+    zone_codes / region_codes: optional multi-select narrowing (JSON list or CSV).
+
+    Grouping follows the statements' own org columns (zone/region/team/hq) and
+    includes every draft+submitted statement for the month — no active-master
+    filtering — so totals reconcile to the Secondary Sales export to the rupee.
+    Amounts are returned in rupees; the frontend/Excel format to ₹ Lakhs.
+    """
+    if not division:
+        division = get_user_division()
+
+    from datetime import date as _date, datetime as _datetime
+    import calendar
+
+    if not month:
+        month = _date.today().strftime("%Y-%m")
+    try:
+        y, m = str(month)[:7].split("-")
+        y, m = int(y), int(m)
+        first_day = f"{y:04d}-{m:02d}-01"
+        last_day = f"{y:04d}-{m:02d}-{calendar.monthrange(y, m)[1]:02d}"
+        month_label = _datetime.strptime(first_day, "%Y-%m-%d").strftime("%b-%y")
+    except Exception:
+        return {"success": False, "message": "Invalid month (expected YYYY-MM)."}
+
+    zone_codes_n = _normalise_code_list(zone_codes)
+    region_codes_n = _normalise_code_list(region_codes)
+
+    conds = ["ss.division = %s", "ss.docstatus IN (0, 1)",
+             "ss.statement_month BETWEEN %s AND %s"]
+    params = [division, first_day, last_day]
+    if zone_codes_n:
+        conds.append("ss.zone IN (" + ", ".join(["%s"] * len(zone_codes_n)) + ")")
+        params += zone_codes_n
+    if region_codes_n:
+        conds.append("ss.region IN (" + ", ".join(["%s"] * len(region_codes_n)) + ")")
+        params += region_codes_n
+    where = " AND ".join(conds)
+
+    conv = "IFNULL(NULLIF(si.conversion_factor, 0), 1)"
+    pts = "IFNULL(si.pts, 0)"
+
+    rows = frappe.db.sql(f"""
+        SELECT ss.zone AS zone, ss.region AS region, ss.team AS team, ss.hq AS hq,
+               SUM(IFNULL(si.sales_value_pts, 0))                       AS billed,
+               SUM((IFNULL(si.free_qty, 0) / {conv}) * {pts})           AS free,
+               SUM((IFNULL(si.free_qty_scheme, 0) / {conv}) * {pts})    AS scheme,
+               SUM(IFNULL(si.opening_value, 0))                         AS opening,
+               SUM(IFNULL(si.closing_value, 0))                         AS closing
+          FROM `tabStockist Statement` ss
+    INNER JOIN `tabStockist Statement Item` si
+            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+         WHERE {where}
+      GROUP BY ss.zone, ss.region, ss.team, ss.hq
+    """, params, as_dict=True)
+
+    def _names(doctype, name_field):
+        return {r["name"]: r.get(name_field) for r in frappe.get_all(
+            doctype, fields=["name", name_field], limit_page_length=0)}
+
+    zone_names = _names("Zone Master", "zone_name")
+    region_names = _names("Region Master", "region_name")
+    team_names = _names("Team Master", "team_name")
+    hq_names = _names("HQ Master", "hq_name")
+
+    def _blank():
+        return {"opening": 0.0, "billed": 0.0, "free": 0.0,
+                "scheme": 0.0, "net": 0.0, "closing": 0.0}
+
+    def _accum(dst, src):
+        for k in dst:
+            dst[k] += flt(src.get(k, 0))
+
+    zones = {}
+    grand = _blank()
+    for r in rows:
+        billed, free, scheme = flt(r.billed), flt(r.free), flt(r.scheme)
+        vals = {"opening": flt(r.opening), "billed": billed, "free": free,
+                "scheme": scheme, "net": billed + free - scheme, "closing": flt(r.closing)}
+        zc = r.zone or "—"; rc = r.region or "—"; tc = r.team or "—"; hc = r.hq or "—"
+        z = zones.setdefault(zc, {"zone_code": zc, "zone_name": zone_names.get(zc) or zc,
+                                  "regions": {}, "totals": _blank()})
+        reg = z["regions"].setdefault(rc, {"region_code": rc, "region_name": region_names.get(rc) or rc,
+                                            "teams": {}, "totals": _blank()})
+        tm = reg["teams"].setdefault(tc, {"team_code": tc, "team_name": team_names.get(tc) or tc,
+                                           "hqs": [], "totals": _blank()})
+        tm["hqs"].append({"hq_code": hc, "hq_name": hq_names.get(hc) or hc, **vals})
+        _accum(tm["totals"], vals)
+        _accum(reg["totals"], vals)
+        _accum(z["totals"], vals)
+        _accum(grand, vals)
+
+    def _sorted(d, key):
+        return sorted(d.values(), key=lambda x: (x[key] or "").lower())
+
+    zones_out = []
+    for z in _sorted(zones, "zone_name"):
+        z["regions"] = [
+            {**reg, "teams": [
+                {**tm, "hqs": sorted(tm["hqs"], key=lambda h: (h["hq_name"] or "").lower())}
+                for tm in _sorted(reg["teams"], "team_name")
+            ]}
+            for reg in _sorted(z["regions"], "region_name")
+        ]
+        zones_out.append(z)
+
+    return {
+        "success": True,
+        "division": division,
+        "month": str(month)[:7],
+        "month_label": month_label,
+        "zones": zones_out,
+        "grand_total": grand,
     }
 
 
