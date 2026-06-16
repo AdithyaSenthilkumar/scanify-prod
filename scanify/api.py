@@ -9273,20 +9273,29 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
 
         row = write_title_rows(
             ws, f"Full Monthly Organizational Report – {division}",
-            f"Month: {month_label}  |  Net = Billed + Free - Scheme  |  Values in Rs. Lakhs")
+            f"Month: {month_label}  |  Net = Billed + Free - Scheme  |  Qty in boxes, values in Rs. (total row in Rs. Lakhs)")
         headers = ["HQ", "Stockist", "Product Code", "Product", "Pack",
-                   "Opening", "Billed Sales", "Free Goods", "Scheme Deduction", "Net Sales", "Closing"]
+                   "Sales Qty (Box)", "Free Qty (Box)",
+                   "Opening (Rs.)", "Billed Sales (Rs.)", "Free Goods (Rs.)",
+                   "Scheme Deduction (Rs.)", "Net Sales (Rs.)", "Closing (Rs.)"]
         write_header_row(ws, row, headers)
         row += 1
 
         LAKH = 100000.0
 
         def _L(v):
-            return round(flt(v) / LAKH, 2) if v else None
+            return round(flt(v) / LAKH, 2) if v else None  # lakhs (total row)
 
-        # Overall total pinned at the TOP
+        def _R(v):
+            return round(flt(v), 2) if v else None          # rupees (data rows)
+
+        def _Q(v):
+            return round(flt(v), 2) if v else None            # box quantity
+
+        # Overall total pinned at the TOP — qty in boxes, values in Rs. Lakhs
         write_value_row(ws, row, [
-            "OVERALL TOTAL", "", "", "", "",
+            "OVERALL TOTAL (Rs. Lakhs)", "", "", "", "",
+            _Q(grand.get("sales_qty")), _Q(grand.get("free_qty")),
             _L(grand.get("opening")), _L(grand.get("billed")), _L(grand.get("free")),
             _L(grand.get("scheme")), _L(grand.get("net")), _L(grand.get("closing"))])
         row += 1
@@ -9296,8 +9305,9 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
             write_data_row(ws, row, [
                 r.get("hq_name"), r.get("stockist_name"), r.get("product_code"),
                 r.get("product_name"), r.get("pack"),
-                _L(r.get("opening")), _L(r.get("billed")), _L(r.get("free")),
-                _L(r.get("scheme")), _L(r.get("net")), _L(r.get("closing"))])
+                _Q(r.get("sales_qty")), _Q(r.get("free_qty")),
+                _R(r.get("opening")), _R(r.get("billed")), _R(r.get("free")),
+                _R(r.get("scheme")), _R(r.get("net")), _R(r.get("closing"))])
             for c in range(6, len(headers) + 1):
                 ws.cell(row=row, column=c).alignment = right_align
             row += 1
@@ -12298,6 +12308,8 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
                si.product_code AS product_code,
                COALESCE(pm.product_name, si.product_name, si.raw_product_name, '') AS product_name,
                COALESCE(NULLIF(si.pack, ''), pm.pack, '') AS pack,
+               IFNULL(si.sales_qty, 0)                           AS sales_qty,
+               IFNULL(si.free_qty, 0)                            AS free_qty,
                IFNULL(si.opening_value, 0)                       AS opening,
                IFNULL(si.sales_value_pts, 0)                     AS billed,
                (IFNULL(si.free_qty, 0) / {conv}) * {pts}         AS free,
@@ -12313,18 +12325,23 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
       ORDER BY hq_name, stockist_name, product_name
     """, params, as_dict=True)
 
-    grand = {"opening": 0.0, "billed": 0.0, "free": 0.0, "scheme": 0.0, "net": 0.0, "closing": 0.0}
+    grand = {"sales_qty": 0.0, "free_qty": 0.0, "opening": 0.0, "billed": 0.0,
+             "free": 0.0, "scheme": 0.0, "net": 0.0, "closing": 0.0}
     out_rows = []
     for r in rows:
         billed, free, scheme = flt(r.billed), flt(r.free), flt(r.scheme)
         net = billed + free - scheme
+        sales_qty, free_qty = flt(r.sales_qty), flt(r.free_qty)
         out_rows.append({
             "stockist_code": r.stockist_code, "stockist_name": r.stockist_name or "",
             "hq_name": r.hq_name or r.hq_code or "", "product_code": r.product_code or "",
             "product_name": r.product_name or "", "pack": r.pack or "",
+            "sales_qty": sales_qty, "free_qty": free_qty,
             "opening": flt(r.opening), "billed": billed, "free": free,
             "scheme": scheme, "net": net, "closing": flt(r.closing),
         })
+        grand["sales_qty"] += sales_qty
+        grand["free_qty"] += free_qty
         grand["opening"] += flt(r.opening)
         grand["billed"] += billed
         grand["free"] += free

@@ -1831,16 +1831,17 @@ function renderSecVsClosing(result, thead, tbody) {
 }
 
 // ---------- Report 13: Full Monthly Organizational Report (product-level) ----------
+// Rows: quantities in boxes + value columns in ₹ (NOT lakhs).
+// The top OVERALL TOTAL row alone is shown in ₹ Lakhs.
 function renderMonthlyOrg(result, thead, tbody) {
     var rows = result.rows || [];
+    var valKeys = ["opening", "billed", "free", "scheme", "net", "closing"];
 
-    function lk(v) {
-        var n = (Number(v) || 0) / 100000;
-        return n ? n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
-    }
-    function valCells(t, style) {
-        return ["opening", "billed", "free", "scheme", "net", "closing"].map(function(k) {
-            return "<td class='text-right' style='" + (style || "") + "'>" + lk(t[k]) + "</td>";
+    // value cells in plain rupees (rows) or in lakhs (total row)
+    function valCells(t, lakhs, style) {
+        return valKeys.map(function(k) {
+            var v = lakhs ? (Number(t[k]) || 0) / 100000 : t[k];
+            return "<td class='text-right' style='" + (style || "") + "'>" + fmtNZ(v) + "</td>";
         }).join("");
     }
 
@@ -1850,26 +1851,31 @@ function renderMonthlyOrg(result, thead, tbody) {
         + "<th style='text-align:left;'>Stockist</th>"
         + "<th style='text-align:left;'>Product</th>"
         + "<th style='text-align:left;'>Pack</th>"
-        + "<th class='text-right'>Opening</th>"
-        + "<th class='text-right'>Billed Sales</th>"
-        + "<th class='text-right'>Free Goods</th>"
-        + "<th class='text-right'>Scheme Deduction</th>"
-        + "<th class='text-right'>Net Sales</th>"
-        + "<th class='text-right'>Closing</th>"
+        + "<th class='text-right'>Sales Qty (Box)</th>"
+        + "<th class='text-right'>Free Qty (Box)</th>"
+        + "<th class='text-right'>Opening (Rs.)</th>"
+        + "<th class='text-right'>Billed Sales (Rs.)</th>"
+        + "<th class='text-right'>Free Goods (Rs.)</th>"
+        + "<th class='text-right'>Scheme Deduction (Rs.)</th>"
+        + "<th class='text-right'>Net Sales (Rs.)</th>"
+        + "<th class='text-right'>Closing (Rs.)</th>"
         + "</tr>";
 
     var totalCount = (result.total_count != null) ? result.total_count : rows.length;
     var html = "";
-    // Overall total pinned at the TOP (computed over the FULL data set)
+    // Overall total pinned at the TOP — quantities in boxes, values in ₹ LAKHS
     if (result.grand_total) {
+        var g = result.grand_total;
         html += "<tr class='grand-total-row'>"
-              + "<td colspan='4' style='font-weight:800;'>OVERALL TOTAL (" + totalCount.toLocaleString("en-IN") + " lines)</td>"
-              + valCells(result.grand_total, "font-weight:800;") + "</tr>";
+              + "<td colspan='4' style='font-weight:800;'>OVERALL TOTAL (" + totalCount.toLocaleString("en-IN") + " lines) — values in Rs. Lakhs</td>"
+              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNZ(g.sales_qty) + "</td>"
+              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNZ(g.free_qty) + "</td>"
+              + valCells(g, true, "font-weight:800;") + "</tr>";
     }
     // Truncation note row — on-screen only (excluded from PDF, never in Excel).
     if (result.truncated) {
         html += "<tr class='preview-note-row' style='background:#fff7ed;'>"
-              + "<td colspan='10' style='color:#9a3412;font-weight:600;text-align:center;'>"
+              + "<td colspan='12' style='color:#9a3412;font-weight:600;text-align:center;'>"
               + "Preview limited to first " + rows.length.toLocaleString("en-IN") + " of "
               + totalCount.toLocaleString("en-IN") + " lines — use <b>Download Excel</b> for the full report."
               + "</td></tr>";
@@ -1881,7 +1887,9 @@ function renderMonthlyOrg(result, thead, tbody) {
               + td(esc(r.stockist_name))
               + td(esc(r.product_name || r.product_code))
               + td(esc(r.pack))
-              + valCells(r, "") + "</tr>";
+              + "<td class='text-right'>" + fmtQtyNZ(r.sales_qty) + "</td>"
+              + "<td class='text-right'>" + fmtQtyNZ(r.free_qty) + "</td>"
+              + valCells(r, false, "") + "</tr>";
     });
     tbody.innerHTML = html;
 }
