@@ -7799,9 +7799,47 @@ def get_stockist_primary_sales_report(division=None, sales_type="primary", regio
         "SELECT product_code, COALESCE(sequence, 9999) FROM `tabProduct Master` WHERE division=%s AND status='Active'",
         (division,)
     )}
-    rows.sort(key=lambda r: (r.stockist_name or "", seq_map.get(r.product_code, 9999), r.product_code or ""))
 
-    return {"success": True, "data": rows}
+    # ── Pivot: products as rows, stockists as columns (single qty + value/cell) ──
+    stockists = {}
+    products = {}
+    for r in rows:
+        sc = r.stockist_code
+        pc = r.product_code
+        if sc and sc not in stockists:
+            stockists[sc] = {"code": sc, "name": r.stockist_name or sc}
+        if pc and pc not in products:
+            products[pc] = {"code": pc, "name": r.product_name or "", "pack": r.pack or "",
+                            "cells": {}, "total_qty": 0.0, "total_value": 0.0}
+        if sc and pc:
+            cell = products[pc]["cells"].setdefault(sc, {"qty": 0.0, "value": 0.0})
+            cell["qty"] += flt(r.total_qty)
+            cell["value"] += flt(r.total_value)
+            products[pc]["total_qty"] += flt(r.total_qty)
+            products[pc]["total_value"] += flt(r.total_value)
+
+    stockist_list = sorted(stockists.values(), key=lambda s: (s["name"] or "").lower())
+    product_list = sorted(products.values(),
+                          key=lambda p: (seq_map.get(p["code"], 9999), p["code"] or ""))
+
+    col_totals = {s["code"]: {"qty": 0.0, "value": 0.0} for s in stockist_list}
+    grand_qty = 0.0
+    grand_value = 0.0
+    for p in product_list:
+        for sc, vals in p["cells"].items():
+            if sc in col_totals:
+                col_totals[sc]["qty"] += vals["qty"]
+                col_totals[sc]["value"] += vals["value"]
+        grand_qty += p["total_qty"]
+        grand_value += p["total_value"]
+
+    return {
+        "success": True,
+        "stockists": stockist_list,
+        "products": product_list,
+        "col_totals": col_totals,
+        "grand": {"qty": grand_qty, "value": grand_value},
+    }
 
 
 def _normalise_code_list(value):
@@ -8568,43 +8606,67 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                 cell.alignment = Alignment(horizontal="right")
 
     if report_type == "primary_sales":
+        # Pivot: Products as rows, Stockists as columns (Quantity). Trailing Total (Rs. Lakhs).
         ws.title = "Primary Sales"
         result = get_stockist_primary_sales_report(division, sales_type, region, from_date, to_date,
                                                     kwargs.get("team") or None, kwargs.get("hq") or None,
                                                     product_codes or None)
-        data = result.get("data", [])
+        stockist_list = result.get("stockists", []) or []
+        product_list = result.get("products", []) or []
+        col_totals = result.get("col_totals", {}) or {}
+        grand = result.get("grand", {}) or {}
         type_label = "Credit Note" if sales_type == "creditnote" else "Primary"
         row = write_title_rows(ws, f"Stockist Wise {type_label} Sales Report – {division}",
                                f"Region: {region_label}  |  Period: {period_label}")
 
-        headers = ["Stockist Name", "HQ Name", "Product Code", "Product Name", "Pack",
-                    "Quantity", "Value (PTS)", "Value (Rs. Lakhs)"]
+        lakh_header_font = Font(bold=True, size=11, color="FFFFFF")
+        lakh_header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+        lakh_cell_font = Font(bold=True, size=11, color="1D4ED8")
+        lakh_cell_fill = PatternFill(start_color="EFF6FF", end_color="EFF6FF", fill_type="solid")
+        right_align = Alignment(horizontal="right")
+
+        headers = ["Product Code", "Pack"] + [s["name"] for s in stockist_list]
         write_header_row(ws, row, headers)
+        total_col = len(headers) + 1
+        cell = ws.cell(row=row, column=total_col, value="Total (Rs. Lakhs)")
+        cell.font = lakh_header_font; cell.fill = lakh_header_fill
+        cell.alignment = header_align; cell.border = thin_border
         row += 1
 
-        # Bold "Value in Lakhs" aggregate row at the top of the data area
-        total_val_all = sum(flt(d.total_value) for d in data) if data else 0.0
-        total_qty_all = sum(flt(d.total_qty) for d in data) if data else 0.0
-        write_value_row(ws, row, [
-            "Value in Lakhs", "", "", "", "",
-            round(total_qty_all, 2) if total_qty_all else None,
-            round(total_val_all, 2) if total_val_all else None,
-            round(total_val_all / 100000, 2) if total_val_all else None,
-        ])
-        row += 1
-        current_stockist = None
-        for d in data:
-            if d.stockist_code != current_stockist:
-                current_stockist = d.stockist_code
-                write_group_row(ws, row, d.stockist_name or "", len(headers))
-                row += 1
-            qty = flt(d.total_qty)
-            val = flt(d.total_value)
-            write_data_row(ws, row, [d.stockist_name, d.hq_name or "",
-                                     d.product_code, d.product_name, d.pack,
-                                     qty if qty else None, val if val else None,
-                                     round(val / 100000, 2) if val else None])
+        LAKH = 100000.0
+
+        def _z(v):
+            return v if v else None
+
+        for p in product_list:
+            vals = [p["code"], p["pack"]]
+            for s in stockist_list:
+                cv = (p["cells"] or {}).get(s["code"], {})
+                vals.append(_z(round(flt(cv.get("qty")), 2)))
+            write_data_row(ws, row, vals)
+            for c in range(3, len(headers) + 1):
+                ws.cell(row=row, column=c).alignment = right_align
+            tcell = ws.cell(row=row, column=total_col, value=_z(round(flt(p.get("total_value", 0)) / LAKH, 2)))
+            tcell.font = lakh_cell_font; tcell.fill = lakh_cell_fill
+            tcell.alignment = right_align; tcell.border = thin_border
             row += 1
+
+        # Grand "Value in Lakhs" row — per stockist + grand total
+        glabel = ws.cell(row=row, column=1, value="Value in Lakhs")
+        glabel.font = lakh_cell_font; glabel.fill = lakh_cell_fill; glabel.border = thin_border
+        ws.cell(row=row, column=2).fill = lakh_cell_fill
+        ws.cell(row=row, column=2).border = thin_border
+        c_cur = 3
+        for s in stockist_list:
+            ct = col_totals.get(s["code"], {})
+            gc = ws.cell(row=row, column=c_cur, value=_z(round(flt(ct.get("value", 0)) / LAKH, 2)))
+            gc.font = lakh_cell_font; gc.fill = lakh_cell_fill
+            gc.alignment = right_align; gc.border = thin_border
+            c_cur += 1
+        gtot = ws.cell(row=row, column=total_col, value=_z(round(flt(grand.get("value", 0)) / LAKH, 2)))
+        gtot.font = lakh_cell_font; gtot.fill = lakh_cell_fill
+        gtot.alignment = right_align; gtot.border = thin_border
+        row += 1
 
     elif report_type == "secondary_sales":
         # Pivot: Products as rows, Stockists as columns (each with Before / After sub-cols).
@@ -9324,6 +9386,54 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                     cell.alignment = Alignment(horizontal="right")
             row += 1
 
+    elif report_type == "gynae_report":
+        # Report 15 – Gynae Report (brands × months, with strength + summary rows)
+        ws.title = "Gynae Report"
+        result = get_gynae_report(division, kwargs.get("entity_type") or "Organization",
+                                  kwargs.get("entity_name") or None,
+                                  kwargs.get("financial_year") or None,
+                                  kwargs.get("sales_mode") or "after_deduction")
+        brands = result.get("brands", [])
+        ml = result.get("month_labels") or _MONTH_LABELS
+        strength = result.get("strength", 0)
+        mode_label = "Before Deduction" if (kwargs.get("sales_mode") == "before_deduction") else "After Deduction"
+        row = write_title_rows(
+            ws, f"Gynae Report – {division}",
+            f"{result.get('entity_display','')}  |  Strength: {strength}  |  {result.get('fy_label','')}  |  {mode_label}")
+
+        headers = ["Gynae Brands"] + list(ml) + ["Total"]
+        write_header_row(ws, row, headers)
+        row += 1
+
+        right_align = Alignment(horizontal="right")
+        for b in brands:
+            vals = [f"{b['name']} ({b['pack']})" if b.get("pack") else b["name"]] \
+                   + [v if v else None for v in b["months"]] + [b["total"] if b["total"] else None]
+            write_data_row(ws, row, vals)
+            for c in range(2, len(headers) + 1):
+                ws.cell(row=row, column=c).alignment = right_align
+            row += 1
+
+        # Summary rows (red, bold) — Values in lakh / PCPM in lakh / Avg per Dr (Rs.)
+        red_font = Font(bold=True, color="C00000", size=11)
+
+        def _summary(label, series, as_total=True):
+            cells = [label] + [v if v else None for v in series]
+            cells += [round(sum(series), 2) if as_total else None]
+            for c, v in enumerate(cells, 1):
+                cell = ws.cell(row=row_ref[0], column=c, value=v)
+                cell.font = red_font
+                cell.border = thin_border
+                if c > 1:
+                    cell.alignment = right_align
+            row_ref[0] += 1
+
+        row_ref = [row]
+        _summary("Values in lakh", result.get("values_lakh", []))
+        _summary("PCPM in lakh", result.get("pcpm_lakh", []), as_total=False)
+        _summary("Avg per Dr. (Rs.)", result.get("avg_per_dr", []), as_total=False)
+        row = row_ref[0]
+
     else:
         frappe.throw("Invalid report type")
 
@@ -9357,6 +9467,7 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         "sec_vs_closing": "Secondary Sales vs Closing Stock Value",
         "monthly_org": "Full Monthly Organizational Report",
         "target_report": "Target vs Sales Report",
+        "gynae_report": "Gynae Report",
     }
     import re as _re
     from datetime import date as _date
@@ -10840,6 +10951,90 @@ def export_ranking_report_excel(report_type, division=None, **kwargs):
 
 
 # ═══════════════════════════════════════════════════════════════
+# Shared helper – resolve a moving-trend scope to its HQ list + strength
+# ═══════════════════════════════════════════════════════════════
+
+def _resolve_entity_hqs(division, entity_type, entity_name):
+    """Resolve a scope to (hq_list, sanctioned_strength, entity_display).
+
+    entity_type: 'Organization' (whole division; entity_name ignored), 'Zone',
+    'Region', 'Team' or 'HQ' — following Division → Zone → Region → Team → HQ.
+    sanctioned_strength sums HQ per-capita (Team uses its sanctioned_strength).
+    """
+    hq_list = []
+    entity_display = entity_name
+    sanctioned_strength = 0.0
+
+    if entity_type == "Organization":
+        hqs = frappe.get_all("HQ Master",
+                             filters={"status": "Active", "division": division},
+                             fields=["name"])
+        hq_list = [h.name for h in hqs]
+        total_pc = frappe.db.sql(
+            "SELECT COALESCE(SUM(per_capita), 0) FROM `tabHQ Master` "
+            "WHERE status='Active' AND division=%s", (division,))
+        sanctioned_strength = flt(total_pc[0][0]) if total_pc else 0
+        entity_display = "All Regions (Organization)"
+
+    elif entity_type == "HQ":
+        hq_list = [entity_name]
+        sanctioned_strength = flt(frappe.db.get_value("HQ Master", entity_name, "per_capita") or 0)
+        entity_display = frappe.db.get_value("HQ Master", entity_name, "hq_name") or entity_name
+
+    elif entity_type == "Team":
+        hqs = frappe.get_all("HQ Master",
+                             filters={"team": entity_name, "status": "Active", "division": division},
+                             fields=["name", "hq_name"])
+        hq_list = [h.name for h in hqs]
+        hq_names = [h.hq_name for h in hqs]
+        sanctioned_strength = flt(frappe.db.get_value("Team Master", entity_name, "sanctioned_strength") or 0)
+        team_name = frappe.db.get_value("Team Master", entity_name, "team_name") or entity_name
+        entity_display = f"{team_name} ({', '.join(hq_names)})" if hq_names else team_name
+
+    elif entity_type == "Region":
+        teams = frappe.get_all("Team Master",
+                               filters={"region": entity_name, "status": "Active",
+                                        "division": ["in", [division, "Both"]]},
+                               fields=["name"])
+        for t in teams:
+            sub_hqs = frappe.get_all("HQ Master",
+                                     filters={"team": t.name, "status": "Active", "division": division},
+                                     fields=["name"])
+            hq_list.extend([h.name for h in sub_hqs])
+        total_pc = frappe.db.sql(
+            "SELECT COALESCE(SUM(per_capita), 0) FROM `tabHQ Master` "
+            "WHERE team IN (SELECT name FROM `tabTeam Master` WHERE region=%s AND status='Active') "
+            "AND status='Active' AND division=%s", (entity_name, division))
+        sanctioned_strength = flt(total_pc[0][0]) if total_pc else 0
+        entity_display = frappe.db.get_value("Region Master", entity_name, "region_name") or entity_name
+
+    elif entity_type == "Zone":
+        regions = frappe.get_all("Region Master",
+                                 filters={"zone": entity_name, "status": "Active",
+                                          "division": ["in", [division, "Both"]]},
+                                 fields=["name"])
+        for reg in regions:
+            sub_teams = frappe.get_all("Team Master",
+                                       filters={"region": reg.name, "status": "Active",
+                                                "division": ["in", [division, "Both"]]},
+                                       fields=["name"])
+            for t in sub_teams:
+                sub_hqs = frappe.get_all("HQ Master",
+                                         filters={"team": t.name, "status": "Active", "division": division},
+                                         fields=["name"])
+                hq_list.extend([h.name for h in sub_hqs])
+        total_pc = frappe.db.sql(
+            "SELECT COALESCE(SUM(hm.per_capita), 0) FROM `tabHQ Master` hm "
+            "INNER JOIN `tabTeam Master` tm ON hm.team = tm.name "
+            "INNER JOIN `tabRegion Master` rm ON tm.region = rm.name "
+            "WHERE rm.zone=%s AND hm.status='Active' AND hm.division=%s", (entity_name, division))
+        sanctioned_strength = flt(total_pc[0][0]) if total_pc else 0
+        entity_display = frappe.db.get_value("Zone Master", entity_name, "zone_name") or entity_name
+
+    return hq_list, sanctioned_strength, entity_display
+
+
+# ═══════════════════════════════════════════════════════════════
 # SECONDARY SALES MOVING TREND REPORT  –  Portal API
 # ═══════════════════════════════════════════════════════════════
 
@@ -10855,7 +11050,7 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
     """
     if not division:
         division = get_user_division()
-    if not entity_name:
+    if entity_type != "Organization" and not entity_name:
         return {"success": False, "message": f"{entity_type} is required"}
 
     from datetime import date
@@ -10876,73 +11071,7 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
     fy_label = f"Apr {str(start_year)[2:]} to Mar {str(start_year + 1)[2:]}"
 
     # ── Resolve entity → list of HQs ──
-    hq_list = []
-    entity_display = entity_name
-    sanctioned_strength = 0
-
-    if entity_type == "HQ":
-        hq_list = [entity_name]
-        pc = frappe.db.get_value("HQ Master", entity_name, "per_capita") or 0
-        sanctioned_strength = flt(pc)
-        hq_name = frappe.db.get_value("HQ Master", entity_name, "hq_name") or entity_name
-        entity_display = hq_name
-
-    elif entity_type == "Team":
-        hqs = frappe.get_all("HQ Master",
-                             filters={"team": entity_name, "status": "Active", "division": division},
-                             fields=["name", "hq_name"])
-        hq_list = [h.name for h in hqs]
-        hq_names = [h.hq_name for h in hqs]
-        ss = frappe.db.get_value("Team Master", entity_name, "sanctioned_strength") or 0
-        sanctioned_strength = flt(ss)
-        team_name = frappe.db.get_value("Team Master", entity_name, "team_name") or entity_name
-        entity_display = f"{team_name} ({', '.join(hq_names)})" if hq_names else team_name
-
-    elif entity_type == "Region":
-        teams = frappe.get_all("Team Master",
-                               filters={"region": entity_name, "status": "Active",
-                                         "division": ["in", [division, "Both"]]},
-                               fields=["name"])
-        for t in teams:
-            sub_hqs = frappe.get_all("HQ Master",
-                                 filters={"team": t.name, "status": "Active", "division": division},
-                                 fields=["name"])
-            hq_list.extend([h.name for h in sub_hqs])
-        total_pc = frappe.db.sql(
-            "SELECT COALESCE(SUM(per_capita), 0) FROM `tabHQ Master` "
-            "WHERE team IN (SELECT name FROM `tabTeam Master` WHERE region=%s AND status='Active') "
-            "AND status='Active' AND division=%s",
-            (entity_name, division)
-        )
-        sanctioned_strength = flt(total_pc[0][0]) if total_pc else 0
-        region_name = frappe.db.get_value("Region Master", entity_name, "region_name") or entity_name
-        entity_display = region_name
-
-    elif entity_type == "Zone":
-        regions = frappe.get_all("Region Master",
-                                  filters={"zone": entity_name, "status": "Active",
-                                            "division": ["in", [division, "Both"]]},
-                                  fields=["name"])
-        for reg in regions:
-            sub_teams = frappe.get_all("Team Master",
-                                    filters={"region": reg.name, "status": "Active",
-                                              "division": ["in", [division, "Both"]]},
-                                    fields=["name"])
-            for t in sub_teams:
-                sub_hqs = frappe.get_all("HQ Master",
-                                     filters={"team": t.name, "status": "Active", "division": division},
-                                     fields=["name"])
-                hq_list.extend([h.name for h in sub_hqs])
-        total_pc = frappe.db.sql(
-            "SELECT COALESCE(SUM(hm.per_capita), 0) FROM `tabHQ Master` hm "
-            "INNER JOIN `tabTeam Master` tm ON hm.team = tm.name "
-            "INNER JOIN `tabRegion Master` rm ON tm.region = rm.name "
-            "WHERE rm.zone=%s AND hm.status='Active' AND hm.division=%s",
-            (entity_name, division)
-        )
-        sanctioned_strength = flt(total_pc[0][0]) if total_pc else 0
-        zone_name = frappe.db.get_value("Zone Master", entity_name, "zone_name") or entity_name
-        entity_display = zone_name
+    hq_list, sanctioned_strength, entity_display = _resolve_entity_hqs(division, entity_type, entity_name)
 
     if not hq_list:
         return {"success": True, "sections": [],
@@ -11122,7 +11251,7 @@ def get_primary_sales_moving_trend(division=None, entity_type="Team",
     """
     if not division:
         division = get_user_division()
-    if not entity_name:
+    if entity_type != "Organization" and not entity_name:
         return {"success": False, "message": f"{entity_type} is required"}
 
     from datetime import date
@@ -11141,74 +11270,8 @@ def get_primary_sales_moving_trend(division=None, entity_type="Team",
     fy_end = f"{start_year + 1}-03-31"
     fy_label = f"Apr {str(start_year)[2:]} to Mar {str(start_year + 1)[2:]}"
 
-    # ── Resolve entity → list of HQs (matches Report 7's resolver) ──
-    hq_list = []
-    entity_display = entity_name
-    sanctioned_strength = 0
-
-    if entity_type == "HQ":
-        hq_list = [entity_name]
-        pc = frappe.db.get_value("HQ Master", entity_name, "per_capita") or 0
-        sanctioned_strength = flt(pc)
-        hq_name = frappe.db.get_value("HQ Master", entity_name, "hq_name") or entity_name
-        entity_display = hq_name
-
-    elif entity_type == "Team":
-        hqs = frappe.get_all("HQ Master",
-                             filters={"team": entity_name, "status": "Active", "division": division},
-                             fields=["name", "hq_name"])
-        hq_list = [h.name for h in hqs]
-        hq_names = [h.hq_name for h in hqs]
-        ss = frappe.db.get_value("Team Master", entity_name, "sanctioned_strength") or 0
-        sanctioned_strength = flt(ss)
-        team_name = frappe.db.get_value("Team Master", entity_name, "team_name") or entity_name
-        entity_display = f"{team_name} ({', '.join(hq_names)})" if hq_names else team_name
-
-    elif entity_type == "Region":
-        teams = frappe.get_all("Team Master",
-                               filters={"region": entity_name, "status": "Active",
-                                        "division": ["in", [division, "Both"]]},
-                               fields=["name"])
-        for t in teams:
-            sub_hqs = frappe.get_all("HQ Master",
-                                 filters={"team": t.name, "status": "Active", "division": division},
-                                 fields=["name"])
-            hq_list.extend([h.name for h in sub_hqs])
-        total_pc = frappe.db.sql(
-            "SELECT COALESCE(SUM(per_capita), 0) FROM `tabHQ Master` "
-            "WHERE team IN (SELECT name FROM `tabTeam Master` WHERE region=%s AND status='Active') "
-            "AND status='Active' AND division=%s",
-            (entity_name, division)
-        )
-        sanctioned_strength = flt(total_pc[0][0]) if total_pc else 0
-        region_name = frappe.db.get_value("Region Master", entity_name, "region_name") or entity_name
-        entity_display = region_name
-
-    elif entity_type == "Zone":
-        regions = frappe.get_all("Region Master",
-                                 filters={"zone": entity_name, "status": "Active",
-                                          "division": ["in", [division, "Both"]]},
-                                 fields=["name"])
-        for reg in regions:
-            sub_teams = frappe.get_all("Team Master",
-                                       filters={"region": reg.name, "status": "Active",
-                                                "division": ["in", [division, "Both"]]},
-                                       fields=["name"])
-            for t in sub_teams:
-                sub_hqs = frappe.get_all("HQ Master",
-                                         filters={"team": t.name, "status": "Active", "division": division},
-                                         fields=["name"])
-                hq_list.extend([h.name for h in sub_hqs])
-        total_pc = frappe.db.sql(
-            "SELECT COALESCE(SUM(hm.per_capita), 0) FROM `tabHQ Master` hm "
-            "INNER JOIN `tabTeam Master` tm ON hm.team = tm.name "
-            "INNER JOIN `tabRegion Master` rm ON tm.region = rm.name "
-            "WHERE rm.zone=%s AND hm.status='Active' AND hm.division=%s",
-            (entity_name, division)
-        )
-        sanctioned_strength = flt(total_pc[0][0]) if total_pc else 0
-        zone_name = frappe.db.get_value("Zone Master", entity_name, "zone_name") or entity_name
-        entity_display = zone_name
+    # ── Resolve entity → list of HQs (shared resolver) ──
+    hq_list, sanctioned_strength, entity_display = _resolve_entity_hqs(division, entity_type, entity_name)
 
     if not hq_list:
         return {"success": True, "sections": [],
@@ -11369,6 +11432,125 @@ def get_primary_sales_moving_trend(division=None, entity_type="Team",
         "active_months": active_months,
         "sections": sections,
         "month_labels": _MONTH_LABELS,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# REPORT 15 – GYNAE REPORT
+# Secondary-sales moving trend restricted to product_group = 'Gynae', for the
+# whole Organization or a Zone/Region/Team/HQ scope. Brand rows show monthly
+# quantities; summary rows give Values-in-lakh, PCPM-in-lakh (value/strength)
+# and Avg-per-Dr (₹ = value/strength). Strength = sanctioned field-force.
+# ═══════════════════════════════════════════════════════════════
+
+@frappe.whitelist()
+def get_gynae_report(division=None, entity_type="Organization", entity_name=None,
+                     financial_year=None, sales_mode="after_deduction"):
+    """Report 15 – Gynae Report (Gynae-group secondary sales moving trend)."""
+    if not division:
+        division = get_user_division()
+
+    from datetime import date
+    today = date.today()
+    if financial_year:
+        try:
+            start_year = int(financial_year.split("-")[0])
+        except Exception:
+            start_year = today.year if today.month >= 4 else today.year - 1
+    else:
+        start_year = today.year if today.month >= 4 else today.year - 1
+        financial_year = f"{start_year}-{str(start_year + 1)[2:]}"
+    fy_start = f"{start_year}-04-01"
+    fy_end = f"{start_year + 1}-03-31"
+    fy_label = f"Apr {str(start_year)[2:]} to Mar {str(start_year + 1)[2:]}"
+
+    hq_list, sanctioned_strength, entity_display = _resolve_entity_hqs(division, entity_type, entity_name)
+
+    def _empty():
+        return {
+            "success": True, "entity_type": entity_type, "entity_display": entity_display,
+            "strength": flt(sanctioned_strength), "fy_label": fy_label,
+            "financial_year": financial_year, "month_labels": _MONTH_LABELS,
+            "brands": [], "values_lakh": [0.0] * 12, "pcpm_lakh": [0.0] * 12,
+            "avg_per_dr": [0] * 12, "sales_mode": sales_mode,
+        }
+
+    if not hq_list:
+        return _empty()
+
+    # ── Gynae products only ──
+    products = frappe.db.sql(
+        "SELECT product_code, product_name, pack FROM `tabProduct Master` "
+        "WHERE division=%s AND status='Active' AND LOWER(IFNULL(product_group,''))='gynae' "
+        "ORDER BY COALESCE(sequence, 9999), product_code",
+        (division,), as_dict=True)
+    if not products:
+        return _empty()
+
+    pcodes = [p.product_code for p in products]
+    pc_ph = ", ".join(["%s"] * len(pcodes))
+    hq_ph = ", ".join(["%s"] * len(hq_list))
+
+    if sales_mode == "before_deduction":
+        _qty_expr = "(si.sales_qty + si.free_qty) / IFNULL(NULLIF(si.conversion_factor, 0), 1)"
+    else:
+        _qty_expr = "(si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)"
+    _val_expr = f"({_qty_expr}) * IFNULL(si.pts, 0)"
+
+    rows = frappe.db.sql(f"""
+        SELECT si.product_code, MONTH(ss.statement_month) AS m,
+               SUM({_qty_expr}) AS qty, SUM({_val_expr}) AS val
+          FROM `tabStockist Statement` ss
+    INNER JOIN `tabStockist Statement Item` si
+            ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+         WHERE ss.division = %s AND ss.docstatus IN (0, 1)
+           AND ss.hq IN ({hq_ph})
+           AND si.product_code IN ({pc_ph})
+           AND ss.statement_month BETWEEN %s AND %s
+      GROUP BY si.product_code, MONTH(ss.statement_month)
+    """, [division] + hq_list + pcodes + [fy_start, fy_end], as_dict=True)
+
+    month_map = {4: 0, 5: 1, 6: 2, 7: 3, 8: 4, 9: 5, 10: 6, 11: 7, 12: 8, 1: 9, 2: 10, 3: 11}
+    pdata = {}
+    months_val = [0.0] * 12
+    for r in rows:
+        idx = month_map.get(r.m)
+        if idx is None:
+            continue
+        pdata.setdefault(r.product_code, [0.0] * 12)
+        pdata[r.product_code][idx] += flt(r.qty)
+        months_val[idx] += flt(r.val)
+
+    brands = []
+    for p in products:
+        mq = pdata.get(p.product_code, [0.0] * 12)
+        brands.append({
+            "code": p.product_code,
+            "name": p.product_name or p.product_code,
+            "pack": p.pack or "",
+            "months": [int(round(x)) for x in mq],
+            "total": int(round(sum(mq))),
+        })
+
+    LAKH = 100000.0
+    strength = flt(sanctioned_strength)
+    values_lakh = [round(v / LAKH, 2) for v in months_val]
+    pcpm_lakh = [round((v / LAKH) / strength, 2) if strength else 0.0 for v in months_val]
+    avg_per_dr = [int(round(v / strength)) if strength else 0 for v in months_val]
+
+    return {
+        "success": True,
+        "entity_type": entity_type,
+        "entity_display": entity_display,
+        "strength": strength,
+        "fy_label": fy_label,
+        "financial_year": financial_year,
+        "month_labels": _MONTH_LABELS,
+        "brands": brands,
+        "values_lakh": values_lakh,
+        "pcpm_lakh": pcpm_lakh,
+        "avg_per_dr": avg_per_dr,
+        "sales_mode": sales_mode,
     }
 
 

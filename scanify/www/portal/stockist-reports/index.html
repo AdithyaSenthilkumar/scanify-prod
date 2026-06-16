@@ -38,6 +38,7 @@
                         <option value="sec_vs_closing">11. Secondary Sales Value vs Closing Stock Value (HQ-wise)</option>
                         <option value="monthly_org">13. Full Monthly Organizational Report (Product-level)</option>
                         <option value="target_report">14. Target vs Sales Report (HQ-wise)</option>
+                        <option value="gynae_report">15. Gynae Report</option>
                     </select>
                 </div>
                 <div class="col-md-5 col-lg-6 mt-3 mt-md-0 d-flex align-items-end" style="gap:8px;">
@@ -144,8 +145,8 @@
                 <input type="date" class="form-control form-control-sm sr-filter-select" id="f-pstock-to-date">
             </div>
 
-            <!-- Financial Year (Report 8) -->
-            <div class="sr-filter-item filter-field" data-reports="region_stockist_trend,sec_moving_trend">
+            <!-- Financial Year (Reports 7, 8, 10, 15) -->
+            <div class="sr-filter-item filter-field" data-reports="region_stockist_trend,sec_moving_trend,primary_moving_trend,gynae_report">
                 <label class="sr-filter-label">Financial Year</label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-financial-year">
                     <option value="">Current FY</option>
@@ -215,6 +216,7 @@
             <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,primary_moving_trend">
                 <label class="sr-filter-label">View By</label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-entity-type" onchange="onEntityTypeChange()">
+                    <option value="Organization">Organization (All Regions)</option>
                     <option value="HQ">HQ</option>
                     <option value="Team">Team</option>
                     <option value="Region">Region</option>
@@ -255,8 +257,8 @@
                     {% endfor %}
                 </select>
             </div>
-            <!-- Sales Mode (Reports 7, 8, 9, 11, 14 — NOT Report 10; primary sales has no scheme split) -->
-            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,region_product_stock,sec_vs_closing,target_report">
+            <!-- Sales Mode (Reports 7, 8, 9, 11, 14, 15 — NOT Report 10; primary sales has no scheme split) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,region_product_stock,sec_vs_closing,target_report,gynae_report">
                 <label class="sr-filter-label">Sales Mode</label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-sales-mode">
                     <option value="after_deduction">After Deduction (Sales+Free&minus;Scheme)</option>
@@ -330,6 +332,44 @@
                     {% for r in regions %}
                     <option value="{{ r.code }}">{{ r.name }}</option>
                     {% endfor %}
+                </select>
+            </div>
+
+            <!-- Report 15 (Gynae): Organization checkbox + hierarchy scope -->
+            <div class="sr-filter-item filter-field" data-reports="gynae_report">
+                <label class="sr-filter-label">Scope</label>
+                <div style="padding-top:6px;white-space:nowrap;">
+                    <label style="font-weight:500;font-size:13px;cursor:pointer;margin:0;">
+                        <input type="checkbox" id="f-gyn-org" checked onchange="onGynOrgToggle()"> Whole Organization
+                    </label>
+                </div>
+            </div>
+            <div class="sr-filter-item filter-field gyn-scope" data-reports="gynae_report">
+                <label class="sr-filter-label">Zone</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-gyn-zone">
+                    <option value="">— Zone —</option>
+                    {% for z in zones %}<option value="{{ z.code }}">{{ z.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="sr-filter-item filter-field gyn-scope" data-reports="gynae_report">
+                <label class="sr-filter-label">Region</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-gyn-region">
+                    <option value="">— Region —</option>
+                    {% for r in regions %}<option value="{{ r.code }}">{{ r.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="sr-filter-item filter-field gyn-scope" data-reports="gynae_report">
+                <label class="sr-filter-label">Team</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-gyn-team">
+                    <option value="">— Team —</option>
+                    {% for t in teams %}<option value="{{ t.code }}">{{ t.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="sr-filter-item filter-field gyn-scope" data-reports="gynae_report">
+                <label class="sr-filter-label">HQ</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-gyn-hq">
+                    <option value="">— HQ —</option>
+                    {% for h in hqs %}<option value="{{ h.code }}">{{ h.name }}</option>{% endfor %}
                 </select>
             </div>
 
@@ -882,6 +922,9 @@ function onReportTypeChange() {
     if (currentReportType === "sec_moving_trend" || currentReportType === "primary_moving_trend") {
         onEntityTypeChange();
     }
+    if (currentReportType === "gynae_report") {
+        onGynOrgToggle();
+    }
     // Clear product / group / category / region multi-selects when switching reports
     ["f-products", "f-prodgroup", "f-prodcat", "f-tgt-regions"].forEach(function(id) {
         var $el = $("#" + id);
@@ -920,10 +963,11 @@ function onTeamChange() {
 function onEntityTypeChange() {
     // Show/hide cascading pickers based on View By selection
     var et = document.getElementById("f-entity-type").value;
-    var showRegion = (et !== "Zone");                  // Region appears for HQ, Team, Region
-    var showTeam   = (et === "HQ" || et === "Team");    // Team appears for HQ & Team
-    var showHQ     = (et === "HQ");                     // HQ picker only for HQ view
-    var showZone   = (et === "Zone");                   // Zone picker only for Zone view
+    var isOrg = (et === "Organization");               // whole division — no pickers
+    var showRegion = !isOrg && (et !== "Zone");        // Region appears for HQ, Team, Region
+    var showTeam   = !isOrg && (et === "HQ" || et === "Team");
+    var showHQ     = !isOrg && (et === "HQ");           // HQ picker only for HQ view
+    var showZone   = !isOrg && (et === "Zone");         // Zone picker only for Zone view
 
     document.querySelectorAll(".smt-region").forEach(function(el) { el.style.display = showRegion ? "" : "none"; });
     document.querySelectorAll(".smt-team").forEach(function(el)   { el.style.display = showTeam   ? "" : "none"; });
@@ -932,6 +976,14 @@ function onEntityTypeChange() {
 
     // Reset the cascade when entity changes
     if (showRegion) onSMTRegionChange();
+}
+
+function onGynOrgToggle() {
+    // Report 15: when "Whole Organization" is ticked, hide the Zone/Region/Team/HQ pickers.
+    var org = document.getElementById("f-gyn-org").checked;
+    document.querySelectorAll(".gyn-scope").forEach(function(el) {
+        el.style.display = org ? "none" : "";
+    });
 }
 
 function onSMTRegionChange() {
@@ -980,6 +1032,7 @@ function generateReport() {
         sec_vs_closing: "scanify.api.get_secondary_vs_closing_value_report",
         monthly_org: "scanify.api.get_monthly_organizational_report",
         target_report: "scanify.api.get_target_vs_sales_report",
+        gynae_report: "scanify.api.get_gynae_report",
     };
 
     document.getElementById("report-loading").style.display = "block";
@@ -1075,7 +1128,9 @@ function buildParams() {
         // Resolve cascading hierarchy → single entity_name based on View By
         var et = p.entity_type;
         var entityName = "";
-        if (et === "HQ") {
+        if (et === "Organization") {
+            entityName = "";  // whole division — no entity needed
+        } else if (et === "HQ") {
             entityName = document.getElementById("f-smt-hq").value;
             if (!entityName) { showAlert("Please select an HQ.", "warning"); return null; }
         } else if (et === "Team") {
@@ -1151,6 +1206,25 @@ function buildParams() {
         p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
         var tregs = $("#f-tgt-regions").val() || [];
         if (tregs.length) p.region_codes = JSON.stringify(tregs);
+    } else if (currentReportType === "gynae_report") {
+        var gynOrg = document.getElementById("f-gyn-org").checked;
+        if (gynOrg) {
+            p.entity_type = "Organization";
+            p.entity_name = "";
+        } else {
+            var gz = document.getElementById("f-gyn-zone").value;
+            var gr = document.getElementById("f-gyn-region").value;
+            var gtm = document.getElementById("f-gyn-team").value;
+            var ghq = document.getElementById("f-gyn-hq").value;
+            if (ghq) { p.entity_type = "HQ"; p.entity_name = ghq; }
+            else if (gtm) { p.entity_type = "Team"; p.entity_name = gtm; }
+            else if (gr) { p.entity_type = "Region"; p.entity_name = gr; }
+            else if (gz) { p.entity_type = "Zone"; p.entity_name = gz; }
+            else { showAlert("Pick a Zone/Region/Team/HQ or tick Whole Organization.", "warning"); return null; }
+        }
+        var gfy = document.getElementById("f-financial-year").value;
+        if (gfy) p.financial_year = gfy;
+        p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
     }
     return p;
 }
@@ -1178,6 +1252,7 @@ function renderReport(result) {
         sec_vs_closing: renderSecVsClosing,
         monthly_org: renderMonthlyOrg,
         target_report: renderTargetReport,
+        gynae_report: renderGynae,
     };
 
     const renderer = renderers[currentReportType];
@@ -1213,6 +1288,7 @@ function renderReport(result) {
         sec_vs_closing: "Secondary Sales vs Closing Stock Value",
         monthly_org: "Full Monthly Organizational Report",
         target_report: "Target vs Sales Report",
+        gynae_report: "Gynae Report",
     };
     const regionSel = document.getElementById("f-region");
     const region = regionSel.options[regionSel.selectedIndex]?.text || "All Regions";
@@ -1275,6 +1351,13 @@ function renderReport(result) {
         subtitle += ` | ${ttype} | Values in Rs. Lakhs`;
     }
 
+    if (currentReportType === "gynae_report") {
+        var gmode = (result.sales_mode === "before_deduction") ? "Before Deduction" : "After Deduction";
+        subtitle = `${result.entity_display || ""}  |  Strength: ${result.strength || 0}`;
+        if (result.fy_label) subtitle += `  |  ${result.fy_label}`;
+        subtitle += `  |  ${gmode}`;
+    }
+
     currentReportMeta = {
         title: titles[currentReportType] + " – " + DIVISION,
         subtitle: subtitle,
@@ -1311,7 +1394,10 @@ function getDataLength(result) {
     if (currentReportType === "target_report") {
         return (result.regions || []).reduce(function(s, r) { return s + (r.hqs || []).length; }, 0);
     }
-    if (currentReportType === "secondary_sales") {
+    if (currentReportType === "gynae_report") {
+        return (result.brands || []).length;
+    }
+    if (currentReportType === "secondary_sales" || currentReportType === "primary_sales") {
         return (result.products || []).length;
     }
     return (result.data || []).length;
@@ -1323,41 +1409,51 @@ function fmt(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumF
 function fmtQty(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumFractionDigits: 0, maximumFractionDigits: 2}) : "0"; }
 function fmtLakhs(n) { return (n != null ? (Number(n) / 100000) : 0).toFixed(2); }
 
-// ---------- Report 1: Primary Sales ----------
+// ---------- Report 1: Primary Sales (pivot — stockists horizontal) ----------
+// Rows = products (code + pack). Columns = stockists (Quantity). Trailing Total
+// (Rs. Lakhs) column, plus a per-stockist "Value in Lakhs" grand row. Built as a
+// single string + one innerHTML assignment (appending in a loop is O(n²)).
 function renderPrimarySales(result, thead, tbody) {
-    thead.innerHTML = `<tr>${th("Stockist Name")}${th("HQ Name")}${th("Product Code")}${th("Product Name")}${th("Pack")}${th("Quantity")}${th("Value (PTS)")}${th("Value (Rs. Lakhs)")}</tr>`;
-    let currentStk = null;
-    let stkQty = 0, stkVal = 0, grandQty = 0, grandVal = 0;
-    const data = result.data || [];
+    var stockists = result.stockists || [];
+    var products = result.products || [];
+    var colTotals = result.col_totals || {};
+    var grand = result.grand || {};
+    var LAKH = 100000;
+    var lakhHdrStyle = "style='background:#1e3a5f;color:#fff;font-weight:800;text-align:center;'";
 
-    // Pre-compute grand value for the top "Value in Lakhs" row (bold)
-    var topVal = 0;
-    data.forEach(function(r) { topVal += Number(r.total_value) || 0; });
-    tbody.innerHTML += `<tr class="value-lakhs-row" style="background:#f1f5f9;font-weight:700;"><td colspan="6" style="font-weight:700;">Value in Lakhs (Grand)</td><td class="text-right" style="font-weight:700;">${fmtNZ(topVal)}</td><td class="text-right" style="font-weight:700;">${fmtNZ(topVal / 100000)}</td></tr>`;
-
-    function flushStockistSubtotal() {
-        if (currentStk !== null) {
-            tbody.innerHTML += `<tr class="subtotal-row"><td colspan="5" class="text-right font-weight-bold">Stockist Total</td><td class="text-right font-weight-bold">${fmtQtyNZ(stkQty)}</td><td class="text-right font-weight-bold">${fmtNZ(stkVal)}</td><td class="text-right font-weight-bold">${fmtNZ(stkVal / 100000)}</td></tr>`;
-        }
-    }
-
-    data.forEach(r => {
-        if (r.stockist_code !== currentStk) {
-            flushStockistSubtotal();
-            currentStk = r.stockist_code;
-            stkQty = 0; stkVal = 0;
-            tbody.innerHTML += `<tr class="group-row"><td colspan="8">${esc(r.stockist_name)}${r.hq_name ? '  —  HQ: ' + esc(r.hq_name) : ''}</td></tr>`;
-        }
-        stkQty += Number(r.total_qty) || 0;
-        stkVal += Number(r.total_value) || 0;
-        grandQty += Number(r.total_qty) || 0;
-        grandVal += Number(r.total_value) || 0;
-        tbody.innerHTML += `<tr>${td(r.stockist_name)}${td(r.hq_name || '')}${td(r.product_code)}${td(r.product_name)}${td(r.pack)}${td(fmtQtyNZ(r.total_qty), "text-right")}${td(fmtNZ(r.total_value), "text-right")}${td(fmtNZ((Number(r.total_value)||0) / 100000), "text-right")}</tr>`;
+    var hdr = "<tr><th style='text-align:left;'>Product Code</th><th style='text-align:left;'>Pack</th>";
+    stockists.forEach(function (s) {
+        hdr += "<th style='text-align:center;'>" + esc(s.name) + "</th>";
     });
-    flushStockistSubtotal();
-    if (data.length > 0) {
-        tbody.innerHTML += `<tr class="grand-total-row"><td colspan="5" class="text-right font-weight-bold">Grand Total</td><td class="text-right font-weight-bold">${fmtQtyNZ(grandQty)}</td><td class="text-right font-weight-bold">${fmtNZ(grandVal)}</td><td class="text-right font-weight-bold">${fmtNZ(grandVal / 100000)}</td></tr>`;
-    }
+    hdr += "<th " + lakhHdrStyle + ">Total (Rs. Lakhs)</th></tr>";
+    thead.innerHTML = hdr;
+
+    if (!products.length) { tbody.innerHTML = ""; return; }
+
+    var html = "";
+    products.forEach(function (p) {
+        var row = "<tr>" + td(p.code, "font-weight-bold") + td(p.pack);
+        stockists.forEach(function (s) {
+            var c = (p.cells || {})[s.code] || {};
+            row += "<td class='text-right'>" + fmtQtyNZ(c.qty) + "</td>";
+        });
+        row += "<td class='text-right' style='background:#eff6ff;color:#1d4ed8;font-weight:800;'>"
+             + fmtNZ((p.total_value || 0) / LAKH) + "</td></tr>";
+        html += row;
+    });
+
+    // Grand "Value in Lakhs" row — per-stockist value in lakhs + grand total
+    var gt = "<tr class='value-lakhs-row' style='background:#eff6ff;'>"
+           + "<td colspan='2' style='font-weight:800;color:#1d4ed8;'>Value in Lakhs</td>";
+    stockists.forEach(function (s) {
+        var ct = colTotals[s.code] || {};
+        gt += "<td class='text-right' style='font-weight:800;color:#1d4ed8;background:#eff6ff;'>"
+            + fmtNZ((ct.value || 0) / LAKH) + "</td>";
+    });
+    gt += "<td class='text-right' style='font-weight:800;color:#1d4ed8;background:#eff6ff;'>"
+        + fmtNZ((grand.value || 0) / LAKH) + "</td></tr>";
+
+    tbody.innerHTML = html + gt;
 }
 
 // ---------- Report 2: Secondary Sales (pivot) ----------
@@ -1842,6 +1938,53 @@ function renderTargetReport(result, thead, tbody) {
     tbody.innerHTML = html;
 }
 
+// ---------- Report 15: Gynae Report ----------
+// Brand rows (monthly qty) + Values-in-lakh / PCPM-in-lakh / Avg-per-Dr summary
+// rows. Header carries Strength and the scope (hierarchy) name, per the reference.
+function renderGynae(result, thead, tbody) {
+    var brands = result.brands || [];
+    var ml = result.month_labels || ["Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar"];
+    var strength = result.strength || 0;
+    var nCols = ml.length;
+
+    var h1 = "<tr>"
+        + "<th style='text-align:left;color:#c00000;'>Strength (" + strength + ")</th>"
+        + "<th colspan='" + (nCols + 1) + "' style='text-align:center;color:#c00000;font-size:14px;'>"
+        + "Secondary Sales — " + esc(result.entity_display || "") + (result.fy_label ? " (" + esc(result.fy_label) + ")" : "")
+        + "</th></tr>";
+    var h2 = "<tr><th style='text-align:left;'>Gynae Brands</th>"
+        + ml.map(function(m) { return "<th class='text-right'>" + esc(m) + "</th>"; }).join("")
+        + "<th class='text-right'>Total</th></tr>";
+    thead.innerHTML = h1 + h2;
+
+    var html = "";
+    brands.forEach(function(b) {
+        var row = "<tr><td>" + esc(b.name) + (b.pack ? " (" + esc(b.pack) + ")" : "") + "</td>";
+        (b.months || []).forEach(function(q) { row += "<td class='text-right'>" + fmtQtyNZ(q) + "</td>"; });
+        row += "<td class='text-right' style='font-weight:600;'>" + fmtQtyNZ(b.total) + "</td></tr>";
+        html += row;
+    });
+
+    function sumRow(label, series, isInt, withTotal) {
+        var r = "<tr class='subtotal-row' style='background:#fff5f5;'>"
+              + "<td style='font-weight:800;color:#c00000;'>" + label + "</td>";
+        var tot = 0;
+        (series || []).forEach(function(v) {
+            tot += Number(v) || 0;
+            r += "<td class='text-right' style='font-weight:700;color:#c00000;'>"
+               + (isInt ? fmtQtyNZ(v) : fmtNZ(v)) + "</td>";
+        });
+        r += "<td class='text-right' style='font-weight:800;color:#c00000;'>"
+           + (withTotal ? fmtNZ(tot) : "") + "</td></tr>";
+        return r;
+    }
+    html += sumRow("Values in lakh", result.values_lakh, false, true);
+    html += sumRow("PCPM in lakh", result.pcpm_lakh, false, false);
+    html += sumRow("Avg per Dr. (Rs.)", result.avg_per_dr, true, false);
+
+    tbody.innerHTML = html;
+}
+
 // ─────────────────────────────────────────────────────────────
 // Download Excel (server-side)
 // ─────────────────────────────────────────────────────────────
@@ -2159,7 +2302,8 @@ async function downloadPDF() {
     // Report 13 (monthly_org) is detail-table only — no consolidated summary page.
     // ═══════════════════════════════════════════════
     if (currentReportType !== "monthly_org" && currentReportType !== "target_report"
-        && currentReportType !== "sec_moving_trend" && currentReportType !== "primary_moving_trend") {
+        && currentReportType !== "sec_moving_trend" && currentReportType !== "primary_moving_trend"
+        && currentReportType !== "primary_sales" && currentReportType !== "gynae_report") {
     doc.addPage();
     startY = addPDFHeader(doc, currentReportMeta.title, "Consolidated Summary");
 
