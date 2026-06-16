@@ -17,5 +17,7 @@ def get_context(context):
     context.zones = opts.get("zones", [])
     context.stockists = opts.get("stockists", [])
     context.products = opts.get("products", [])
+    context.product_groups = opts.get("product_groups", [])
+    context.product_categories = opts.get("product_categories", [])
     context.months = opts.get("months", [])
     context.statement_months = opts.get("statement_months", [])

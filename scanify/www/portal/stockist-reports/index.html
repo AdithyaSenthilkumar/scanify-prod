@@ -36,7 +36,8 @@
                         <option value="region_product_stock">9. Product Closing Stock – Region Summary (HQ &amp; Stockist-wise)</option>
                         <option value="primary_moving_trend">10. Primary Sales Moving Trend</option>
                         <option value="sec_vs_closing">11. Secondary Sales Value vs Closing Stock Value (HQ-wise)</option>
-                        <option value="monthly_org">13. Full Monthly Organizational Report (Zone › Region › Team › HQ)</option>
+                        <option value="monthly_org">13. Full Monthly Organizational Report (Product-level)</option>
+                        <option value="target_report">14. Target vs Sales Report (HQ-wise)</option>
                     </select>
                 </div>
                 <div class="col-md-5 col-lg-6 mt-3 mt-md-0 d-flex align-items-end" style="gap:8px;">
@@ -254,8 +255,8 @@
                     {% endfor %}
                 </select>
             </div>
-            <!-- Sales Mode (Reports 7, 8, 9, 11 — NOT Report 10; primary sales has no scheme split) -->
-            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,region_product_stock,sec_vs_closing">
+            <!-- Sales Mode (Reports 7, 8, 9, 11, 14 — NOT Report 10; primary sales has no scheme split) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,region_product_stock,sec_vs_closing,target_report">
                 <label class="sr-filter-label">Sales Mode</label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-sales-mode">
                     <option value="after_deduction">After Deduction (Sales+Free&minus;Scheme)</option>
@@ -286,30 +287,76 @@
                 <label class="sr-filter-label">Month</label>
                 <input type="month" class="form-control form-control-sm sr-filter-select" id="f-org-month">
             </div>
-            <!-- Zones multi-select (Report 13, optional) -->
-            <div class="sr-filter-item filter-field" data-reports="monthly_org" style="min-width:220px;flex:1 1 220px;max-width:380px;">
-                <label class="sr-filter-label">Zones <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
-                <select class="form-control form-control-sm sr-filter-select" id="f-org-zones" multiple>
-                    {% for z in zones %}
-                    <option value="{{ z.code }}">{{ z.name }}</option>
+            <!-- Team (Report 13, optional) -->
+            <div class="sr-filter-item filter-field" data-reports="monthly_org" style="min-width:200px;">
+                <label class="sr-filter-label">Team <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
+                <select class="form-control form-control-sm sr-filter-select sr-select2" id="f-org-team">
+                    <option value="">All Teams</option>
+                    {% for t in teams %}
+                    <option value="{{ t.code }}">{{ t.name }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <!-- Regions multi-select (Report 13, optional) -->
-            <div class="sr-filter-item filter-field" data-reports="monthly_org" style="min-width:240px;flex:1 1 240px;max-width:400px;">
+            <!-- HQ (Report 13, optional) -->
+            <div class="sr-filter-item filter-field" data-reports="monthly_org" style="min-width:200px;">
+                <label class="sr-filter-label">HQ <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
+                <select class="form-control form-control-sm sr-filter-select sr-select2" id="f-org-hq">
+                    <option value="">All HQs</option>
+                    {% for h in hqs %}
+                    <option value="{{ h.code }}">{{ h.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- From / To Month + Regions + Sales Type (Report 14 – Target vs Sales) -->
+            <div class="sr-filter-item filter-field" data-reports="target_report">
+                <label class="sr-filter-label">From Month</label>
+                <input type="month" class="form-control form-control-sm sr-filter-select" id="f-tgt-from-month">
+            </div>
+            <div class="sr-filter-item filter-field" data-reports="target_report">
+                <label class="sr-filter-label">To Month</label>
+                <input type="month" class="form-control form-control-sm sr-filter-select" id="f-tgt-to-month">
+            </div>
+            <div class="sr-filter-item filter-field" data-reports="target_report">
+                <label class="sr-filter-label">Sales Type</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-tgt-sales-type">
+                    <option value="secondary">Secondary</option>
+                    <option value="primary">Primary</option>
+                </select>
+            </div>
+            <div class="sr-filter-item filter-field" data-reports="target_report" style="min-width:240px;flex:1 1 240px;max-width:400px;">
                 <label class="sr-filter-label">Regions <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
-                <select class="form-control form-control-sm sr-filter-select" id="f-org-regions" multiple>
+                <select class="form-control form-control-sm sr-filter-select" id="f-tgt-regions" multiple>
                     {% for r in regions %}
                     <option value="{{ r.code }}">{{ r.name }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <!-- Product Multi-Select (Reports 1, 3, 10) -->
-            <div class="sr-filter-item filter-field" data-reports="primary_sales,moving_trend,primary_moving_trend" style="min-width:280px;flex:1 1 280px;max-width:480px;">
+
+            <!-- Product Multi-Select (Reports 1, 3, 7, 8, 10, 13) -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,moving_trend,primary_moving_trend,sec_moving_trend,region_stockist_trend,monthly_org" style="min-width:280px;flex:1 1 280px;max-width:480px;">
                 <label class="sr-filter-label">Products <span class="text-muted" style="font-weight:400;text-transform:none;">(optional — all if blank)</span></label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-products" multiple>
                     {% for p in products %}
                     <option value="{{ p.code }}">{{ p.name }}{% if p.pack %} ({{ p.pack }}){% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <!-- Product Group Multi-Select (Reports 7, 8, 11, 13) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,sec_vs_closing,monthly_org" style="min-width:220px;flex:1 1 220px;max-width:380px;">
+                <label class="sr-filter-label">Product Group <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-prodgroup" multiple>
+                    {% for g in product_groups %}
+                    <option value="{{ g }}">{{ g }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <!-- Product Category Multi-Select (Reports 7, 8, 11, 13) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,sec_vs_closing,monthly_org" style="min-width:220px;flex:1 1 220px;max-width:380px;">
+                <label class="sr-filter-label">Product Category <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-prodcat" multiple>
+                    {% for c in product_categories %}
+                    <option value="{{ c }}">{{ c }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -784,20 +831,18 @@ $(document).ready(function() {
         dropdownParent: $(".sr-filters-panel"),
         closeOnSelect: false,
     });
-    // Multi-select zones/regions for Report 13
-    $("#f-org-zones").select2({
-        width: "100%",
-        placeholder: "All zones",
-        allowClear: true,
-        dropdownParent: $(".sr-filters-panel"),
-        closeOnSelect: false,
+    // Multi-select product group / category (Reports 7, 8, 11, 13) and Report 14 regions
+    $("#f-prodgroup").select2({
+        width: "100%", placeholder: "All groups", allowClear: true,
+        dropdownParent: $(".sr-filters-panel"), closeOnSelect: false,
     });
-    $("#f-org-regions").select2({
-        width: "100%",
-        placeholder: "All regions",
-        allowClear: true,
-        dropdownParent: $(".sr-filters-panel"),
-        closeOnSelect: false,
+    $("#f-prodcat").select2({
+        width: "100%", placeholder: "All categories", allowClear: true,
+        dropdownParent: $(".sr-filters-panel"), closeOnSelect: false,
+    });
+    $("#f-tgt-regions").select2({
+        width: "100%", placeholder: "All regions", allowClear: true,
+        dropdownParent: $(".sr-filters-panel"), closeOnSelect: false,
     });
     // Pre-populate team and HQ dropdowns with all options
     rebuildSelect("f-team", CTX_TEAMS_RAW, "All Teams");
@@ -837,8 +882,11 @@ function onReportTypeChange() {
     if (currentReportType === "sec_moving_trend" || currentReportType === "primary_moving_trend") {
         onEntityTypeChange();
     }
-    // Clear product multi-select when switching reports
-    if ($("#f-products").data("select2")) $("#f-products").val(null).trigger("change");
+    // Clear product / group / category / region multi-selects when switching reports
+    ["f-products", "f-prodgroup", "f-prodcat", "f-tgt-regions"].forEach(function(id) {
+        var $el = $("#" + id);
+        if ($el.data("select2")) $el.val(null).trigger("change");
+    });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -915,6 +963,9 @@ function generateReport() {
 
     const params = buildParams();
     if (!params) return; // buildParams shows its own alert on validation failure
+    // Report 13 can return tens of thousands of line items — cap the on-screen
+    // preview so the browser doesn't hang. The Excel/PDF download stays full.
+    if (currentReportType === "monthly_org") params.limit = 1000;
     const endpointMap = {
         primary_sales: "scanify.api.get_stockist_primary_sales_report",
         secondary_sales: "scanify.api.get_stockist_secondary_sales_report",
@@ -928,6 +979,7 @@ function generateReport() {
         primary_moving_trend: "scanify.api.get_primary_sales_moving_trend",
         sec_vs_closing: "scanify.api.get_secondary_vs_closing_value_report",
         monthly_org: "scanify.api.get_monthly_organizational_report",
+        target_report: "scanify.api.get_target_vs_sales_report",
     };
 
     document.getElementById("report-loading").style.display = "block";
@@ -967,8 +1019,15 @@ function buildParams() {
     const fromDate = document.getElementById("f-from-date").value;
     const toDate = document.getElementById("f-to-date").value;
 
-    // Selected products from the multi-select (Reports 1, 3, 10)
+    // Selected products from the multi-select (Reports 1, 3, 7, 8, 10, 13)
     const selectedProducts = $("#f-products").val() || [];
+    const selProdGroups = $("#f-prodgroup").val() || [];
+    const selProdCats = $("#f-prodcat").val() || [];
+    function addProductFilters(p, includeCodes) {
+        if (includeCodes && selectedProducts.length) p.product_codes = JSON.stringify(selectedProducts);
+        if (selProdGroups.length) p.product_group = JSON.stringify(selProdGroups);
+        if (selProdCats.length) p.product_category = JSON.stringify(selProdCats);
+    }
 
     if (currentReportType === "primary_sales") {
         p.sales_type = document.getElementById("f-sales-type").value;
@@ -1034,6 +1093,7 @@ function buildParams() {
         if (fy) p.financial_year = fy;
         if (currentReportType === "sec_moving_trend") {
             p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
+            addProductFilters(p, true);
         } else {
             // Report 10 — primary moving trend: optional product filter, no sales_mode
             if (selectedProducts.length) p.product_codes = JSON.stringify(selectedProducts);
@@ -1043,6 +1103,7 @@ function buildParams() {
         const fy = document.getElementById("f-financial-year").value;
         if (fy) p.financial_year = fy;
         p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
+        addProductFilters(p, true);
     } else if (currentReportType === "region_product_stock") {
         p.region = document.getElementById("f-region-pstock").value;
         if (!p.region) { showAlert("Please select a Region for this report.", "warning"); return null; }
@@ -1064,6 +1125,7 @@ function buildParams() {
         var regs = $("#f-svc-regions").val() || [];
         if (regs.length) p.region_codes = JSON.stringify(regs);
         p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
+        addProductFilters(p, false);   // Report 11: group + category only
     } else if (currentReportType === "monthly_org") {
         const mo = document.getElementById("f-org-month").value;
         if (!mo) {
@@ -1071,10 +1133,24 @@ function buildParams() {
             return null;
         }
         p.month = mo;
-        var ozones = $("#f-org-zones").val() || [];
-        if (ozones.length) p.zone_codes = JSON.stringify(ozones);
-        var oregs = $("#f-org-regions").val() || [];
-        if (oregs.length) p.region_codes = JSON.stringify(oregs);
+        var oteam = document.getElementById("f-org-team").value;
+        var ohq = document.getElementById("f-org-hq").value;
+        if (oteam) p.team = oteam;
+        if (ohq) p.hq = ohq;
+        addProductFilters(p, true);    // Report 13: products + group + category
+    } else if (currentReportType === "target_report") {
+        const fm = document.getElementById("f-tgt-from-month").value;
+        const tm = document.getElementById("f-tgt-to-month").value;
+        if (!fm || !tm) {
+            showAlert("Please pick both From and To months.", "warning");
+            return null;
+        }
+        p.from_month = fm;
+        p.to_month = tm;
+        p.sales_type = document.getElementById("f-tgt-sales-type").value || "secondary";
+        p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
+        var tregs = $("#f-tgt-regions").val() || [];
+        if (tregs.length) p.region_codes = JSON.stringify(tregs);
     }
     return p;
 }
@@ -1101,6 +1177,7 @@ function renderReport(result) {
         primary_moving_trend: renderSecMovingTrend,  // Same shape as Report 7
         sec_vs_closing: renderSecVsClosing,
         monthly_org: renderMonthlyOrg,
+        target_report: renderTargetReport,
     };
 
     const renderer = renderers[currentReportType];
@@ -1135,6 +1212,7 @@ function renderReport(result) {
         primary_moving_trend: "Primary Sales Moving Trend",
         sec_vs_closing: "Secondary Sales vs Closing Stock Value",
         monthly_org: "Full Monthly Organizational Report",
+        target_report: "Target vs Sales Report",
     };
     const regionSel = document.getElementById("f-region");
     const region = regionSel.options[regionSel.selectedIndex]?.text || "All Regions";
@@ -1185,6 +1263,18 @@ function renderReport(result) {
         subtitle += ` | Net = Billed + Free − Scheme | Values in Rs. Lakhs`;
     }
 
+    if (currentReportType === "target_report") {
+        var tms = result.months || [];
+        var tperiod = tms.length ? (tms[0].label + " to " + tms[tms.length - 1].label) : "";
+        var ttype = (result.sales_type === "primary") ? "Primary" : "Secondary";
+        if (result.sales_type !== "primary") {
+            ttype += " (" + ((result.sales_mode === "before_deduction") ? "Before" : "After") + " Deduction)";
+        }
+        subtitle = `Target vs Sales`;
+        if (tperiod) subtitle += ` | ${tperiod}`;
+        subtitle += ` | ${ttype} | Values in Rs. Lakhs`;
+    }
+
     currentReportMeta = {
         title: titles[currentReportType] + " – " + DIVISION,
         subtitle: subtitle,
@@ -1216,13 +1306,10 @@ function getDataLength(result) {
         return (result.regions || []).reduce(function(s, r) { return s + (r.hqs || []).length; }, 0);
     }
     if (currentReportType === "monthly_org") {
-        var n = 0;
-        (result.zones || []).forEach(function(z) {
-            (z.regions || []).forEach(function(r) {
-                (r.teams || []).forEach(function(t) { n += (t.hqs || []).length; });
-            });
-        });
-        return n;
+        return (result.total_count != null) ? result.total_count : (result.rows || []).length;
+    }
+    if (currentReportType === "target_report") {
+        return (result.regions || []).reduce(function(s, r) { return s + (r.hqs || []).length; }, 0);
     }
     if (currentReportType === "secondary_sales") {
         return (result.products || []).length;
@@ -1647,9 +1734,9 @@ function renderSecVsClosing(result, thead, tbody) {
     tbody.innerHTML = html;
 }
 
-// ---------- Report 13: Full Monthly Organizational Report ----------
+// ---------- Report 13: Full Monthly Organizational Report (product-level) ----------
 function renderMonthlyOrg(result, thead, tbody) {
-    var zones = result.zones || [];
+    var rows = result.rows || [];
 
     function lk(v) {
         var n = (Number(v) || 0) / 100000;
@@ -1663,7 +1750,10 @@ function renderMonthlyOrg(result, thead, tbody) {
 
     thead.innerHTML =
         "<tr>"
-        + "<th style='text-align:left;'>Geography</th>"
+        + "<th style='text-align:left;'>HQ</th>"
+        + "<th style='text-align:left;'>Stockist</th>"
+        + "<th style='text-align:left;'>Product</th>"
+        + "<th style='text-align:left;'>Pack</th>"
         + "<th class='text-right'>Opening</th>"
         + "<th class='text-right'>Billed Sales</th>"
         + "<th class='text-right'>Free Goods</th>"
@@ -1672,33 +1762,82 @@ function renderMonthlyOrg(result, thead, tbody) {
         + "<th class='text-right'>Closing</th>"
         + "</tr>";
 
+    var totalCount = (result.total_count != null) ? result.total_count : rows.length;
     var html = "";
-    zones.forEach(function(z) {
-        html += "<tr class='section-header-row' style='background:#1e293b;color:#fff;'>"
-              + "<td style='font-weight:700;'>ZONE: " + esc(z.zone_name) + "</td>"
-              + valCells(z.totals, "font-weight:700;color:#fff;") + "</tr>";
+    // Overall total pinned at the TOP (computed over the FULL data set)
+    if (result.grand_total) {
+        html += "<tr class='grand-total-row'>"
+              + "<td colspan='4' style='font-weight:800;'>OVERALL TOTAL (" + totalCount.toLocaleString("en-IN") + " lines)</td>"
+              + valCells(result.grand_total, "font-weight:800;") + "</tr>";
+    }
+    // Truncation note row — on-screen only (excluded from PDF, never in Excel).
+    if (result.truncated) {
+        html += "<tr class='preview-note-row' style='background:#fff7ed;'>"
+              + "<td colspan='10' style='color:#9a3412;font-weight:600;text-align:center;'>"
+              + "Preview limited to first " + rows.length.toLocaleString("en-IN") + " of "
+              + totalCount.toLocaleString("en-IN") + " lines — use <b>Download Excel</b> for the full report."
+              + "</td></tr>";
+    }
 
-        (z.regions || []).forEach(function(reg) {
-            html += "<tr class='group-row' style='background:#d9e2f3;'>"
-                  + "<td style='font-weight:700;padding-left:16px;'>" + esc(reg.region_name) + "</td>"
-                  + valCells(reg.totals, "font-weight:700;") + "</tr>";
+    rows.forEach(function(r) {
+        html += "<tr>"
+              + td(esc(r.hq_name))
+              + td(esc(r.stockist_name))
+              + td(esc(r.product_name || r.product_code))
+              + td(esc(r.pack))
+              + valCells(r, "") + "</tr>";
+    });
+    tbody.innerHTML = html;
+}
 
-            (reg.teams || []).forEach(function(tm) {
-                html += "<tr class='subtotal-row' style='background:#f1f5f9;'>"
-                      + "<td style='font-weight:600;padding-left:30px;'>Team: " + esc(tm.team_name) + "</td>"
-                      + valCells(tm.totals, "font-weight:600;") + "</tr>";
+// ---------- Report 14: Target vs Sales (HQ-wise, grouped by Region) ----------
+function renderTargetReport(result, thead, tbody) {
+    var months = result.months || [];
+    var regions = result.regions || [];
+    var grand = (result.grand_total && result.grand_total.monthly) || [];
 
-                (tm.hqs || []).forEach(function(h) {
-                    html += "<tr><td style='padding-left:46px;'>" + esc(h.hq_name) + "</td>"
-                          + valCells(h, "") + "</tr>";
-                });
-            });
+    var hRow1 = "<tr><th rowspan='2' style='vertical-align:middle;'>HQ</th>";
+    var hRow2 = "<tr>";
+    months.forEach(function(m) {
+        hRow1 += "<th colspan='2' style='text-align:center;'>" + esc(m.label) + "</th>";
+        hRow2 += "<th style='background:#334155;color:#fff;'>Target</th>"
+              +  "<th style='background:#334155;color:#fff;'>Sales</th>";
+    });
+    hRow1 += "</tr>";
+    hRow2 += "</tr>";
+    thead.innerHTML = hRow1 + hRow2;
+
+    function pairCells(m, style) {
+        // colour Sales vs Target: green when sales >= target (and target>0), red when short
+        var sales = Number(m.sales) || 0, target = Number(m.target) || 0;
+        var salesColor = "";
+        if (target > 0) salesColor = (sales >= target) ? "color:#16a34a;" : "color:#dc2626;";
+        return "<td class='text-right' style='" + (style || "") + "'>" + fmtNZ(m.target) + "</td>"
+             + "<td class='text-right' style='" + (style || "") + salesColor + "'>" + fmtNZ(m.sales) + "</td>";
+    }
+
+    var html = "";
+    regions.forEach(function(reg) {
+        (reg.hqs || []).forEach(function(h) {
+            var row = "<tr>" + td(esc(h.hq_name));
+            (h.monthly || []).forEach(function(m) { row += pairCells(m, ""); });
+            row += "</tr>";
+            html += row;
         });
+        var rt = "<tr class='region-total-row' style='background:#fde8e8;border-top:2px solid #dc2626;border-bottom:2px solid #dc2626;'>"
+               + "<td style='font-weight:800;color:#dc2626;font-size:12px;'>" + esc(reg.region_name) + " Region Total</td>";
+        ((reg.totals && reg.totals.monthly) || []).forEach(function(m) {
+            rt += pairCells(m, "font-weight:800;");
+        });
+        rt += "</tr>";
+        html += rt;
     });
 
-    if (result.grand_total) {
-        html += "<tr class='grand-total-row'><td style='font-weight:800;'>GRAND TOTAL</td>"
-              + valCells(result.grand_total, "font-weight:800;") + "</tr>";
+    if (grand.length) {
+        var gt = "<tr class='grand-total-row'><td>Grand Total</td>";
+        grand.forEach(function(m) { gt += pairCells(m, "font-weight:800;"); });
+        gt += "</tr>";
+        html += gt;
     }
     tbody.innerHTML = html;
 }
@@ -1947,6 +2086,8 @@ async function downloadPDF() {
     });
 
     table.querySelectorAll("tbody tr").forEach(function(tr) {
+        // Skip the on-screen-only "preview limited" note — never goes into the PDF.
+        if (tr.classList.contains("preview-note-row")) return;
         var row = [];
         var isGroup = tr.classList.contains("group-row");
         var isSubtotal = tr.classList.contains("subtotal-row");
@@ -1964,9 +2105,11 @@ async function downloadPDF() {
     // Per-report compaction: Report 7 (and the new Report 10) overflow at default
     // settings, so trim padding/margins for them while keeping other reports as-is.
     var _tight = (currentReportType === "sec_moving_trend" || currentReportType === "primary_moving_trend");
-    var _detailFontSize = _tight ? 6.5 : 7;
-    var _detailCellPad  = _tight ? 0.9 : 1.5;
-    var _detailMargin   = _tight ? { left: 5, right: 5, top: 28 } : { left: 8, right: 8, top: 30 };
+    // Reports 7 & 10: bigger font for readability, but tighter row padding so the
+    // table still fits in 2 pages (no spill to a 3rd). Column grid is unchanged.
+    var _detailFontSize = _tight ? 8 : 7;
+    var _detailCellPad  = _tight ? 0.8 : 1.5;
+    var _detailMargin   = _tight ? { left: 6, right: 6, top: 28 } : { left: 8, right: 8, top: 30 };
 
     doc.autoTable({
         head: dHead,
@@ -2015,7 +2158,8 @@ async function downloadPDF() {
     // FINAL PAGES: Consolidated Summary + Charts (LAST per client requirement)
     // Report 13 (monthly_org) is detail-table only — no consolidated summary page.
     // ═══════════════════════════════════════════════
-    if (currentReportType !== "monthly_org") {
+    if (currentReportType !== "monthly_org" && currentReportType !== "target_report"
+        && currentReportType !== "sec_moving_trend" && currentReportType !== "primary_moving_trend") {
     doc.addPage();
     startY = addPDFHeader(doc, currentReportMeta.title, "Consolidated Summary");
 
