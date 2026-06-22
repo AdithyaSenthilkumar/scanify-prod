@@ -9274,7 +9274,8 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         row = write_title_rows(
             ws, f"Full Monthly Organizational Report – {division}",
             f"Month: {month_label}  |  Net = Billed + Free - Scheme  |  Qty in boxes, values in Rs. (total row in Rs. Lakhs)")
-        headers = ["HQ", "Stockist", "Product Code", "Product", "Pack",
+        headers = ["HQ", "Stockist", "Product Code", "Product",
+                   "Product Group", "Category", "Pack",
                    "Sales Qty (Box)", "Free Qty (Box)",
                    "Opening (Rs.)", "Billed Sales (Rs.)", "Free Goods (Rs.)",
                    "Scheme Deduction (Rs.)", "Net Sales (Rs.)", "Closing (Rs.)"]
@@ -9294,7 +9295,7 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
 
         # Overall total pinned at the TOP — qty in boxes, values in Rs. Lakhs
         write_value_row(ws, row, [
-            "OVERALL TOTAL (Rs. Lakhs)", "", "", "", "",
+            "OVERALL TOTAL (Rs. Lakhs)", "", "", "", "", "", "",
             _Q(grand.get("sales_qty")), _Q(grand.get("free_qty")),
             _L(grand.get("opening")), _L(grand.get("billed")), _L(grand.get("free")),
             _L(grand.get("scheme")), _L(grand.get("net")), _L(grand.get("closing"))])
@@ -9304,11 +9305,12 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         for r in data_rows:
             write_data_row(ws, row, [
                 r.get("hq_name"), r.get("stockist_name"), r.get("product_code"),
-                r.get("product_name"), r.get("pack"),
+                r.get("product_name"), r.get("product_group"), r.get("category"),
+                r.get("pack"),
                 _Q(r.get("sales_qty")), _Q(r.get("free_qty")),
                 _R(r.get("opening")), _R(r.get("billed")), _R(r.get("free")),
                 _R(r.get("scheme")), _R(r.get("net")), _R(r.get("closing"))])
-            for c in range(6, len(headers) + 1):
+            for c in range(8, len(headers) + 1):
                 ws.cell(row=row, column=c).alignment = right_align
             row += 1
 
@@ -12307,6 +12309,8 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
                COALESCE(hm.hq_name, ss.hq, '') AS hq_name,
                si.product_code AS product_code,
                COALESCE(pm.product_name, si.product_name, si.raw_product_name, '') AS product_name,
+               COALESCE(pm.product_group, '') AS product_group,
+               COALESCE(pm.category, '') AS category,
                COALESCE(NULLIF(si.pack, ''), pm.pack, '') AS pack,
                IFNULL(si.sales_qty, 0)                           AS sales_qty,
                IFNULL(si.free_qty, 0)                            AS free_qty,
@@ -12335,7 +12339,9 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
         out_rows.append({
             "stockist_code": r.stockist_code, "stockist_name": r.stockist_name or "",
             "hq_name": r.hq_name or r.hq_code or "", "product_code": r.product_code or "",
-            "product_name": r.product_name or "", "pack": r.pack or "",
+            "product_name": r.product_name or "",
+            "product_group": r.product_group or "", "category": r.category or "",
+            "pack": r.pack or "",
             "sales_qty": sales_qty, "free_qty": free_qty,
             "opening": flt(r.opening), "billed": billed, "free": free,
             "scheme": scheme, "net": net, "closing": flt(r.closing),
