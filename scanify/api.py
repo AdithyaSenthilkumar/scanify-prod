@@ -9446,6 +9446,79 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         _summary("Avg per Dr. (Rs.)", result.get("avg_per_dr", []), as_total=False)
         row = row_ref[0]
 
+    elif report_type == "org_sales":
+        # Report 16 – Organisational Sales Report (Region wise): products × regions
+        # grouped by zone, with per-zone total + organization total columns.
+        ws.title = "Organisational Sales"
+        result = get_organizational_sales_report(
+            division,
+            kwargs.get("sales_type") or "primary",
+            kwargs.get("from_date") or None,
+            kwargs.get("to_date") or None,
+            product_codes or None,
+            kwargs.get("sales_mode") or "after_deduction",
+        )
+        zones = result.get("zones", [])
+        prods = result.get("products", [])
+        vil = result.get("value_in_lakhs", {}) or {}
+        type_label = result.get("type_label", "Primary")
+        period = result.get("period_label", "")
+        row = write_title_rows(
+            ws, f"Organization {type_label} Sales – {division}",
+            (f"From {period}" if period else ""))
+
+        # Flat column scaffold: ("region"|"zone"|"org", code, label)
+        flat_cols = []
+        for z in zones:
+            for rg in z.get("regions", []):
+                flat_cols.append(("region", rg["code"], rg["name"]))
+            flat_cols.append(("zone", z["code"], f"{z['name']} Total"))
+        flat_cols.append(("org", "", "Organization Total"))
+
+        headers = ["#", "Code", "Pack"] + [c[2] for c in flat_cols]
+        write_header_row(ws, row, headers)
+        row += 1
+
+        right_align = Alignment(horizontal="right")
+        center_align = Alignment(horizontal="center")
+
+        def _z(v):
+            return v if v else None
+
+        vil_reg = vil.get("regions", {}) or {}
+        vil_zone = vil.get("zone_totals", {}) or {}
+
+        # Value In Lakhs row (first)
+        vrow = ["", "Value In Lakhs", ""]
+        for kind, code, _lbl in flat_cols:
+            if kind == "region":
+                vrow.append(_z(vil_reg.get(code)))
+            elif kind == "zone":
+                vrow.append(_z(vil_zone.get(code)))
+            else:
+                vrow.append(_z(vil.get("org_total")))
+        write_value_row(ws, row, vrow)
+        row += 1
+
+        for i, p in enumerate(prods, 1):
+            cells = p.get("cells", {}) or {}
+            ztot = p.get("zone_totals", {}) or {}
+            vals = [i, p.get("code", ""), p.get("pack", "")]
+            for kind, code, _lbl in flat_cols:
+                if kind == "region":
+                    vals.append(_z(cells.get(code)))
+                elif kind == "zone":
+                    vals.append(_z(ztot.get(code)))
+                else:
+                    vals.append(_z(p.get("org_total")))
+            write_data_row(ws, row, vals)
+            ws.cell(row=row, column=1).alignment = center_align
+            ws.cell(row=row, column=2).alignment = center_align
+            ws.cell(row=row, column=3).alignment = center_align
+            for c in range(4, len(headers) + 1):
+                ws.cell(row=row, column=c).alignment = right_align
+            row += 1
+
     else:
         frappe.throw("Invalid report type")
 
@@ -9480,6 +9553,7 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         "monthly_org": "Full Monthly Organizational Report",
         "target_report": "Target vs Sales Report",
         "gynae_report": "Gynae Report",
+        "org_sales": "Organisational Sales Report Region wise",
     }
     import re as _re
     from datetime import date as _date
@@ -11444,6 +11518,236 @@ def get_primary_sales_moving_trend(division=None, entity_type="Team",
         "active_months": active_months,
         "sections": sections,
         "month_labels": _MONTH_LABELS,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# REPORT 16 – ORGANISATIONAL SALES REPORT (REGION WISE)
+# Product rows × Region columns, grouped by Zone with a per-Zone total column
+# and a trailing Organization Total column. The first body row is "Value In
+# Lakhs" (monetary total per region / zone / organisation); product cells are
+# quantities. Works for both Primary (`tabPrimary Sales Data`) and Secondary
+# (`tabStockist Statement`) sales over a date range.
+# ═══════════════════════════════════════════════════════════════
+
+@frappe.whitelist()
+def get_organizational_sales_report(division=None, sales_type="primary",
+                                    from_date=None, to_date=None,
+                                    product_codes=None, sales_mode="after_deduction"):
+    """Report 16 – Organisational Sales Report (Region wise).
+
+    Rows = products (code + pack); columns = regions grouped by zone, with a
+    per-zone total column and a trailing Organization Total column. The first
+    body row is "Value In Lakhs". Cell values are quantities.
+
+    sales_type : 'primary' (tabPrimary Sales Data, iscancelled=0)
+                 'secondary' (tabStockist Statement, docstatus IN (0,1))
+    sales_mode : 'after_deduction' | 'before_deduction' (secondary only)
+    """
+    if not division:
+        division = get_user_division()
+
+    sales_type = (sales_type or "primary").lower()
+    is_secondary = (sales_type == "secondary")
+
+    # ── Column scaffold: zones → regions (all active regions in the division) ──
+    zone_rows = frappe.db.sql(
+        "SELECT name, zone_name FROM `tabZone Master` "
+        "WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        (division,), as_dict=True)
+    region_rows = frappe.db.sql(
+        "SELECT name, region_name, IFNULL(zone,'') AS zone FROM `tabRegion Master` "
+        "WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        (division,), as_dict=True)
+
+    zone_name_map = {z.name: (z.zone_name or z.name) for z in zone_rows}
+
+    # Region value resolver: sales tables are inconsistent — Stockist Statement
+    # stores the region *code* (R0xxx) while Primary Sales Data stores the region
+    # *name* ("Chennai"). Map both forms → canonical Region Master code.
+    region_lookup = {}
+    for r in region_rows:
+        region_lookup[r.name] = r.name
+        if r.region_name:
+            region_lookup[r.region_name] = r.name
+            region_lookup[r.region_name.strip().lower()] = r.name
+
+    def _canon_region(val):
+        if not val:
+            return None
+        return region_lookup.get(val) or region_lookup.get(str(val).strip().lower())
+
+    # Group regions under their zone, preserving zone order then region order.
+    regions_by_zone = {}
+    for r in region_rows:
+        regions_by_zone.setdefault(r.zone or "", []).append(
+            {"code": r.name, "name": r.region_name or r.name})
+
+    # Ordered zone codes: configured zones first, then any zone code referenced
+    # by a region but missing from Zone Master, then the ungrouped bucket last.
+    zone_order = [z.name for z in zone_rows if z.name in regions_by_zone]
+    for zc in regions_by_zone:
+        if zc and zc not in zone_order:
+            zone_order.append(zc)
+
+    UNGROUPED = "__none__"
+    zones_out = []
+    region_to_zone = {}
+    for zc in zone_order:
+        regs = regions_by_zone.get(zc, [])
+        if not regs:
+            continue
+        for rg in regs:
+            region_to_zone[rg["code"]] = zc
+        zones_out.append({"code": zc, "name": zone_name_map.get(zc, zc), "regions": regs})
+    if "" in regions_by_zone:
+        regs = regions_by_zone[""]
+        for rg in regs:
+            region_to_zone[rg["code"]] = UNGROUPED
+        zones_out.append({"code": UNGROUPED, "name": "Other", "regions": regs})
+
+    all_region_codes = [rg["code"] for z in zones_out for rg in z["regions"]]
+    valid_regions = set(all_region_codes)
+
+    # ── Products (optionally narrowed by the multi-select) ──
+    products = frappe.db.sql(
+        "SELECT product_code, product_name, pack FROM `tabProduct Master` "
+        "WHERE division=%s AND status='Active' "
+        "ORDER BY COALESCE(sequence, 9999), product_code",
+        (division,), as_dict=True)
+    pcodes = _normalise_code_list(product_codes)
+    if pcodes:
+        allowed = set(pcodes)
+        products = [p for p in products if p.product_code in allowed]
+
+    # ── Sales rows: region × product → qty, value ──
+    if is_secondary:
+        if sales_mode == "before_deduction":
+            _qty_expr = "(si.sales_qty + si.free_qty) / IFNULL(NULLIF(si.conversion_factor, 0), 1)"
+        else:
+            _qty_expr = "(si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)"
+        _val_expr = f"({_qty_expr}) * IFNULL(si.pts, 0)"
+        conds = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)", "IFNULL(ss.region, '') <> ''"]
+        params = {"division": division}
+        if from_date:
+            conds.append("ss.statement_month >= %(from_date)s"); params["from_date"] = from_date
+        if to_date:
+            conds.append("ss.statement_month <= %(to_date)s"); params["to_date"] = to_date
+        if pcodes:
+            ph = ", ".join([f"%(_pc{i})s" for i in range(len(pcodes))])
+            conds.append(f"si.product_code IN ({ph})")
+            for i, c in enumerate(pcodes):
+                params[f"_pc{i}"] = c
+        where = " AND ".join(conds)
+        sales_rows = frappe.db.sql(f"""
+            SELECT ss.region AS region, si.product_code AS product_code,
+                   SUM({_qty_expr}) AS qty, SUM({_val_expr}) AS value
+            FROM `tabStockist Statement` ss
+            INNER JOIN `tabStockist Statement Item` si
+                ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+            WHERE {where}
+            GROUP BY ss.region, si.product_code
+        """, params, as_dict=True)
+    else:
+        conds = ["psd.division = %(division)s", "psd.iscancelled = 0", "IFNULL(psd.region, '') <> ''"]
+        params = {"division": division}
+        if from_date:
+            conds.append("psd.invoicedate >= %(from_date)s"); params["from_date"] = from_date
+        if to_date:
+            conds.append("psd.invoicedate <= %(to_date)s"); params["to_date"] = to_date
+        if pcodes:
+            ph = ", ".join([f"%(_pc{i})s" for i in range(len(pcodes))])
+            conds.append(f"psd.pcode IN ({ph})")
+            for i, c in enumerate(pcodes):
+                params[f"_pc{i}"] = c
+        where = " AND ".join(conds)
+        sales_rows = frappe.db.sql(f"""
+            SELECT psd.region AS region, psd.pcode AS product_code,
+                   SUM(psd.quantity) AS qty, SUM(psd.ptsvalue) AS value
+            FROM `tabPrimary Sales Data` psd
+            WHERE {where}
+            GROUP BY psd.region, psd.pcode
+        """, params, as_dict=True)
+
+    # ── Pivot: product_code → region_code → {qty, value} ──
+    pdata = {}
+    for r in sales_rows:
+        rc = _canon_region(r.region)
+        if rc is None or rc not in valid_regions:
+            continue  # region outside this division's active scaffold
+        cell = pdata.setdefault(r.product_code, {})
+        c = cell.setdefault(rc, {"qty": 0.0, "value": 0.0})
+        c["qty"] += flt(r.qty)
+        c["value"] += flt(r.value)
+
+    LAKH = 100000.0
+
+    # ── Build product rows (only products that have sales data) ──
+    product_rows = []
+    vil_regions = {rc: 0.0 for rc in all_region_codes}  # value accumulators (₹)
+    for p in products:
+        regcells = pdata.get(p.product_code)
+        if not regcells:
+            continue
+        cells = {}
+        zone_tot = {}
+        org_qty = 0.0
+        for rc in all_region_codes:
+            c = regcells.get(rc)
+            q = flt(c["qty"]) if c else 0.0
+            v = flt(c["value"]) if c else 0.0
+            if q:
+                cells[rc] = round(q, 2)
+            org_qty += q
+            zc = region_to_zone.get(rc, UNGROUPED)
+            zone_tot[zc] = zone_tot.get(zc, 0.0) + q
+            vil_regions[rc] += v
+        product_rows.append({
+            "code": p.product_code,
+            "pack": p.pack or "",
+            "cells": cells,
+            "zone_totals": {z: round(q, 2) for z, q in zone_tot.items() if q},
+            "org_total": round(org_qty, 2),
+        })
+
+    # ── Value In Lakhs row (per region / zone / organisation) ──
+    vil_zone = {}
+    vil_org = 0.0
+    for rc in all_region_codes:
+        zc = region_to_zone.get(rc, UNGROUPED)
+        vil_zone[zc] = vil_zone.get(zc, 0.0) + vil_regions[rc]
+        vil_org += vil_regions[rc]
+    value_in_lakhs = {
+        "regions": {rc: round(v / LAKH, 2) for rc, v in vil_regions.items()},
+        "zone_totals": {zc: round(v / LAKH, 2) for zc, v in vil_zone.items()},
+        "org_total": round(vil_org / LAKH, 2),
+    }
+
+    # ── Labels ──
+    from frappe.utils import getdate
+
+    def _dmy(d):
+        try:
+            return getdate(d).strftime("%d/%m/%Y")
+        except Exception:
+            return str(d or "")
+
+    type_label = "Secondary" if is_secondary else "Primary"
+    period_label = f"{_dmy(from_date)} To {_dmy(to_date)}" if (from_date and to_date) else ""
+
+    return {
+        "success": True,
+        "sales_type": sales_type,
+        "type_label": type_label,
+        "title": f"Organization {type_label} Sales",
+        "from_date": from_date or "",
+        "to_date": to_date or "",
+        "period_label": period_label,
+        "zones": zones_out,
+        "region_codes": all_region_codes,
+        "value_in_lakhs": value_in_lakhs,
+        "products": product_rows,
+        "sales_mode": sales_mode if is_secondary else None,
     }
 
 

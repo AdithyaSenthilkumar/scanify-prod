@@ -39,6 +39,7 @@
                         <option value="monthly_org">13. Full Monthly Organizational Report (Product-level)</option>
                         <option value="target_report">14. Target vs Sales Report (HQ-wise)</option>
                         <option value="gynae_report">15. Gynae Report</option>
+                        <option value="org_sales">16. Organisational Sales Report (Region wise)</option>
                     </select>
                 </div>
                 <div class="col-md-5 col-lg-6 mt-3 mt-md-0 d-flex align-items-end" style="gap:8px;">
@@ -156,14 +157,23 @@
                 </select>
             </div>
 
-            <!-- From Date (Reports 1, 4) -->
-            <div class="sr-filter-item filter-field" data-reports="primary_sales,closing_stock">
+            <!-- Sales Type (Report 16 – Organisational Sales) -->
+            <div class="sr-filter-item filter-field" data-reports="org_sales">
+                <label class="sr-filter-label">Sales Type</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-org-sales-type" onchange="onOrgSalesTypeChange()">
+                    <option value="primary">Primary</option>
+                    <option value="secondary">Secondary</option>
+                </select>
+            </div>
+
+            <!-- From Date (Reports 1, 4, 16) -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,closing_stock,org_sales">
                 <label class="sr-filter-label">From Date</label>
                 <input type="date" class="form-control form-control-sm sr-filter-select" id="f-from-date">
             </div>
 
-            <!-- To Date (Reports 1, 4) -->
-            <div class="sr-filter-item filter-field" data-reports="primary_sales,closing_stock">
+            <!-- To Date (Reports 1, 4, 16) -->
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,closing_stock,org_sales">
                 <label class="sr-filter-label">To Date</label>
                 <input type="date" class="form-control form-control-sm sr-filter-select" id="f-to-date">
             </div>
@@ -257,8 +267,8 @@
                     {% endfor %}
                 </select>
             </div>
-            <!-- Sales Mode (Reports 7, 8, 9, 11, 14, 15 — NOT Report 10; primary sales has no scheme split) -->
-            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,region_product_stock,sec_vs_closing,target_report,gynae_report">
+            <!-- Sales Mode (Reports 7, 8, 9, 11, 14, 15, and Report 16 when Secondary) -->
+            <div class="sr-filter-item filter-field" id="wrap-org-sales-mode" data-reports="sec_moving_trend,region_stockist_trend,region_product_stock,sec_vs_closing,target_report,gynae_report,org_sales">
                 <label class="sr-filter-label">Sales Mode</label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-sales-mode">
                     <option value="after_deduction">After Deduction (Sales+Free&minus;Scheme)</option>
@@ -374,7 +384,7 @@
             </div>
 
             <!-- Product Multi-Select (Reports 1, 3, 7, 8, 10, 13) -->
-            <div class="sr-filter-item filter-field" data-reports="primary_sales,moving_trend,primary_moving_trend,sec_moving_trend,region_stockist_trend,monthly_org" style="min-width:280px;flex:1 1 280px;max-width:480px;">
+            <div class="sr-filter-item filter-field" data-reports="primary_sales,moving_trend,primary_moving_trend,sec_moving_trend,region_stockist_trend,monthly_org,org_sales" style="min-width:280px;flex:1 1 280px;max-width:480px;">
                 <label class="sr-filter-label">Products <span class="text-muted" style="font-weight:400;text-transform:none;">(optional — all if blank)</span></label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-products" multiple>
                     {% for p in products %}
@@ -681,6 +691,28 @@
         border-top: 2px solid #1e293b;
     }
     .report-table .text-right { text-align: right !important; }
+    .report-table .text-center { text-align: center !important; }
+
+    /* ─── Report 16: Organisational Sales (vertical region headers) ─── */
+    .report-table th.org-vert {
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+        white-space: nowrap;
+        vertical-align: bottom;
+        text-align: left;
+        height: 140px;
+        padding: 6px 4px;
+        font-size: 10px;
+    }
+    .report-table th.org-col-num,
+    .report-table th.org-col-code,
+    .report-table th.org-col-pack { vertical-align: bottom; }
+    .report-table th.org-zone-th,
+    .report-table th.org-org-th { background: #1e3a5f; }
+    .report-table td.org-zone-td { background: #f1f5f9; }
+    .report-table td.org-org-td { background: #1e293b; color: #fff; }
+    .report-table .value-lakhs-row td.org-zone-td,
+    .report-table .value-lakhs-row td.org-org-td { background: #dbeafe; color: #1d4ed8; }
 
     /* ─── Empty / Loading States ─── */
     .sr-empty-state {
@@ -792,6 +824,17 @@ function fmtQtyNZ(n) {
     var x = Number(n);
     if (n == null || !isFinite(x) || x === 0) return "";
     return x.toLocaleString("en-IN", {minimumFractionDigits: 0, maximumFractionDigits: 2});
+}
+// Comma-free blank-zero formatters (Reports 7 & 10 — client wants no thousands separators).
+function fmtNCnz(n) {
+    var x = Number(n);
+    if (n == null || !isFinite(x) || x === 0) return "";
+    return x.toFixed(2);
+}
+function fmtQtyNCnz(n) {
+    var x = Number(n);
+    if (n == null || !isFinite(x) || x === 0) return "";
+    return String(Math.round(x * 100) / 100); // up to 2 decimals, no commas, no trailing zeros
 }
 // Sanitise text for jsPDF: its default Helvetica encoding lacks ₹, em/en dashes,
 // fancy quotes and the ellipsis glyph — they all render as gibberish (e.g. "&&V")
@@ -925,6 +968,9 @@ function onReportTypeChange() {
     if (currentReportType === "gynae_report") {
         onGynOrgToggle();
     }
+    if (currentReportType === "org_sales") {
+        onOrgSalesTypeChange();
+    }
     // Clear product / group / category / region multi-selects when switching reports
     ["f-products", "f-prodgroup", "f-prodcat", "f-tgt-regions"].forEach(function(id) {
         var $el = $("#" + id);
@@ -986,6 +1032,14 @@ function onGynOrgToggle() {
     });
 }
 
+function onOrgSalesTypeChange() {
+    // Report 16: Sales Mode (before/after scheme deduction) only applies to Secondary.
+    if (currentReportType !== "org_sales") return;
+    var st = document.getElementById("f-org-sales-type").value;
+    var wrap = document.getElementById("wrap-org-sales-mode");
+    if (wrap) wrap.style.display = (st === "secondary") ? "" : "none";
+}
+
 function onSMTRegionChange() {
     var region = document.getElementById("f-smt-region").value;
     var teams = region ? (CTX_TEAMS_BY_REGION[region] || []) : CTX_TEAMS_RAW;
@@ -1033,6 +1087,7 @@ function generateReport() {
         monthly_org: "scanify.api.get_monthly_organizational_report",
         target_report: "scanify.api.get_target_vs_sales_report",
         gynae_report: "scanify.api.get_gynae_report",
+        org_sales: "scanify.api.get_organizational_sales_report",
     };
 
     document.getElementById("report-loading").style.display = "block";
@@ -1225,6 +1280,14 @@ function buildParams() {
         var gfy = document.getElementById("f-financial-year").value;
         if (gfy) p.financial_year = gfy;
         p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
+    } else if (currentReportType === "org_sales") {
+        p.sales_type = document.getElementById("f-org-sales-type").value || "primary";
+        if (fromDate) p.from_date = fromDate;
+        if (toDate) p.to_date = toDate;
+        if (selectedProducts.length) p.product_codes = JSON.stringify(selectedProducts);
+        if (p.sales_type === "secondary") {
+            p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
+        }
     }
     return p;
 }
@@ -1253,6 +1316,7 @@ function renderReport(result) {
         monthly_org: renderMonthlyOrg,
         target_report: renderTargetReport,
         gynae_report: renderGynae,
+        org_sales: renderOrgSalesReport,
     };
 
     const renderer = renderers[currentReportType];
@@ -1289,6 +1353,7 @@ function renderReport(result) {
         monthly_org: "Full Monthly Organizational Report",
         target_report: "Target vs Sales Report",
         gynae_report: "Gynae Report",
+        org_sales: "Organisational Sales Report (Region wise)",
     };
     const regionSel = document.getElementById("f-region");
     const region = regionSel.options[regionSel.selectedIndex]?.text || "All Regions";
@@ -1358,6 +1423,15 @@ function renderReport(result) {
         subtitle += `  |  ${gmode}`;
     }
 
+    if (currentReportType === "org_sales") {
+        subtitle = `Organization ${result.type_label || "Primary"} Sales`;
+        if (result.period_label) subtitle += ` From ${result.period_label}`;
+        if (result.sales_type === "secondary") {
+            subtitle += `  |  ${result.sales_mode === "before_deduction" ? "Before" : "After"} Deduction`;
+        }
+        subtitle += `  |  Qty (Value In Lakhs row)`;
+    }
+
     currentReportMeta = {
         title: titles[currentReportType] + " – " + DIVISION,
         subtitle: subtitle,
@@ -1396,6 +1470,9 @@ function getDataLength(result) {
     }
     if (currentReportType === "gynae_report") {
         return (result.brands || []).length;
+    }
+    if (currentReportType === "org_sales") {
+        return (result.products || []).length;
     }
     if (currentReportType === "secondary_sales" || currentReportType === "primary_sales") {
         return (result.products || []).length;
@@ -1614,26 +1691,26 @@ function renderSecMovingTrend(result, thead, tbody) {
         var vl = sec.value_in_lakhs || {};
         var vlMonths = vl.months || [];
         var vlCells = '<td colspan="2" style="font-weight:800;color:#1d4ed8;">Value in Lakhs</td>';
-        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vl.target) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNCnz(vl.target) + '</td>';
         for (var mi = 0; mi < 12; mi++) {
-            vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vlMonths[mi]) + '</td>';
+            vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNCnz(vlMonths[mi]) + '</td>';
         }
-        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vl.total) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vl.average) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vl.per_capita) + '</td>';
-        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNZ(vl.pct) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNCnz(vl.total) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNCnz(vl.average) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNCnz(vl.per_capita) + '</td>';
+        vlCells += '<td class="text-right" style="font-weight:800;color:#1d4ed8;">' + fmtNCnz(vl.pct) + '</td>';
         tbody.innerHTML += '<tr class="value-lakhs-row" style="background:#eff6ff;">' + vlCells + '</tr>';
 
         (sec.products || []).forEach(function(p) {
-            var cells = td(p.code) + td(p.pack);
-            cells += '<td class="text-right">' + fmtQtyNZ(p.target) + '</td>';
+            var cells = td(p.code, "text-center") + td(p.pack, "text-center");
+            cells += '<td class="text-right">' + fmtQtyNCnz(p.target) + '</td>';
             for (var mi = 0; mi < 12; mi++) {
-                cells += '<td class="text-right">' + fmtQtyNZ((p.months || [])[mi]) + '</td>';
+                cells += '<td class="text-right">' + fmtQtyNCnz((p.months || [])[mi]) + '</td>';
             }
-            cells += '<td class="text-right">' + fmtQtyNZ(p.total) + '</td>';
-            cells += '<td class="text-right">' + fmtQtyNZ(p.average) + '</td>';
-            cells += '<td class="text-right">' + fmtQtyNZ(p.per_capita) + '</td>';
-            cells += '<td class="text-right">' + fmtNZ(p.pct) + '</td>';
+            cells += '<td class="text-right">' + fmtQtyNCnz(p.total) + '</td>';
+            cells += '<td class="text-right">' + fmtQtyNCnz(p.average) + '</td>';
+            cells += '<td class="text-right">' + fmtQtyNCnz(p.per_capita) + '</td>';
+            cells += '<td class="text-right">' + fmtNCnz(p.pct) + '</td>';
             tbody.innerHTML += '<tr>' + cells + '</tr>';
         });
     });
@@ -1998,6 +2075,63 @@ function renderGynae(result, thead, tbody) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Report 16: Organisational Sales Report (Region wise)
+// Rows = products (#, Code, Pack); columns = regions grouped by Zone, with a
+// per-Zone total column + a final Organization Total column. First body row is
+// "Value In Lakhs". Region headers render vertically to keep the grid compact.
+// ─────────────────────────────────────────────────────────────
+function renderOrgSalesReport(result, thead, tbody) {
+    var zones = result.zones || [];
+    var vil = result.value_in_lakhs || {regions: {}, zone_totals: {}, org_total: 0};
+    var vReg = vil.regions || {}, vZone = vil.zone_totals || {};
+
+    // ── Header (single row; region/zone/org labels vertical) ──
+    var h = "<tr>"
+          + "<th class='org-col-num'>#</th>"
+          + "<th class='org-col-code'>Code</th>"
+          + "<th class='org-col-pack'>Pack</th>";
+    zones.forEach(function(z) {
+        (z.regions || []).forEach(function(rg) {
+            h += "<th class='org-vert'>" + esc(rg.name) + "</th>";
+        });
+        h += "<th class='org-vert org-zone-th'>" + esc(z.name) + " Total</th>";
+    });
+    h += "<th class='org-vert org-org-th'>Organization Total</th></tr>";
+    thead.innerHTML = h;
+
+    // ── Value In Lakhs row (first) ──
+    var v = "<tr class='value-lakhs-row' style='background:#eff6ff;'>"
+          + "<td colspan='3' class='text-right' style='font-weight:800;color:#1d4ed8;'>Value In Lakhs</td>";
+    zones.forEach(function(z) {
+        (z.regions || []).forEach(function(rg) {
+            v += "<td class='text-right' style='font-weight:800;color:#1d4ed8;'>" + fmtNCnz(vReg[rg.code]) + "</td>";
+        });
+        v += "<td class='text-right org-zone-td' style='font-weight:800;color:#1d4ed8;'>" + fmtNCnz(vZone[z.code]) + "</td>";
+    });
+    v += "<td class='text-right org-org-td' style='font-weight:800;color:#1d4ed8;'>" + fmtNCnz(vil.org_total) + "</td></tr>";
+
+    // ── Product rows ──
+    var html = v;
+    (result.products || []).forEach(function(p, idx) {
+        var cells = p.cells || {}, ztot = p.zone_totals || {};
+        var row = "<tr>"
+                + "<td class='text-center'>" + (idx + 1) + "</td>"
+                + "<td class='text-center font-weight-bold'>" + esc(p.code) + "</td>"
+                + "<td class='text-center'>" + esc(p.pack || "") + "</td>";
+        zones.forEach(function(z) {
+            (z.regions || []).forEach(function(rg) {
+                row += "<td class='text-right'>" + fmtQtyNCnz(cells[rg.code]) + "</td>";
+            });
+            row += "<td class='text-right org-zone-td' style='font-weight:700;'>" + fmtQtyNCnz(ztot[z.code]) + "</td>";
+        });
+        row += "<td class='text-right org-org-td' style='font-weight:800;'>" + fmtQtyNCnz(p.org_total) + "</td></tr>";
+        html += row;
+    });
+
+    tbody.innerHTML = html;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Download Excel (server-side)
 // ─────────────────────────────────────────────────────────────
 function downloadExcel() {
@@ -2050,9 +2184,16 @@ function addPDFHeader(doc, title, subtitle) {
     doc.setFillColor(255, 255, 255);
     doc.rect(0, 0, pageW, bandH, "F");
 
-    // Logo on the left
+    // Logo on the left — preserve the source aspect ratio (logo is 337x184 ≈ 1.83:1;
+    // the old fixed 26x16 squashed it). Derive width from a fixed height + native ratio.
     if (STEDMAN_LOGO_DATA_URL) {
-        try { doc.addImage(STEDMAN_LOGO_DATA_URL, "PNG", 10, 3, 26, 16); } catch (e) {}
+        try {
+            var logoH = 16;
+            var logoW = 26;
+            var props = doc.getImageProperties(STEDMAN_LOGO_DATA_URL);
+            if (props && props.width && props.height) logoW = logoH * (props.width / props.height);
+            doc.addImage(STEDMAN_LOGO_DATA_URL, "PNG", 10, 3, logoW, logoH);
+        } catch (e) {}
     }
 
     // Title (centred)
@@ -2260,16 +2401,32 @@ async function downloadPDF() {
     // Per-report compaction: Report 7 (and the new Report 10) overflow at default
     // settings, so trim padding/margins for them while keeping other reports as-is.
     var _tight = (currentReportType === "sec_moving_trend" || currentReportType === "primary_moving_trend");
+    // Report 16 (org_sales) is very wide (one column per region) — needs the
+    // smallest font + minimal padding so the many columns fit the landscape page.
+    var _wide = (currentReportType === "org_sales");
     // Reports 7 & 10: bigger font for readability, but tighter row padding so the
     // table still fits in 2 pages (no spill to a 3rd). Column grid is unchanged.
-    var _detailFontSize = _tight ? 8 : 7;
-    var _detailCellPad  = _tight ? 0.8 : 1.5;
-    var _detailMargin   = _tight ? { left: 6, right: 6, top: 28 } : { left: 8, right: 8, top: 30 };
+    var _detailFontSize = _tight ? 8 : (_wide ? 5.5 : 7);
+    var _detailCellPad  = _tight ? 0.8 : (_wide ? 0.6 : 1.5);
+    var _detailMargin   = _tight ? { left: 6, right: 6, top: 28 }
+                                 : (_wide ? { left: 4, right: 4, top: 28 } : { left: 8, right: 8, top: 30 });
+
+    // Column alignment: Code/Pack (and # for Report 16) centred; numbers right-aligned.
+    var _detailColStyles;
+    if (_tight) {
+        _detailColStyles = { 0: { halign: "center" }, 1: { halign: "center" } };
+        for (var _ci = 2; _ci <= 18; _ci++) _detailColStyles[_ci] = { halign: "right" };
+    } else if (_wide) {
+        var _ncol = (dHead[0] || []).reduce(function(s, c) { return s + (c.colSpan || 1); }, 0);
+        _detailColStyles = { 0: { halign: "center", cellWidth: 6 }, 1: { halign: "center" }, 2: { halign: "center" } };
+        for (var _ciw = 3; _ciw < _ncol; _ciw++) _detailColStyles[_ciw] = { halign: "right" };
+    }
 
     doc.autoTable({
         head: dHead,
         body: dBody.map(function(r) { return r.cells; }),
         startY: startY,
+        columnStyles: _detailColStyles,
         styles: {
             fontSize: _detailFontSize, cellPadding: _detailCellPad,
             lineColor: [120, 120, 120], lineWidth: 0.15,
@@ -2299,6 +2456,11 @@ async function downloadPDF() {
                     // Report 11 region total — bold + vivid red (matches HTML: #fde8e8 bg, #dc2626 text)
                     d.cell.styles.fillColor = [253, 232, 232]; d.cell.styles.textColor = [220, 38, 38]; d.cell.styles.fontStyle = "bold";
                 }
+                // Reports 7 & 10: keep the label cell of section-header / Value-in-Lakhs
+                // rows left-aligned (columnStyles[0] would otherwise centre them).
+                if ((r.isSectionHeader || r.isValueLakhs) && d.column.index === 0) {
+                    d.cell.styles.halign = "left";
+                }
             }
         },
         margin: _detailMargin,
@@ -2315,7 +2477,8 @@ async function downloadPDF() {
     // ═══════════════════════════════════════════════
     if (currentReportType !== "monthly_org" && currentReportType !== "target_report"
         && currentReportType !== "sec_moving_trend" && currentReportType !== "primary_moving_trend"
-        && currentReportType !== "primary_sales" && currentReportType !== "gynae_report") {
+        && currentReportType !== "primary_sales" && currentReportType !== "gynae_report"
+        && currentReportType !== "org_sales") {
     doc.addPage();
     startY = addPDFHeader(doc, currentReportMeta.title, "Consolidated Summary");
 
