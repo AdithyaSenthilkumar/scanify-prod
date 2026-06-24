@@ -9273,12 +9273,13 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
 
         row = write_title_rows(
             ws, f"Full Monthly Organizational Report – {division}",
-            f"Month: {month_label}  |  Net = Billed + Free - Scheme  |  Qty in boxes, values in Rs. (total row in Rs. Lakhs)")
-        headers = ["HQ", "Stockist", "Product Code", "Product",
-                   "Product Group", "Category", "Pack",
-                   "Sales Qty (Box)", "Free Qty (Box)",
-                   "Opening (Rs.)", "Billed Sales (Rs.)", "Free Goods (Rs.)",
-                   "Scheme Deduction (Rs.)", "Net Sales (Rs.)", "Closing (Rs.)"]
+            f"Month: {month_label}  |  Qty in boxes (net, after deduction)  |  values in Rs. (total row in Rs. Lakhs)")
+        headers = ["Stockist Code", "Stockist Name", "City/Pool", "Team", "Region",
+                   "Product Code", "Product", "Pack",
+                   "Quantity", "Cl. Stock", "Op. Stock",
+                   "PTS", "PTS Value", "NRV", "NRV Value",
+                   "Cls Value", "Ops Value",
+                   "Product Head", "Product Category"]
         write_header_row(ws, row, headers)
         row += 1
 
@@ -9293,24 +9294,26 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         def _Q(v):
             return round(flt(v), 2) if v else None            # box quantity
 
-        # Overall total pinned at the TOP — qty in boxes, values in Rs. Lakhs
+        # Overall total pinned at the TOP — qty in boxes, values in Rs. Lakhs.
+        # PTS/NRV are per-line rates (cols 12, 14) → no meaningful total, left blank.
         write_value_row(ws, row, [
-            "OVERALL TOTAL (Rs. Lakhs)", "", "", "", "", "", "",
-            _Q(grand.get("sales_qty")), _Q(grand.get("free_qty")),
-            _L(grand.get("opening")), _L(grand.get("billed")), _L(grand.get("free")),
-            _L(grand.get("scheme")), _L(grand.get("net")), _L(grand.get("closing"))])
+            "OVERALL TOTAL (Rs. Lakhs)", "", "", "", "", "", "", "",
+            _Q(grand.get("quantity")), _Q(grand.get("clstock")), _Q(grand.get("opstock")),
+            None, _L(grand.get("ptsvalue")), None, _L(grand.get("nrvvalue")),
+            _L(grand.get("clsvalue")), _L(grand.get("opsvalue")), "", ""])
         row += 1
 
         right_align = Alignment(horizontal="right")
         for r in data_rows:
             write_data_row(ws, row, [
-                r.get("hq_name"), r.get("stockist_name"), r.get("product_code"),
-                r.get("product_name"), r.get("product_group"), r.get("category"),
-                r.get("pack"),
-                _Q(r.get("sales_qty")), _Q(r.get("free_qty")),
-                _R(r.get("opening")), _R(r.get("billed")), _R(r.get("free")),
-                _R(r.get("scheme")), _R(r.get("net")), _R(r.get("closing"))])
-            for c in range(8, len(headers) + 1):
+                r.get("stockist_code"), r.get("stockist_name"), r.get("citypool"),
+                r.get("team"), r.get("region"),
+                r.get("product_code"), r.get("product_name"), r.get("pack"),
+                _Q(r.get("quantity")), _Q(r.get("clstock")), _Q(r.get("opstock")),
+                _R(r.get("pts")), _R(r.get("ptsvalue")), _R(r.get("nrv")), _R(r.get("nrvvalue")),
+                _R(r.get("clsvalue")), _R(r.get("opsvalue")),
+                r.get("product_head"), r.get("product_category")])
+            for c in range(9, 18):  # numeric columns 9..17 right-aligned
                 ws.cell(row=row, column=c).alignment = right_align
             row += 1
 
@@ -9485,6 +9488,10 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         def _z(v):
             return v if v else None
 
+        def _zr(v):
+            # Box quantities are shown rounded to whole numbers (client request).
+            return round(flt(v)) if v else None
+
         vil_reg = vil.get("regions", {}) or {}
         vil_zone = vil.get("zone_totals", {}) or {}
 
@@ -9506,11 +9513,11 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
             vals = [i, p.get("code", ""), p.get("pack", "")]
             for kind, code, _lbl in flat_cols:
                 if kind == "region":
-                    vals.append(_z(cells.get(code)))
+                    vals.append(_zr(cells.get(code)))
                 elif kind == "zone":
-                    vals.append(_z(ztot.get(code)))
+                    vals.append(_zr(ztot.get(code)))
                 else:
-                    vals.append(_z(p.get("org_total")))
+                    vals.append(_zr(p.get("org_total")))
             write_data_row(ws, row, vals)
             ws.cell(row=row, column=1).alignment = center_align
             ws.cell(row=row, column=2).alignment = center_align
@@ -12606,23 +12613,28 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
     conv = "IFNULL(NULLIF(si.conversion_factor, 0), 1)"
     pts = "IFNULL(si.pts, 0)"
 
+    # Report 13 mirrors the Primary Sales Data column format. Quantities are box-converted
+    # (raw statement qtys are at strip level — divide by the conversion factor). Values use
+    # the PTS rate; per the client, NRV == PTS for secondary (the scheme discount is taken
+    # on the net quantity, not the rate), so nrv rate == pts and nrvvalue == ptsvalue.
     rows = frappe.db.sql(f"""
         SELECT COALESCE(sm.stockist_code, ss.stockist_code) AS stockist_code,
                ss.stockist_name AS stockist_name,
-               ss.hq AS hq_code,
                COALESCE(hm.hq_name, ss.hq, '') AS hq_name,
+               COALESCE(ss.team, '') AS team,
+               COALESCE(ss.region, '') AS region,
                si.product_code AS product_code,
                COALESCE(pm.product_name, si.product_name, si.raw_product_name, '') AS product_name,
                COALESCE(pm.product_group, '') AS product_group,
                COALESCE(pm.category, '') AS category,
                COALESCE(NULLIF(si.pack, ''), pm.pack, '') AS pack,
+               {conv}                                            AS conv,
+               {pts}                                             AS pts_rate,
                IFNULL(si.sales_qty, 0)                           AS sales_qty,
                IFNULL(si.free_qty, 0)                            AS free_qty,
-               IFNULL(si.opening_value, 0)                       AS opening,
-               IFNULL(si.sales_value_pts, 0)                     AS billed,
-               (IFNULL(si.free_qty, 0) / {conv}) * {pts}         AS free,
-               (IFNULL(si.free_qty_scheme, 0) / {conv}) * {pts}  AS scheme,
-               IFNULL(si.closing_value, 0)                       AS closing
+               IFNULL(si.free_qty_scheme, 0)                     AS free_qty_scheme,
+               IFNULL(si.opening_qty, 0)                         AS opening_qty,
+               IFNULL(si.closing_qty, 0)                         AS closing_qty
           FROM `tabStockist Statement` ss
     INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -12633,31 +12645,47 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
       ORDER BY hq_name, stockist_name, product_name
     """, params, as_dict=True)
 
-    grand = {"sales_qty": 0.0, "free_qty": 0.0, "opening": 0.0, "billed": 0.0,
-             "free": 0.0, "scheme": 0.0, "net": 0.0, "closing": 0.0}
+    grand = {"quantity": 0.0, "clstock": 0.0, "opstock": 0.0,
+             "ptsvalue": 0.0, "nrvvalue": 0.0, "clsvalue": 0.0, "opsvalue": 0.0}
     out_rows = []
     for r in rows:
-        billed, free, scheme = flt(r.billed), flt(r.free), flt(r.scheme)
-        net = billed + free - scheme
-        sales_qty, free_qty = flt(r.sales_qty), flt(r.free_qty)
+        conv_f = flt(r.conv) or 1
+        pts_rate = flt(r.pts_rate)
+        nrv_rate = pts_rate  # NRV == PTS for secondary (client decision)
+
+        # Net sales qty after scheme deduction, box-converted (= scheme_deducted_qty_calc / conv)
+        quantity = (flt(r.sales_qty) + flt(r.free_qty) - flt(r.free_qty_scheme)) / conv_f
+        opstock = flt(r.opening_qty) / conv_f
+        clstock = flt(r.closing_qty) / conv_f
+
+        ptsvalue = quantity * pts_rate
+        nrvvalue = quantity * nrv_rate
+        opsvalue = opstock * pts_rate   # opening valued at PTS rate
+        clsvalue = clstock * nrv_rate   # closing valued at NRV rate
+
         out_rows.append({
-            "stockist_code": r.stockist_code, "stockist_name": r.stockist_name or "",
-            "hq_name": r.hq_name or r.hq_code or "", "product_code": r.product_code or "",
+            "stockist_code": r.stockist_code or "",
+            "stockist_name": r.stockist_name or "",
+            "citypool": r.hq_name or "",          # client keeps HQ name in the City/Pool column
+            "team": r.team or "",
+            "region": r.region or "",
+            "product_code": r.product_code or "",
             "product_name": r.product_name or "",
-            "product_group": r.product_group or "", "category": r.category or "",
             "pack": r.pack or "",
-            "sales_qty": sales_qty, "free_qty": free_qty,
-            "opening": flt(r.opening), "billed": billed, "free": free,
-            "scheme": scheme, "net": net, "closing": flt(r.closing),
+            "quantity": quantity, "clstock": clstock, "opstock": opstock,
+            "pts": pts_rate, "ptsvalue": ptsvalue,
+            "nrv": nrv_rate, "nrvvalue": nrvvalue,
+            "clsvalue": clsvalue, "opsvalue": opsvalue,
+            "product_head": r.product_group or "",     # Product Head == Product Group
+            "product_category": r.category or "",
         })
-        grand["sales_qty"] += sales_qty
-        grand["free_qty"] += free_qty
-        grand["opening"] += flt(r.opening)
-        grand["billed"] += billed
-        grand["free"] += free
-        grand["scheme"] += scheme
-        grand["net"] += net
-        grand["closing"] += flt(r.closing)
+        grand["quantity"] += quantity
+        grand["clstock"]  += clstock
+        grand["opstock"]  += opstock
+        grand["ptsvalue"] += ptsvalue
+        grand["nrvvalue"] += nrvvalue
+        grand["clsvalue"] += clsvalue
+        grand["opsvalue"] += opsvalue
 
     total_count = len(out_rows)
     truncated = False

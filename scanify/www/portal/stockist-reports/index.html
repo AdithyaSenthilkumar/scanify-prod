@@ -836,6 +836,14 @@ function fmtQtyNCnz(n) {
     if (n == null || !isFinite(x) || x === 0) return "";
     return String(Math.round(x * 100) / 100); // up to 2 decimals, no commas, no trailing zeros
 }
+// Rounded-to-whole-number qty (Report 16 — client wants box quantities rounded off,
+// no decimals, no commas, blank-zero). The same rounded text flows into the PDF
+// (which reads the rendered table) so preview + PDF stay consistent.
+function fmtQtyRoundNCnz(n) {
+    var x = Number(n);
+    if (n == null || !isFinite(x) || x === 0) return "";
+    return String(Math.round(x));
+}
 // Sanitise text for jsPDF: its default Helvetica encoding lacks ₹, em/en dashes,
 // fancy quotes and the ellipsis glyph — they all render as gibberish (e.g. "&&V")
 // in autoTable cells. Substitute ASCII equivalents.
@@ -1401,7 +1409,7 @@ function renderReport(result) {
 
     if (currentReportType === "monthly_org") {
         subtitle = `Month: ${result.month_label || ""}`;
-        subtitle += ` | Net = Billed + Free − Scheme | Values in Rs. Lakhs`;
+        subtitle += ` | Qty in boxes (net, after deduction) | Total row in Rs. Lakhs`;
     }
 
     if (currentReportType === "target_report") {
@@ -1908,53 +1916,62 @@ function renderSecVsClosing(result, thead, tbody) {
 }
 
 // ---------- Report 13: Full Monthly Organizational Report (product-level) ----------
-// Rows: quantities in boxes + value columns in ₹ (NOT lakhs).
-// The top OVERALL TOTAL row alone is shown in ₹ Lakhs.
+// Columns mirror the client's Primary Sales Data format. Quantities are box-converted;
+// values (PTS/NRV/Opening/Closing) are in ₹ for detail rows. The top OVERALL TOTAL row
+// shows quantity totals in boxes and value totals in ₹ Lakhs.
 function renderMonthlyOrg(result, thead, tbody) {
     var rows = result.rows || [];
-    var valKeys = ["opening", "billed", "free", "scheme", "net", "closing"];
-
-    // value cells in plain rupees (rows) or in lakhs (total row)
-    function valCells(t, lakhs, style) {
-        return valKeys.map(function(k) {
-            var v = lakhs ? (Number(t[k]) || 0) / 100000 : t[k];
-            return "<td class='text-right' style='" + (style || "") + "'>" + fmtNZ(v) + "</td>";
-        }).join("");
-    }
+    // Value columns (₹ for rows, ₹ Lakhs for the total row).
+    var valKeys = ["ptsvalue", "nrvvalue", "clsvalue", "opsvalue"];
 
     thead.innerHTML =
         "<tr>"
-        + "<th style='text-align:left;'>HQ</th>"
-        + "<th style='text-align:left;'>Stockist</th>"
+        + "<th style='text-align:left;'>Stockist Code</th>"
+        + "<th style='text-align:left;'>Stockist Name</th>"
+        + "<th style='text-align:left;'>City/Pool</th>"
+        + "<th style='text-align:left;'>Team</th>"
+        + "<th style='text-align:left;'>Region</th>"
+        + "<th style='text-align:left;'>Product Code</th>"
         + "<th style='text-align:left;'>Product</th>"
-        + "<th style='text-align:left;'>Product Group</th>"
-        + "<th style='text-align:left;'>Category</th>"
         + "<th style='text-align:left;'>Pack</th>"
-        + "<th class='text-right'>Sales Qty (Box)</th>"
-        + "<th class='text-right'>Free Qty (Box)</th>"
-        + "<th class='text-right'>Opening (Rs.)</th>"
-        + "<th class='text-right'>Billed Sales (Rs.)</th>"
-        + "<th class='text-right'>Free Goods (Rs.)</th>"
-        + "<th class='text-right'>Scheme Deduction (Rs.)</th>"
-        + "<th class='text-right'>Net Sales (Rs.)</th>"
-        + "<th class='text-right'>Closing (Rs.)</th>"
+        + "<th class='text-right'>Quantity</th>"
+        + "<th class='text-right'>Cl. Stock</th>"
+        + "<th class='text-right'>Op. Stock</th>"
+        + "<th class='text-right'>PTS</th>"
+        + "<th class='text-right'>PTS Value</th>"
+        + "<th class='text-right'>NRV</th>"
+        + "<th class='text-right'>NRV Value</th>"
+        + "<th class='text-right'>Cls Value</th>"
+        + "<th class='text-right'>Ops Value</th>"
+        + "<th style='text-align:left;'>Product Head</th>"
+        + "<th style='text-align:left;'>Product Category</th>"
         + "</tr>";
 
     var totalCount = (result.total_count != null) ? result.total_count : rows.length;
     var html = "";
-    // Overall total pinned at the TOP — quantities in boxes, values in ₹ LAKHS
+    // Overall total pinned at the TOP — quantities in boxes, values in ₹ LAKHS.
+    // Rate columns (PTS, NRV) are per-line rates and have no meaningful total → blank.
     if (result.grand_total) {
         var g = result.grand_total;
+        function lakh(k) { return fmtNZ((Number(g[k]) || 0) / 100000); }
         html += "<tr class='grand-total-row'>"
-              + "<td colspan='6' style='font-weight:800;'>OVERALL TOTAL (" + totalCount.toLocaleString("en-IN") + " lines) — values in Rs. Lakhs</td>"
-              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNZ(g.sales_qty) + "</td>"
-              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNZ(g.free_qty) + "</td>"
-              + valCells(g, true, "font-weight:800;") + "</tr>";
+              + "<td colspan='8' style='font-weight:800;'>OVERALL TOTAL (" + totalCount.toLocaleString("en-IN") + " lines) — values in Rs. Lakhs</td>"
+              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNZ(g.quantity) + "</td>"
+              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNZ(g.clstock) + "</td>"
+              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNZ(g.opstock) + "</td>"
+              + "<td></td>"
+              + "<td class='text-right' style='font-weight:800;'>" + lakh("ptsvalue") + "</td>"
+              + "<td></td>"
+              + "<td class='text-right' style='font-weight:800;'>" + lakh("nrvvalue") + "</td>"
+              + "<td class='text-right' style='font-weight:800;'>" + lakh("clsvalue") + "</td>"
+              + "<td class='text-right' style='font-weight:800;'>" + lakh("opsvalue") + "</td>"
+              + "<td></td><td></td>"
+              + "</tr>";
     }
     // Truncation note row — on-screen only (excluded from PDF, never in Excel).
     if (result.truncated) {
         html += "<tr class='preview-note-row' style='background:#fff7ed;'>"
-              + "<td colspan='14' style='color:#9a3412;font-weight:600;text-align:center;'>"
+              + "<td colspan='19' style='color:#9a3412;font-weight:600;text-align:center;'>"
               + "Preview limited to first " + rows.length.toLocaleString("en-IN") + " of "
               + totalCount.toLocaleString("en-IN") + " lines — use <b>Download Excel</b> for the full report."
               + "</td></tr>";
@@ -1962,15 +1979,26 @@ function renderMonthlyOrg(result, thead, tbody) {
 
     rows.forEach(function(r) {
         html += "<tr>"
-              + td(esc(r.hq_name))
+              + td(esc(r.stockist_code))
               + td(esc(r.stockist_name))
-              + td(esc(r.product_name || r.product_code))
-              + td(esc(r.product_group))
-              + td(esc(r.category))
+              + td(esc(r.citypool))
+              + td(esc(r.team))
+              + td(esc(r.region))
+              + td(esc(r.product_code))
+              + td(esc(r.product_name))
               + td(esc(r.pack))
-              + "<td class='text-right'>" + fmtQtyNZ(r.sales_qty) + "</td>"
-              + "<td class='text-right'>" + fmtQtyNZ(r.free_qty) + "</td>"
-              + valCells(r, false, "") + "</tr>";
+              + "<td class='text-right'>" + fmtQtyNZ(r.quantity) + "</td>"
+              + "<td class='text-right'>" + fmtQtyNZ(r.clstock) + "</td>"
+              + "<td class='text-right'>" + fmtQtyNZ(r.opstock) + "</td>"
+              + "<td class='text-right'>" + fmtNZ(r.pts) + "</td>"
+              + "<td class='text-right'>" + fmtNZ(r.ptsvalue) + "</td>"
+              + "<td class='text-right'>" + fmtNZ(r.nrv) + "</td>"
+              + "<td class='text-right'>" + fmtNZ(r.nrvvalue) + "</td>"
+              + "<td class='text-right'>" + fmtNZ(r.clsvalue) + "</td>"
+              + "<td class='text-right'>" + fmtNZ(r.opsvalue) + "</td>"
+              + td(esc(r.product_head))
+              + td(esc(r.product_category))
+              + "</tr>";
     });
     tbody.innerHTML = html;
 }
@@ -2120,11 +2148,11 @@ function renderOrgSalesReport(result, thead, tbody) {
                 + "<td class='text-center'>" + esc(p.pack || "") + "</td>";
         zones.forEach(function(z) {
             (z.regions || []).forEach(function(rg) {
-                row += "<td class='text-right'>" + fmtQtyNCnz(cells[rg.code]) + "</td>";
+                row += "<td class='text-right'>" + fmtQtyRoundNCnz(cells[rg.code]) + "</td>";
             });
-            row += "<td class='text-right org-zone-td' style='font-weight:700;'>" + fmtQtyNCnz(ztot[z.code]) + "</td>";
+            row += "<td class='text-right org-zone-td' style='font-weight:700;'>" + fmtQtyRoundNCnz(ztot[z.code]) + "</td>";
         });
-        row += "<td class='text-right org-org-td' style='font-weight:800;'>" + fmtQtyNCnz(p.org_total) + "</td></tr>";
+        row += "<td class='text-right org-org-td' style='font-weight:800;'>" + fmtQtyRoundNCnz(p.org_total) + "</td></tr>";
         html += row;
     });
 
@@ -2404,22 +2432,49 @@ async function downloadPDF() {
     // Report 16 (org_sales) is very wide (one column per region) — needs the
     // smallest font + minimal padding so the many columns fit the landscape page.
     var _wide = (currentReportType === "org_sales");
+    // Report 13 (monthly_org) has 19 columns — needs a smaller font + tight padding to
+    // fit the landscape page (numeric columns 8..16 right-aligned).
+    var _many = (currentReportType === "monthly_org");
     // Reports 7 & 10: bigger font for readability, but tighter row padding so the
     // table still fits in 2 pages (no spill to a 3rd). Column grid is unchanged.
-    var _detailFontSize = _tight ? 8 : (_wide ? 5.5 : 7);
-    var _detailCellPad  = _tight ? 0.8 : (_wide ? 0.6 : 1.5);
+    var _detailFontSize = _tight ? 8 : (_wide ? 5.5 : (_many ? 6 : 7));
+    var _detailCellPad  = _tight ? 0.8 : (_wide ? 0.6 : (_many ? 0.8 : 1.5));
     var _detailMargin   = _tight ? { left: 6, right: 6, top: 28 }
-                                 : (_wide ? { left: 4, right: 4, top: 28 } : { left: 8, right: 8, top: 30 });
+                                 : (_wide ? { left: 4, right: 4, top: 28 }
+                                          : (_many ? { left: 5, right: 5, top: 28 } : { left: 8, right: 8, top: 30 }));
 
     // Column alignment: Code/Pack (and # for Report 16) centred; numbers right-aligned.
     var _detailColStyles;
     if (_tight) {
         _detailColStyles = { 0: { halign: "center" }, 1: { halign: "center" } };
         for (var _ci = 2; _ci <= 18; _ci++) _detailColStyles[_ci] = { halign: "right" };
+    } else if (_many) {
+        // Report 13: numeric columns (Quantity..Ops Value) are indices 8..16.
+        _detailColStyles = {};
+        for (var _cm = 8; _cm <= 16; _cm++) _detailColStyles[_cm] = { halign: "right" };
     } else if (_wide) {
         var _ncol = (dHead[0] || []).reduce(function(s, c) { return s + (c.colSpan || 1); }, 0);
         _detailColStyles = { 0: { halign: "center", cellWidth: 6 }, 1: { halign: "center" }, 2: { halign: "center" } };
         for (var _ciw = 3; _ciw < _ncol; _ciw++) _detailColStyles[_ciw] = { halign: "right" };
+    }
+
+    // Report 16: render the region/zone header labels vertically (rotated 90°) so the
+    // many narrow columns fit the landscape page. autoTable has no native rotation, so
+    // we blank the header text (didParseCell) and draw it rotated ourselves
+    // (didDrawCell). The header row is forced exactly tall enough for the longest label
+    // (measured precisely via getTextWidth) so the rotated text sits centred in the band.
+    var _wideHdrH = 0, _wideHdrPad = 4;  // mm of total vertical padding (top+bottom)
+    if (_wide) {
+        doc.setFont(undefined, "bold");
+        doc.setFontSize(_detailFontSize);
+        var _maxHdrW = 0;
+        (dHead[0] || []).forEach(function(c, i) {
+            if (i >= 3) {
+                var _w = doc.getTextWidth(ascii(String((c && c.content) || "")));
+                if (_w > _maxHdrW) _maxHdrW = _w;
+            }
+        });
+        _wideHdrH = Math.min(80, _maxHdrW + _wideHdrPad);
     }
 
     doc.autoTable({
@@ -2436,8 +2491,17 @@ async function downloadPDF() {
             fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold",
             fontSize: _detailFontSize, lineColor: [120, 120, 120], lineWidth: 0.2,
             halign: "center",
+            // 0 = autoTable default (no forced minimum). Must not be undefined: autoTable
+            // does Math.max(height, minCellHeight), and Math.max(h, undefined) is NaN,
+            // which collapses the header row for every non-wide report.
+            minCellHeight: _wide ? _wideHdrH : 0,
         },
         didParseCell: function(d) {
+            // Report 16: suppress the horizontal header text for region/zone/org columns;
+            // it is redrawn rotated 90° in didDrawCell below.
+            if (_wide && d.section === "head" && d.column.index >= 3) {
+                d.cell.text = [""];
+            }
             if (d.section === "body" && dBody[d.row.index]) {
                 var r = dBody[d.row.index];
                 if (r.isGrandTotal) {
@@ -2464,6 +2528,29 @@ async function downloadPDF() {
             }
         },
         margin: _detailMargin,
+        didDrawCell: function(d) {
+            // Report 16: draw the suppressed region/zone/org header labels rotated 90°
+            // (reads bottom-to-top), centred within the tall header cell.
+            if (_wide && d.section === "head" && d.column.index >= 3) {
+                var raw = d.cell.raw;
+                var txt = ascii((raw && raw.content != null) ? String(raw.content) : "");
+                if (!txt) return;
+                var prevSize = doc.getFontSize();
+                doc.setFont(undefined, "bold");
+                doc.setFontSize(_detailFontSize);
+                doc.setTextColor(255, 255, 255);
+                // Anchor at bottom edge of the centred text and read upward (angle 90,
+                // default left-align). Centre the label about the cell's vertical mid-line
+                // using the measured text width, and nudge x by ~half the cap height so the
+                // rotated glyphs sit centred across the narrow column.
+                var _tw = doc.getTextWidth(txt);
+                var cx = d.cell.x + d.cell.width / 2 + (_detailFontSize * 0.3528 * 0.72) / 2;
+                var cy = d.cell.y + d.cell.height / 2 + _tw / 2;
+                doc.text(txt, cx, cy, { angle: 90 });
+                doc.setFontSize(prevSize);
+                doc.setTextColor(0);
+            }
+        },
         didDrawPage: function(d) {
             if (d.pageNumber > 1) {
                 addPDFHeader(doc, currentReportMeta.title, currentReportMeta.subtitle || "");
