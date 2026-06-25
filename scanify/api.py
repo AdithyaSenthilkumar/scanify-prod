@@ -12621,8 +12621,8 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
         SELECT COALESCE(sm.stockist_code, ss.stockist_code) AS stockist_code,
                ss.stockist_name AS stockist_name,
                COALESCE(hm.hq_name, ss.hq, '') AS hq_name,
-               COALESCE(ss.team, '') AS team,
-               COALESCE(ss.region, '') AS region,
+               COALESCE(tm.team_name, ss.team, '') AS team,
+               COALESCE(rm.region_name, ss.region, '') AS region,
                si.product_code AS product_code,
                COALESCE(pm.product_name, si.product_name, si.raw_product_name, '') AS product_name,
                COALESCE(pm.product_group, '') AS product_group,
@@ -12640,6 +12640,8 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
      LEFT JOIN `tabStockist Master` sm ON sm.name = ss.stockist_code
      LEFT JOIN `tabHQ Master` hm ON hm.name = ss.hq
+     LEFT JOIN `tabTeam Master` tm ON tm.name = ss.team
+     LEFT JOIN `tabRegion Master` rm ON rm.name = ss.region
      LEFT JOIN `tabProduct Master` pm ON pm.name = si.product_code
          WHERE {where}
       ORDER BY hq_name, stockist_name, product_name
