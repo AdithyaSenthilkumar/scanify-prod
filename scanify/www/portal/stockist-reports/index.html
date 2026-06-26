@@ -429,6 +429,10 @@
                     <div>
                         <strong id="report-title" class="sr-report-title-text"></strong>
                         <span class="sr-report-subtitle-text" id="report-subtitle"></span>
+                        <span class="sr-formula-info" id="report-formula-info" style="display:none;" tabindex="0">
+                            <i class="fa fa-info-circle"></i> Formula
+                            <span class="sr-formula-tip" id="report-formula-tip"></span>
+                        </span>
                     </div>
                 </div>
                 <span class="sr-badge" id="report-count"></span>
@@ -631,6 +635,42 @@
     .sr-report-subtitle-text {
         font-size: 12px;
         color: var(--color-text-muted, #64748b);
+        display: block;
+    }
+    .sr-formula-info {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 3px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--color-accent, #4f46e5);
+        cursor: help;
+        position: relative;
+        outline: none;
+    }
+    .sr-formula-tip {
+        display: none;
+        position: absolute;
+        top: 120%;
+        left: 0;
+        z-index: 50;
+        width: 360px;
+        max-width: 80vw;
+        padding: 10px 12px;
+        background: #0f172a;
+        color: #f8fafc;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.55;
+        white-space: pre-line;
+        text-align: left;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.28);
+    }
+    .sr-formula-info:hover .sr-formula-tip,
+    .sr-formula-info:focus .sr-formula-tip,
+    .sr-formula-info:focus-within .sr-formula-tip {
         display: block;
     }
     .sr-badge {
@@ -1409,7 +1449,7 @@ function renderReport(result) {
 
     if (currentReportType === "monthly_org") {
         subtitle = `Month: ${result.month_label || ""}`;
-        subtitle += ` | Qty in boxes (net, after deduction) | Total row in Rs. Lakhs`;
+        subtitle += ` | Qty in boxes | Total row in Rs. Lakhs`;
     }
 
     if (currentReportType === "target_report") {
@@ -1448,6 +1488,28 @@ function renderReport(result) {
     document.getElementById("report-subtitle").textContent = subtitle;
     document.getElementById("print-title").textContent = currentReportMeta.title;
     document.getElementById("print-subtitle").textContent = subtitle;
+
+    // Report 13: show the PTS/NRV formula tooltip; hide it for every other report.
+    var fInfo = document.getElementById("report-formula-info");
+    var fTip = document.getElementById("report-formula-tip");
+    if (fInfo && fTip) {
+        if (currentReportType === "monthly_org") {
+            fTip.textContent =
+                "Rates\n"
+                + "• PTS = Product Master PTS (fixed catalogue rate)\n"
+                + "• NRV = statement-editable PTS (= PTS, or lower when a scheme discount is applied)\n\n"
+                + "Quantities (boxes = raw qty ÷ conversion factor)\n"
+                + "• Sales (Before Scheme) = Sales Qty + Free Qty\n"
+                + "• Sales (After Scheme) = Sales Qty + Free Qty − Scheme Free Qty\n\n"
+                + "Values\n"
+                + "• PTS Value = Sales (Before Scheme) × PTS (Master)\n"
+                + "• NRV Value = Sales (After Scheme) × NRV  (scheme-deducted sales value)\n"
+                + "• Ops / Cls Value = Op. / Cl. Stock × PTS (Master)";
+            fInfo.style.display = "inline-flex";
+        } else {
+            fInfo.style.display = "none";
+        }
+    }
 }
 
 function getDataLength(result) {
@@ -1934,7 +1996,8 @@ function renderMonthlyOrg(result, thead, tbody) {
         + "<th style='text-align:left;'>Product Code</th>"
         + "<th style='text-align:left;'>Product</th>"
         + "<th style='text-align:left;'>Pack</th>"
-        + "<th class='text-right'>Quantity</th>"
+        + "<th class='text-right'>Sales (Before Scheme)</th>"
+        + "<th class='text-right'>Sales (After Scheme)</th>"
         + "<th class='text-right'>Cl. Stock</th>"
         + "<th class='text-right'>Op. Stock</th>"
         + "<th class='text-right'>PTS</th>"
@@ -1953,12 +2016,14 @@ function renderMonthlyOrg(result, thead, tbody) {
     // Rate columns (PTS, NRV) are per-line rates and have no meaningful total → blank.
     if (result.grand_total) {
         var g = result.grand_total;
-        function lakh(k) { return fmtNZ((Number(g[k]) || 0) / 100000); }
+        // Report 13: client wants numbers with NO thousands separators (comma-free).
+        function lakh(k) { return fmtNCnz((Number(g[k]) || 0) / 100000); }
         html += "<tr class='grand-total-row'>"
               + "<td colspan='8' style='font-weight:800;'>OVERALL TOTAL (" + totalCount.toLocaleString("en-IN") + " lines) — values in Rs. Lakhs</td>"
-              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNZ(g.quantity) + "</td>"
-              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNZ(g.clstock) + "</td>"
-              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNZ(g.opstock) + "</td>"
+              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNCnz(g.sales_before) + "</td>"
+              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNCnz(g.sales_after) + "</td>"
+              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNCnz(g.clstock) + "</td>"
+              + "<td class='text-right' style='font-weight:800;'>" + fmtQtyNCnz(g.opstock) + "</td>"
               + "<td></td>"
               + "<td class='text-right' style='font-weight:800;'>" + lakh("ptsvalue") + "</td>"
               + "<td></td>"
@@ -1971,7 +2036,7 @@ function renderMonthlyOrg(result, thead, tbody) {
     // Truncation note row — on-screen only (excluded from PDF, never in Excel).
     if (result.truncated) {
         html += "<tr class='preview-note-row' style='background:#fff7ed;'>"
-              + "<td colspan='19' style='color:#9a3412;font-weight:600;text-align:center;'>"
+              + "<td colspan='20' style='color:#9a3412;font-weight:600;text-align:center;'>"
               + "Preview limited to first " + rows.length.toLocaleString("en-IN") + " of "
               + totalCount.toLocaleString("en-IN") + " lines — use <b>Download Excel</b> for the full report."
               + "</td></tr>";
@@ -1987,15 +2052,16 @@ function renderMonthlyOrg(result, thead, tbody) {
               + td(esc(r.product_code))
               + td(esc(r.product_name))
               + td(esc(r.pack))
-              + "<td class='text-right'>" + fmtQtyNZ(r.quantity) + "</td>"
-              + "<td class='text-right'>" + fmtQtyNZ(r.clstock) + "</td>"
-              + "<td class='text-right'>" + fmtQtyNZ(r.opstock) + "</td>"
-              + "<td class='text-right'>" + fmtNZ(r.pts) + "</td>"
-              + "<td class='text-right'>" + fmtNZ(r.ptsvalue) + "</td>"
-              + "<td class='text-right'>" + fmtNZ(r.nrv) + "</td>"
-              + "<td class='text-right'>" + fmtNZ(r.nrvvalue) + "</td>"
-              + "<td class='text-right'>" + fmtNZ(r.clsvalue) + "</td>"
-              + "<td class='text-right'>" + fmtNZ(r.opsvalue) + "</td>"
+              + "<td class='text-right'>" + fmtQtyNCnz(r.sales_before) + "</td>"
+              + "<td class='text-right'>" + fmtQtyNCnz(r.sales_after) + "</td>"
+              + "<td class='text-right'>" + fmtQtyNCnz(r.clstock) + "</td>"
+              + "<td class='text-right'>" + fmtQtyNCnz(r.opstock) + "</td>"
+              + "<td class='text-right'>" + fmtNCnz(r.pts) + "</td>"
+              + "<td class='text-right'>" + fmtNCnz(r.ptsvalue) + "</td>"
+              + "<td class='text-right'>" + fmtNCnz(r.nrv) + "</td>"
+              + "<td class='text-right'>" + fmtNCnz(r.nrvvalue) + "</td>"
+              + "<td class='text-right'>" + fmtNCnz(r.clsvalue) + "</td>"
+              + "<td class='text-right'>" + fmtNCnz(r.opsvalue) + "</td>"
               + td(esc(r.product_head))
               + td(esc(r.product_category))
               + "</tr>";
@@ -2432,8 +2498,8 @@ async function downloadPDF() {
     // Report 16 (org_sales) is very wide (one column per region) — needs the
     // smallest font + minimal padding so the many columns fit the landscape page.
     var _wide = (currentReportType === "org_sales");
-    // Report 13 (monthly_org) has 19 columns — needs a smaller font + tight padding to
-    // fit the landscape page (numeric columns 8..16 right-aligned).
+    // Report 13 (monthly_org) has 20 columns — needs a smaller font + tight padding to
+    // fit the landscape page (numeric columns 8..17 right-aligned).
     var _many = (currentReportType === "monthly_org");
     // Reports 7 & 10: bigger font for readability, but tighter row padding so the
     // table still fits in 2 pages (no spill to a 3rd). Column grid is unchanged.
@@ -2449,9 +2515,9 @@ async function downloadPDF() {
         _detailColStyles = { 0: { halign: "center" }, 1: { halign: "center" } };
         for (var _ci = 2; _ci <= 18; _ci++) _detailColStyles[_ci] = { halign: "right" };
     } else if (_many) {
-        // Report 13: numeric columns (Quantity..Ops Value) are indices 8..16.
+        // Report 13: numeric columns (Sales Before..Ops Value) are indices 8..17.
         _detailColStyles = {};
-        for (var _cm = 8; _cm <= 16; _cm++) _detailColStyles[_cm] = { halign: "right" };
+        for (var _cm = 8; _cm <= 17; _cm++) _detailColStyles[_cm] = { halign: "right" };
     } else if (_wide) {
         var _ncol = (dHead[0] || []).reduce(function(s, c) { return s + (c.colSpan || 1); }, 0);
         _detailColStyles = { 0: { halign: "center", cellWidth: 6 }, 1: { halign: "center" }, 2: { halign: "center" } };

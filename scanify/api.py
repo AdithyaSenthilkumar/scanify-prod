@@ -9273,10 +9273,11 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
 
         row = write_title_rows(
             ws, f"Full Monthly Organizational Report – {division}",
-            f"Month: {month_label}  |  Qty in boxes (net, after deduction)  |  values in Rs. (total row in Rs. Lakhs)")
+            f"Month: {month_label}  |  Qty in boxes  |  PTS Value = (Sales+Free) × Master PTS  |  "
+            f"NRV Value = (Sales+Free−Scheme) × NRV  |  values in Rs. (total row in Rs. Lakhs)")
         headers = ["Stockist Code", "Stockist Name", "City/Pool", "Team", "Region",
                    "Product Code", "Product", "Pack",
-                   "Quantity", "Cl. Stock", "Op. Stock",
+                   "Sales (Before Scheme)", "Sales (After Scheme)", "Cl. Stock", "Op. Stock",
                    "PTS", "PTS Value", "NRV", "NRV Value",
                    "Cls Value", "Ops Value",
                    "Product Head", "Product Category"]
@@ -9295,10 +9296,11 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
             return round(flt(v), 2) if v else None            # box quantity
 
         # Overall total pinned at the TOP — qty in boxes, values in Rs. Lakhs.
-        # PTS/NRV are per-line rates (cols 12, 14) → no meaningful total, left blank.
+        # PTS/NRV are per-line rates (cols 13, 15) → no meaningful total, left blank.
         write_value_row(ws, row, [
             "OVERALL TOTAL (Rs. Lakhs)", "", "", "", "", "", "", "",
-            _Q(grand.get("quantity")), _Q(grand.get("clstock")), _Q(grand.get("opstock")),
+            _Q(grand.get("sales_before")), _Q(grand.get("sales_after")),
+            _Q(grand.get("clstock")), _Q(grand.get("opstock")),
             None, _L(grand.get("ptsvalue")), None, _L(grand.get("nrvvalue")),
             _L(grand.get("clsvalue")), _L(grand.get("opsvalue")), "", ""])
         row += 1
@@ -9309,11 +9311,12 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                 r.get("stockist_code"), r.get("stockist_name"), r.get("citypool"),
                 r.get("team"), r.get("region"),
                 r.get("product_code"), r.get("product_name"), r.get("pack"),
-                _Q(r.get("quantity")), _Q(r.get("clstock")), _Q(r.get("opstock")),
+                _Q(r.get("sales_before")), _Q(r.get("sales_after")),
+                _Q(r.get("clstock")), _Q(r.get("opstock")),
                 _R(r.get("pts")), _R(r.get("ptsvalue")), _R(r.get("nrv")), _R(r.get("nrvvalue")),
                 _R(r.get("clsvalue")), _R(r.get("opsvalue")),
                 r.get("product_head"), r.get("product_category")])
-            for c in range(9, 18):  # numeric columns 9..17 right-aligned
+            for c in range(9, 19):  # numeric columns 9..18 right-aligned
                 ws.cell(row=row, column=c).alignment = right_align
             row += 1
 
@@ -12614,9 +12617,12 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
     pts = "IFNULL(si.pts, 0)"
 
     # Report 13 mirrors the Primary Sales Data column format. Quantities are box-converted
-    # (raw statement qtys are at strip level — divide by the conversion factor). Values use
-    # the PTS rate; per the client, NRV == PTS for secondary (the scheme discount is taken
-    # on the net quantity, not the rate), so nrv rate == pts and nrvvalue == ptsvalue.
+    # (raw statement qtys are at strip level — divide by the conversion factor).
+    #   PTS rate = Product Master PTS (pm.pts) — the fixed catalogue rate, never modified.
+    #   NRV rate = statement-editable si.pts — equals PTS, or lower when a scheme discount
+    #              was applied at the statement level.
+    # Two qty views are exposed: "before scheme" (sales+free) drives PTS Value (× Master PTS)
+    # and "after scheme" (sales+free-scheme) drives NRV Value (× NRV = scheme-deducted sales).
     rows = frappe.db.sql(f"""
         SELECT COALESCE(sm.stockist_code, ss.stockist_code) AS stockist_code,
                ss.stockist_name AS stockist_name,
@@ -12629,6 +12635,7 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
                COALESCE(pm.category, '') AS category,
                COALESCE(NULLIF(si.pack, ''), pm.pack, '') AS pack,
                {conv}                                            AS conv,
+               IFNULL(pm.pts, 0)                                 AS master_pts,
                {pts}                                             AS pts_rate,
                IFNULL(si.sales_qty, 0)                           AS sales_qty,
                IFNULL(si.free_qty, 0)                            AS free_qty,
@@ -12647,23 +12654,26 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
       ORDER BY hq_name, stockist_name, product_name
     """, params, as_dict=True)
 
-    grand = {"quantity": 0.0, "clstock": 0.0, "opstock": 0.0,
+    grand = {"sales_before": 0.0, "sales_after": 0.0, "clstock": 0.0, "opstock": 0.0,
              "ptsvalue": 0.0, "nrvvalue": 0.0, "clsvalue": 0.0, "opsvalue": 0.0}
     out_rows = []
     for r in rows:
         conv_f = flt(r.conv) or 1
-        pts_rate = flt(r.pts_rate)
-        nrv_rate = pts_rate  # NRV == PTS for secondary (client decision)
+        pts_rate = flt(r.master_pts)   # PTS rate = Product Master PTS (fixed catalogue rate)
+        nrv_rate = flt(r.pts_rate)     # NRV rate = statement-editable si.pts (= PTS, or lower if discounted)
 
-        # Net sales qty after scheme deduction, box-converted (= scheme_deducted_qty_calc / conv)
-        quantity = (flt(r.sales_qty) + flt(r.free_qty) - flt(r.free_qty_scheme)) / conv_f
+        # Two box-converted sales-qty views:
+        #   before scheme = sales + free            (gross — drives PTS Value)
+        #   after  scheme = sales + free - scheme   (net "true sales" — drives NRV Value)
+        sales_before = (flt(r.sales_qty) + flt(r.free_qty)) / conv_f
+        sales_after = (flt(r.sales_qty) + flt(r.free_qty) - flt(r.free_qty_scheme)) / conv_f
         opstock = flt(r.opening_qty) / conv_f
         clstock = flt(r.closing_qty) / conv_f
 
-        ptsvalue = quantity * pts_rate
-        nrvvalue = quantity * nrv_rate
-        opsvalue = opstock * pts_rate   # opening valued at PTS rate
-        clsvalue = clstock * nrv_rate   # closing valued at NRV rate
+        ptsvalue = sales_before * pts_rate   # PTS Value = before-scheme qty × Master PTS
+        nrvvalue = sales_after * nrv_rate    # NRV Value = after-scheme qty × NRV (scheme-deducted sales value)
+        opsvalue = opstock * pts_rate        # opening valued at PTS (Master) rate
+        clsvalue = clstock * pts_rate        # closing valued at PTS (Master) rate
 
         out_rows.append({
             "stockist_code": r.stockist_code or "",
@@ -12674,14 +12684,16 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
             "product_code": r.product_code or "",
             "product_name": r.product_name or "",
             "pack": r.pack or "",
-            "quantity": quantity, "clstock": clstock, "opstock": opstock,
+            "sales_before": sales_before, "sales_after": sales_after,
+            "clstock": clstock, "opstock": opstock,
             "pts": pts_rate, "ptsvalue": ptsvalue,
             "nrv": nrv_rate, "nrvvalue": nrvvalue,
             "clsvalue": clsvalue, "opsvalue": opsvalue,
             "product_head": r.product_group or "",     # Product Head == Product Group
             "product_category": r.category or "",
         })
-        grand["quantity"] += quantity
+        grand["sales_before"] += sales_before
+        grand["sales_after"]  += sales_after
         grand["clstock"]  += clstock
         grand["opstock"]  += opstock
         grand["ptsvalue"] += ptsvalue
