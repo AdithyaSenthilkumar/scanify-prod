@@ -18,6 +18,9 @@
             <a href="/portal/upload-primary-sales" class="btn btn-primary btn-sm text-nowrap">
                 <i class="fa fa-upload mr-1"></i> Bulk Upload
             </a>
+            <button class="btn btn-outline-danger btn-sm text-nowrap" onclick="showDeleteMonthModal()">
+                <i class="fa fa-calendar-times-o mr-1"></i> Delete Month
+            </button>
         </div>
     </div>
 
@@ -364,6 +367,51 @@
                 <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="saveRecord()">
                     <i class="fa fa-save mr-1"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Month Modal -->
+<div class="modal fade" id="deleteMonthModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fa fa-calendar-times-o mr-1"></i> Delete Month's Primary Sales</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2" style="font-size:12px;">
+                    Removes uploaded primary sales for the selected month. This is reversible — just re-upload the Excel exported from your ERP.
+                </div>
+                <div class="form-group">
+                    <label class="font-weight-600" style="font-size:12px;">Month <span class="text-danger">*</span></label>
+                    <select id="dm-month" class="form-control form-control-sm custom-select">
+                        <option value="">Select month…</option>
+                        {% for m in available_months %}
+                        <option value="{{ m.upload_month }}">{{ m.upload_month }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="font-weight-600" style="font-size:12px;">Stockists
+                        <span class="text-muted" style="font-weight:400;">(optional — leave empty to delete ALL)</span>
+                    </label>
+                    <select id="dm-stockists" class="form-control form-control-sm" multiple style="width:100%;"></select>
+                    <small class="form-text text-muted" id="dm-stockist-hint">Choose a month to load its stockists.</small>
+                </div>
+                <div class="alert alert-warning py-2 mb-2" id="dm-summary" style="font-size:12px;display:none;"></div>
+                <div class="form-group mb-0">
+                    <label class="font-weight-600" style="font-size:12px;">Reason <span class="text-danger">*</span></label>
+                    <textarea id="dm-reason" class="form-control form-control-sm" rows="2"
+                        placeholder="Reason for deletion (min 5 characters)…"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger btn-sm" id="dm-delete-btn" onclick="confirmDeleteMonth()">
+                    <i class="fa fa-trash mr-1"></i> Delete
                 </button>
             </div>
         </div>
@@ -773,6 +821,90 @@ function deleteRecord(name) {
         error: function() {
             hideLoadingOverlay();
             showPSAlert('Error deleting record', 'danger');
+        }
+    });
+}
+
+// ── Delete Month's Primary Sales ───────────────────────────────────────────
+function showDeleteMonthModal() {
+    document.getElementById('dm-month').value = '';
+    document.getElementById('dm-reason').value = '';
+    document.getElementById('dm-stockist-hint').textContent = 'Choose a month to load its stockists.';
+    document.getElementById('dm-summary').style.display = 'none';
+    var $st = $('#dm-stockists');
+    try {
+        if ($.fn.select2) {
+            if ($st.hasClass('select2-hidden-accessible')) { $st.select2('destroy'); }
+            $st.empty();
+            $st.select2({ width: '100%', placeholder: 'All stockists in the month', dropdownParent: $('#deleteMonthModal') });
+        } else {
+            $st.empty();
+        }
+    } catch (e) { console.error('select2 init failed', e); $st.empty(); }
+    $('#dm-month').off('change.dm').on('change.dm', function () { loadDeleteMonthStockists(this.value); });
+    $('#deleteMonthModal').modal('show');
+}
+
+function loadDeleteMonthStockists(month) {
+    var $st = $('#dm-stockists');
+    $st.empty().trigger('change');
+    var hint = document.getElementById('dm-stockist-hint');
+    var summary = document.getElementById('dm-summary');
+    summary.style.display = 'none';
+    if (!month) { hint.textContent = 'Choose a month to load its stockists.'; return; }
+    hint.textContent = 'Loading stockists…';
+    $.ajax({
+        url: '/api/method/scanify.api.get_primary_sales_month_stockists',
+        type: 'GET',
+        data: { month: month, division: division },
+        headers: { 'X-Frappe-CSRF-Token': window.csrf_token },
+        success: function (resp) {
+            var res = (resp && resp.message) || {};
+            var list = res.stockists || [];
+            list.forEach(function (s) {
+                var label = (s.display_code ? s.display_code + ' — ' : '') + (s.stockist_name || '') + ' (' + (s.row_count || 0) + ')';
+                $st.append(new Option(label, s.value, false, false));
+            });
+            $st.trigger('change');
+            hint.textContent = list.length + ' stockist(s) in ' + month + '. Leave empty to delete ALL.';
+            summary.style.display = '';
+            summary.textContent = 'This will delete ' + (res.total || 0) + ' row(s) across ' + list.length + ' stockist(s) unless you narrow the selection below.';
+        },
+        error: function () { hint.textContent = 'Failed to load stockists.'; }
+    });
+}
+
+function confirmDeleteMonth() {
+    var month = document.getElementById('dm-month').value;
+    var reason = document.getElementById('dm-reason').value.trim();
+    var codes = $('#dm-stockists').val() || [];
+    if (!month) { showPSAlert('Please select a month', 'danger'); return; }
+    if (reason.length < 5) { showPSAlert('Please enter a reason (min 5 characters)', 'danger'); return; }
+    var scopeMsg = codes.length ? (codes.length + ' selected stockist(s)') : 'ALL stockists';
+    if (!confirm('Delete primary sales for ' + month + ' (' + scopeMsg + ')?\n\nThis is reversible by re-uploading the Excel.')) return;
+    var $btn = $('#dm-delete-btn'); $btn.prop('disabled', true);
+    showLoadingOverlay('Deleting primary sales…');
+    $.ajax({
+        url: '/api/method/scanify.api.delete_primary_sales_month',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': window.csrf_token },
+        data: JSON.stringify({ month: month, reason: reason, stockist_codes: codes, division: division }),
+        success: function (resp) {
+            hideLoadingOverlay(); $btn.prop('disabled', false);
+            var res = (resp && resp.message) || {};
+            if (res.success) {
+                $('#deleteMonthModal').modal('hide');
+                showPSAlert(res.message || 'Deleted', 'success');
+                loadData(1);
+            } else {
+                showPSAlert(res.message || 'Delete failed', 'danger');
+            }
+        },
+        error: function (xhr) {
+            hideLoadingOverlay(); $btn.prop('disabled', false);
+            var msg = (xhr.responseJSON && xhr.responseJSON.message) || xhr.statusText || 'error';
+            showPSAlert('Delete failed: ' + msg, 'danger');
         }
     });
 }
