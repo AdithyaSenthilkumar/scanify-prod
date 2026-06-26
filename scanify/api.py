@@ -309,7 +309,27 @@ def _build_division_product_codes(statement_division, products_list=None):
     return division_product_codes
 
 
-def _build_statement_item_row(item_data, statement_division=None, division_product_codes=None):
+def _build_region_excluded_codes(statement_region):
+    """Build the set of product codes that are EXCLUDED for the statement's region.
+
+    Products carry an `excluded_regions` table (child doctype Product Excluded Region,
+    one Region Master link per row). A product whose excluded list contains the
+    statement's region code must be skipped during extraction for that statement.
+    Empty/no region → empty set (fail-open: nothing excluded)."""
+    if not statement_region:
+        return set()
+
+    rows = frappe.get_all(
+        "Product Excluded Region",
+        filters={"region": statement_region, "parenttype": "Product Master"},
+        fields=["parent"],
+    )
+    # `parent` is the Product Master name, which equals product_code (autoname field:product_code).
+    return {r["parent"] for r in rows if r.get("parent")}
+
+
+def _build_statement_item_row(item_data, statement_division=None, division_product_codes=None,
+                              region_excluded_codes=None):
     """Normalize one Gemini row into a Stockist Statement child row plus bookkeeping metadata."""
     raw_name = cstr(item_data.get("raw_product_name")).strip().upper()
     row_type = _normalize_row_type(item_data.get("row_type"), raw_name)
@@ -331,6 +351,15 @@ def _build_statement_item_row(item_data, statement_division=None, division_produ
             "auto_mapped": False,
             "special_row": False,
             "skipped_division": True,
+        }
+
+    # Region exclusion: product is flagged as not-sold in this statement's region.
+    if product_code and region_excluded_codes and product_code in region_excluded_codes:
+        return None, {
+            "unmapped": False,
+            "auto_mapped": False,
+            "special_row": False,
+            "skipped_region": True,
         }
 
     mapping_status = "matched"
@@ -383,7 +412,7 @@ def _calculate_confidence_score(statement_rows):
 
 
 def _build_extraction_notes(items_added, confidence_score, unmapped_count=0, auto_mapped_count=0, special_row_count=0,
-    skipped_division_count=0, statement_division=None):
+    skipped_division_count=0, statement_division=None, skipped_region_count=0):
     """Build consistent extraction notes for single and bulk flows."""
     notes_parts = [f"Successfully extracted {items_added} rows using AI with product catalog"]
     notes_parts.append(f"Extraction confidence: {confidence_score}%")
@@ -395,6 +424,8 @@ def _build_extraction_notes(items_added, confidence_score, unmapped_count=0, aut
         notes_parts.append(f"{special_row_count} special rows were preserved outside product mapping")
     if skipped_division_count:
         notes_parts.append(f"{skipped_division_count} rows skipped (not in {statement_division} division)")
+    if skipped_region_count:
+        notes_parts.append(f"{skipped_region_count} rows skipped (product excluded in this region)")
     return ". ".join(notes_parts)
 
 
@@ -410,15 +441,18 @@ def _all_quantities_zero(row):
     )
 
 
-def _build_statement_rows(extracted_data, statement_division=None, products_list=None):
+def _build_statement_rows(extracted_data, statement_division=None, products_list=None,
+                          statement_region=None):
     """Convert Gemini response rows into statement child rows and summary counts."""
     division_product_codes = _build_division_product_codes(statement_division, products_list)
+    region_excluded_codes = _build_region_excluded_codes(statement_region)
     statement_rows = []
     counts = {
         "unmapped_count": 0,
         "auto_mapped_count": 0,
         "special_row_count": 0,
         "skipped_division_count": 0,
+        "skipped_region_count": 0,
     }
 
     for item_data in extracted_data:
@@ -426,9 +460,13 @@ def _build_statement_rows(extracted_data, statement_division=None, products_list
             item_data,
             statement_division=statement_division,
             division_product_codes=division_product_codes,
+            region_excluded_codes=region_excluded_codes,
         )
         if metadata.get("skipped_division"):
             counts["skipped_division_count"] += 1
+            continue
+        if metadata.get("skipped_region"):
+            counts["skipped_region_count"] += 1
             continue
 
         # Drop total/summary rows and all-zero phantom rows
@@ -493,6 +531,7 @@ def _do_extract(doc_name, file_url):
         extracted_data,
         statement_division=doc.division,
         products_list=products_list,
+        statement_region=doc.region,
     )
     _replace_statement_items(doc, statement_rows)
     items_added = len(statement_rows)
@@ -515,6 +554,7 @@ def _do_extract(doc_name, file_url):
         special_row_count=counts["special_row_count"],
         skipped_division_count=counts["skipped_division_count"],
         statement_division=doc.division,
+        skipped_region_count=counts["skipped_region_count"],
     )
     doc.populate_previous_month_closing()
     doc.calculate_closing_and_totals()
@@ -1938,6 +1978,7 @@ def process_bulk_extraction(docname, month, zip_file_url):
                             extracted_data,
                             statement_division=doc.division,
                             products_list=products_list,
+                            statement_region=statement.region,
                         )
                         _replace_statement_items(statement, statement_rows)
                         statement.confidence_score = _calculate_confidence_score(statement_rows)
@@ -1951,6 +1992,7 @@ def process_bulk_extraction(docname, month, zip_file_url):
                             special_row_count=counts["special_row_count"],
                             skipped_division_count=counts["skipped_division_count"],
                             statement_division=doc.division,
+                            skipped_region_count=counts["skipped_region_count"],
                         )
                     else:
                         statement.extracted_data_status = "Failed"
@@ -2133,6 +2175,7 @@ def bulk_extract_statements(month, zip_file_url):
                                 extracted_data,
                                 statement_division=statement.division,
                                 products_list=products_list,
+                                statement_region=statement.region,
                             )
                             _replace_statement_items(statement, statement_rows)
                             statement.confidence_score = _calculate_confidence_score(statement_rows)
@@ -2145,6 +2188,7 @@ def bulk_extract_statements(month, zip_file_url):
                                 special_row_count=counts["special_row_count"],
                                 skipped_division_count=counts["skipped_division_count"],
                                 statement_division=statement.division,
+                                skipped_region_count=counts["skipped_region_count"],
                             )
                         else:
                             statement.extracted_data_status = "Failed"
@@ -3562,9 +3606,12 @@ def get_master_data(doctype, division=None, status=None):
             if division:
                 filters["division"] = ["in", [division, "Both"]]
         meta = frappe.get_meta(doctype)
+        # Child-table and layout/display fieldtypes have no column on the parent
+        # table, so they can't be SELECTed. "Table MultiSelect" (e.g. Product
+        # Master.excluded_regions) is stored in a child table just like "Table".
         excluded_fieldtypes = [
-            "Table", "HTML", "Button", "Column Break", "Section Break",
-            "Tab Break", "Heading", "Image"
+            "Table", "Table MultiSelect", "HTML", "Button", "Column Break",
+            "Section Break", "Tab Break", "Heading", "Image"
         ]
 
         fields = [

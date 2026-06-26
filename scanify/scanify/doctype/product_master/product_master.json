@@ -19,7 +19,10 @@
   "ptr",
   "pts",
   "column_break_olkl",
-  "status"
+  "status",
+  "section_break_region",
+  "excluded_regions",
+  "excluded_region_codes"
  ],
   "fields": [
     {
@@ -115,6 +118,25 @@
       "label": "Status",
       "options": "Active\nInactive",
       "default": "Active"
+    },
+    {
+      "fieldname": "section_break_region",
+      "fieldtype": "Section Break",
+      "label": "Region Mapping"
+    },
+    {
+      "fieldname": "excluded_regions",
+      "fieldtype": "Table MultiSelect",
+      "label": "Excluded Regions",
+      "options": "Product Excluded Region",
+      "description": "Regions where this product is NOT sold. Pick regions by name. During OCR extraction the product is skipped for any statement whose region is listed here. Leave empty = available in every region."
+    },
+    {
+      "fieldname": "excluded_region_codes",
+      "fieldtype": "Small Text",
+      "label": "Excluded Region Codes",
+      "read_only": 1,
+      "description": "Auto-filled comma-separated region codes (system reference — matches the names selected above)."
     }
   ],
  "index_web_pages_for_search": 1,

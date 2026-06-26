@@ -6,6 +6,7 @@
         "doctype": "DocType",
         "engine": "InnoDB",
         "title_field": "region_name",
+        "show_title_field_in_link": 1,
         "field_order": [
                 "region_code",
                 "region_name",
