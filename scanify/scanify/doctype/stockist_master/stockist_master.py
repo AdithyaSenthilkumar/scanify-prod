@@ -5,6 +5,7 @@ class StockistMaster(Document):
     def validate(self):
         self.set_division_from_hq()
         self.check_duplicate_in_division()
+        self.check_duplicate_code_in_division()
 
     def before_save(self):
         # autoname (S0001) is ready here
@@ -29,4 +30,19 @@ class StockistMaster(Document):
             filters["name"] = ["!=", self.name]
         if frappe.db.exists("Stockist Master", filters):
             frappe.throw(f"Stockist '{self.stockist_name}' already exists in division '{self.division}' under the same HQ")
+
+    def check_duplicate_code_in_division(self):
+        """Stockist Code must be unique WITHIN a division (but the same code may be
+        reused across different divisions). This replaces the old global unique
+        constraint on stockist_code, which blocked legitimate cross-division reuse
+        when masters for multiple divisions are bulk-uploaded."""
+        if not self.stockist_code or not self.division:
+            return
+        filters = {"stockist_code": self.stockist_code, "division": self.division}
+        if not self.is_new():
+            filters["name"] = ["!=", self.name]
+        if frappe.db.exists("Stockist Master", filters):
+            frappe.throw(
+                f"Stockist Code '{self.stockist_code}' already exists in division '{self.division}'"
+            )
 

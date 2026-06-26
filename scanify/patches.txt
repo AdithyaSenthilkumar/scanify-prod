@@ -6,3 +6,4 @@
 # Patches added in this section will be executed after doctypes are migrated
 
 scanify.patches.add_division_to_user
+scanify.patches.drop_stockist_code_unique_index

@@ -2074,6 +2074,9 @@ def bulk_extract_statements(month, zip_file_url):
     Creates draft statements for review
     """
     try:
+        # Resolve the active division so stockist identification is scoped to it
+        _bulk_division = get_user_division()
+
         # Get ZIP file
         from frappe.utils.file_manager import get_file_path
         file_path = get_file_path(zip_file_url)
@@ -2109,9 +2112,10 @@ def bulk_extract_statements(month, zip_file_url):
                         })
                         continue
                     
-                    # Try to identify stockist
-                    stockist_code = identify_stockist_from_filename(file)
-                    
+                    # Try to identify stockist (scoped to the active division so a
+                    # filename only matches stockists in that division)
+                    stockist_code = identify_stockist_from_filename(file, division=_bulk_division)
+
                     if not stockist_code:
                         results.append({
                             "file": file,
@@ -2252,23 +2256,27 @@ def get_unmatched_filenames_suggestion(zip_file_url):
             return {"success": False, "message": "ZIP file not found"}
         
         suggestions = []
-        
+        _division = get_user_division()
+
         with tempfile.TemporaryDirectory() as temp_dir:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(temp_dir)
-            
+
             for root, dirs, files in os.walk(temp_dir):
                 for file in files:
                     if file.startswith('.') or file.startswith('__'):
                         continue
-                    
-                    stockist_code = identify_stockist_from_filename(file)
-                    
-                    # Get top 5 candidates
+
+                    stockist_code = identify_stockist_from_filename(file, division=_division)
+
+                    # Get top 5 candidates (scoped to the active division)
                     name_clean = os.path.splitext(file)[0].upper()
+                    _cand_filters = {"status": "Active"}
+                    if _division:
+                        _cand_filters["division"] = ["in", [_division, "Both"]]
                     stockists = frappe.get_all("Stockist Master",
                         fields=["stockist_code", "stockist_name"],
-                        filters={"status": "Active"})
+                        filters=_cand_filters)
                     
                     from difflib import SequenceMatcher
                     candidates = sorted(
@@ -2343,17 +2351,19 @@ def identify_stockist_from_filename(filename, division=None, region=None):
     if region:
         stockist_filters["region"] = region
     stockists = frappe.get_all("Stockist Master",
-        fields=["stockist_code", "stockist_name", "city"],
+        fields=["name", "stockist_code", "stockist_name", "city"],
         filters=stockist_filters)
-    
+
     if not stockists:
         frappe.log_error("No active stockists found", "Stockist ID Failed")
         return None
-    
-    # Strategy 1: Exact stockist code match
+
+    # Strategy 1: Exact stockist code match.
+    # Match on the editable Stockist Code but RETURN the master id (PK) — every
+    # downstream step (statement.stockist_code, report joins) links by the id.
     for s in stockists:
-        if s['stockist_code'].upper() in name_clean:
-            return s['stockist_code']
+        if s['stockist_code'] and s['stockist_code'].upper() in name_clean:
+            return s['name']
     
     # Strategy 2: Fuzzy match on stockist name
     best_match = None
@@ -2447,7 +2457,7 @@ def identify_stockist_from_filename(filename, division=None, region=None):
             f"✓ Matched: {filename} -> {best_match['stockist_name']} "
             f"({best_match['stockist_code']}) [Score: {best_score:.2f}]"
         )
-        return best_match['stockist_code']
+        return best_match['name']
     
     # Log failure with top 3 candidates for debugging
     if stockists:
@@ -5359,14 +5369,41 @@ def get_scheme_list_portal(division=None, filters=None):
 
 
 
+def _resolve_stockist_pk(code, division=None):
+    """Resolve an editable Stockist Code (business code) to the Stockist Master id (PK).
+
+    Division-scoped so the SAME business code reused across two divisions never
+    cross-resolves. Falls back to treating the input as the PK itself, which keeps
+    legacy callers working for data where stockist_code == name.
+    """
+    if not code:
+        return None
+    filters = {"stockist_code": code}
+    if division:
+        filters["division"] = ["in", [division, "Both"]]
+    name = frappe.db.get_value("Stockist Master", filters, "name")
+    if name:
+        return name
+    # Legacy / already-a-PK fallback (data where stockist_code == name). Still
+    # honour the division so the fallback can't cross-resolve either.
+    pk_division = frappe.db.get_value("Stockist Master", code, "division")
+    if pk_division is not None and (not division or pk_division in (division, "Both")):
+        return code
+    return None
+
+
 @frappe.whitelist()
-def get_stockist_details(stockist_code):
+def get_stockist_details(stockist_code, division=None):
 
     if not stockist_code:
         frappe.throw(_("Stockist code is required"))
 
-    # Find Stockist Master by stockist_code
-    name = frappe.db.get_value("Stockist Master", {"stockist_code": stockist_code}, "name")
+    if not division:
+        division = get_user_division()
+
+    # Find Stockist Master by editable Stockist Code, scoped to the active division
+    # so a code reused across divisions resolves to THIS division's stockist.
+    name = _resolve_stockist_pk(stockist_code, division)
     if not name:
         frappe.throw(_("Stockist not found"))
 
@@ -7069,17 +7106,23 @@ def reload_stockist_statements(doc_names, division=None):
 # ===================== DUPLICATE STATEMENT CHECK =====================
 
 @frappe.whitelist()
-def check_statement_exists(stockist_code, statement_month):
+def check_statement_exists(stockist_code, statement_month, division=None):
     """Check if a stockist statement already exists for the given stockist + month"""
     if not stockist_code or not statement_month:
         return {"exists": False}
+
+    # Statements link by the master id (PK). Resolve the editable code → id,
+    # division-scoped, so the existence check is exact even for custom codes.
+    if not division:
+        division = get_user_division()
+    stockist_pk = _resolve_stockist_pk(stockist_code, division) or stockist_code
 
     # Normalise month to first-of-month
     if len(statement_month) == 7:
         statement_month = statement_month + "-01"
 
     existing = frappe.db.exists("Stockist Statement", {
-        "stockist_code": stockist_code,
+        "stockist_code": stockist_pk,
         "statement_month": statement_month
     })
 
@@ -7704,6 +7747,107 @@ def delete_primary_sales_record(name):
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Delete Primary Sales Record Error")
         return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_primary_sales_month_stockists(month, division=None):
+    """List the stockists that have Primary Sales Data in a given month — used to
+    populate the stockist filter in the 'Delete Month' dialog. `value` is the stored
+    stockist_code (the master id) so the delete filter matches exactly; display_code
+    is the human-facing editable code."""
+    if not division:
+        division = get_user_division()
+    if not month:
+        return {"success": False, "stockists": [], "total": 0}
+    month = str(month)[:7]
+    rows = frappe.db.sql("""
+        SELECT psd.stockist_code AS value,
+               COALESCE(sm.stockist_name, psd.stockist_name, '') AS stockist_name,
+               COALESCE(NULLIF(sm.stockist_code, ''), psd.stockist_code) AS display_code,
+               COUNT(*) AS row_count
+          FROM `tabPrimary Sales Data` psd
+     LEFT JOIN `tabStockist Master` sm ON sm.name = psd.stockist_code
+         WHERE psd.division = %(division)s AND psd.upload_month = %(month)s
+      GROUP BY psd.stockist_code, stockist_name, display_code
+      ORDER BY stockist_name
+    """, {"division": division, "month": month}, as_dict=True)
+    total = sum(int(r.row_count or 0) for r in rows)
+    return {"success": True, "stockists": rows, "total": total}
+
+
+@frappe.whitelist()
+def delete_primary_sales_month(month, reason, stockist_codes=None, division=None):
+    """Delete all Primary Sales Data for a division + month, optionally limited to a
+    set of stockists. A reason (>= 5 chars) is recorded on the month's upload record(s)
+    for audit. Reversible by re-uploading the source Excel, so this is intentionally a
+    light-touch bulk delete used to fix back-dated / mis-uploaded primary data."""
+    if not division:
+        division = get_user_division()
+    month = str(month or "")[:7]
+    reason = (reason or "").strip()
+    if not month:
+        return {"success": False, "message": "Month is required."}
+    if not reason or len(reason) < 5:
+        return {"success": False, "message": "A reason of at least 5 characters is required."}
+
+    # Optional stockist filter — accept a JSON array or comma-separated list of the
+    # stored stockist_code (master id) values returned by get_primary_sales_month_stockists.
+    codes = None
+    if stockist_codes:
+        if isinstance(stockist_codes, str):
+            try:
+                codes = json.loads(stockist_codes)
+            except Exception:
+                codes = [c.strip() for c in stockist_codes.split(",") if c.strip()]
+        else:
+            codes = list(stockist_codes)
+        codes = [c for c in (codes or []) if c]
+
+    filters = {"division": division, "upload_month": month}
+    if codes:
+        filters["stockist_code"] = ["in", codes]
+
+    count = frappe.db.count("Primary Sales Data", filters)
+    if not count:
+        return {"success": False, "message": "No primary sales rows found for the selected month/stockists."}
+
+    # Audit trail on the month's upload record(s) before the data is removed.
+    try:
+        scope = "ALL stockists" if not codes else f"{len(codes)} selected stockist(s)"
+        upload_names = frappe.get_all(
+            "Primary Sales Upload",
+            filters={"division": division, "upload_month": month},
+            pluck="name",
+        )
+        for up in upload_names:
+            frappe.get_doc({
+                "doctype": "Comment",
+                "comment_type": "Info",
+                "reference_doctype": "Primary Sales Upload",
+                "reference_name": up,
+                "content": (
+                    f"<b>Primary Sales Deleted</b><br>"
+                    f"Month: {month} | Scope: {scope} | Rows: {count}<br>"
+                    f"Reason: {frappe.utils.escape_html(reason)}"
+                ),
+                "comment_email": frappe.session.user,
+            }).insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "Primary Sales Delete Audit Error")
+
+    frappe.db.delete("Primary Sales Data", filters)
+    frappe.db.commit()
+
+    frappe.logger().info(
+        f"Primary Sales deleted: division={division} month={month} "
+        f"rows={count} scope={'all' if not codes else len(codes)} "
+        f"by={frappe.session.user} reason={reason!r}"
+    )
+    return {
+        "success": True,
+        "deleted": count,
+        "message": f"Deleted {count} primary sales row(s) for {month}.",
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -12853,7 +12997,7 @@ def get_products_for_division(division=None):
 
 
 @frappe.whitelist()
-def create_manual_statement(stockist_code, statement_month, items, uploaded_file=None, remarks=None):
+def create_manual_statement(stockist_code, statement_month, items, uploaded_file=None, remarks=None, division=None):
     """
     Create a Stockist Statement from manual entry (no AI extraction).
     items: JSON array of product rows with quantities.
@@ -12865,29 +13009,35 @@ def create_manual_statement(stockist_code, statement_month, items, uploaded_file
         if not stockist_code or not statement_month:
             return {"success": False, "message": "Stockist code and statement month are required."}
 
+        if not division:
+            division = get_user_division()
+
+        # Resolve the editable Stockist Code to the master id (PK), scoped to the active
+        # division so a code reused across divisions resolves to THIS division's stockist.
+        # The statement (and every report) links by the id, not the editable code.
+        stockist_pk = _resolve_stockist_pk(stockist_code, division)
+        if not stockist_pk:
+            return {"success": False, "message": f"Stockist '{stockist_code}' not found."}
+
         # Normalise month
         if len(statement_month) == 7:
             statement_month = statement_month + "-01"
 
         # Check stockist is active
-        stockist_status = frappe.db.get_value(
-            "Stockist Master", {"stockist_code": stockist_code}, "status"
-        )
-        if not stockist_status:
-            return {"success": False, "message": f"Stockist '{stockist_code}' not found."}
+        stockist_status = frappe.db.get_value("Stockist Master", stockist_pk, "status")
         if stockist_status != "Active":
             return {"success": False, "message": f"Stockist '{stockist_code}' is inactive. Statement cannot be created for an inactive stockist."}
 
-        # Check for duplicates
+        # Check for duplicates (statements link by the master id)
         existing = frappe.db.exists("Stockist Statement", {
-            "stockist_code": stockist_code,
+            "stockist_code": stockist_pk,
             "statement_month": statement_month,
         })
         if existing:
             return {"success": False, "message": f"A statement already exists: {existing}"}
 
         doc = frappe.new_doc("Stockist Statement")
-        doc.stockist_code = stockist_code
+        doc.stockist_code = stockist_pk
         doc.statement_month = statement_month
         doc.extracted_data_status = "Completed"
         if uploaded_file:
