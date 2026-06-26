@@ -92,9 +92,12 @@ const masterConfigs = {
             { name: 'ptr', label: 'PTR', type: 'number' },
             { name: 'pts', label: 'PTS', type: 'number' },
             { name: 'gst_rate', label: 'GST Rate (%)', type: 'number', default: 5 },
-            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true }
+            { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true },
+            { name: 'excluded_regions', label: 'Excluded Regions', type: 'region_multiselect', help: 'Tick the regions where this product is NOT sold — skipped during OCR extraction. Leave all unticked = available in all regions.' },
+            // display_only: surfaces the read-only comma-separated codes in the list view (skipped in the form)
+            { name: 'excluded_region_codes', label: 'Excluded Regions', type: 'display_only' }
         ],
-        columns: ['product_code', 'product_name', 'sequence', 'product_group', 'category', 'pack', 'pack_conversion', 'pts', 'ptr', 'mrp', 'gst_rate', 'status'],
+        columns: ['product_code', 'product_name', 'sequence', 'product_group', 'category', 'pack', 'pack_conversion', 'pts', 'ptr', 'excluded_region_codes', 'status'],
         searchFields: ['product_code', 'product_name', 'product_group', 'category', 'pack'],
         excelColumns: [
             'Product Code', 'Product Name', 'Sequence', 'Product Group', 'Category',
@@ -701,6 +704,14 @@ function buildForm(config, data) {
             html += `<option value="">-- Select State --</option>`;
             html += `</select>`;
             if (helpText) html += helpText;
+        } else if (field.type === 'region_multiselect') {
+            // Checkbox list of regions: shows region NAMES, stores region CODES.
+            // Chosen rows get a green tick. Pre-selection comes from excluded_region_codes.
+            const selectedCodes = (data && data.excluded_region_codes)
+                ? String(data.excluded_region_codes).split(',').map(s => s.trim()).filter(Boolean)
+                : [];
+            html += `<div class="rms-widget region-multiselect-field" data-name="${field.name}" data-selected="${selectedCodes.join(',')}"></div>`;
+            if (helpText) html += helpText;
         } else if (field.type === 'select') {
             html += `<select class="form-control" name="${field.name}" ${field.required ? 'required' : ''} ${readonly} ${readonlyStyle}>`;
             if (Array.isArray(field.options)) {
@@ -716,7 +727,7 @@ function buildForm(config, data) {
         } else {
             html += `<input type="${field.type === 'number' ? 'number' : 'text'}" class="form-control" name="${field.name}" value="${value}" ${readonly} ${readonlyStyle} ${field.required ? 'required' : ''} ${field.type === 'number' ? 'step="1"' : ''}>`;
         }
-        if (helpText && field.type !== 'hq_select' && field.type !== 'team_select' && field.type !== 'region_select' && field.type !== 'zone_select' && field.type !== 'state_select') html += helpText;
+        if (helpText && field.type !== 'hq_select' && field.type !== 'team_select' && field.type !== 'region_select' && field.type !== 'zone_select' && field.type !== 'state_select' && field.type !== 'region_multiselect') html += helpText;
 
         html += `</div>`;
     });
@@ -727,6 +738,7 @@ function buildForm(config, data) {
     // Populate all dropdowns
     populateHQDropdown(data);
     populateRegionDropdown(data);
+    populateRegionMultiselect(data);
     populateTeamDropdown(data);
     populateZoneDropdown(data);
     populateStateDropdown(data);
@@ -827,6 +839,111 @@ function populateRegionDropdown(data) {
                 if (r.message && r.message.success) {
                     regionCache = r.message.data;
                     regionSelects.forEach(fillOneSelect);
+                }
+            }
+        });
+    }
+}
+
+function ensureRmsStyles() {
+    if (document.getElementById('rms-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'rms-styles';
+    s.textContent = `
+    .rms-widget { border:1px solid #ced4da; border-radius:6px; padding:6px; background:#fff; }
+    .rms-search { margin-bottom:6px; }
+    .rms-list { max-height:180px; overflow-y:auto; }
+    .rms-item { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:4px; cursor:pointer; font-size:13px; margin:0; font-weight:normal; }
+    .rms-item:hover { background:#f1f5f9; }
+    .rms-item.selected { background:#ecfdf5; color:#065f46; font-weight:600; }
+    .rms-cb { cursor:pointer; margin:0; }
+    .rms-tick { color:#16a34a; visibility:hidden; width:12px; font-size:12px; }
+    .rms-item.selected .rms-tick { visibility:visible; }
+    .rms-empty { padding:6px 8px; color:#94a3b8; font-size:12px; }
+    `;
+    document.head.appendChild(s);
+}
+
+function populateRegionMultiselect(data) {
+    const widgets = document.querySelectorAll('.region-multiselect-field');
+    if (!widgets.length) return;
+    ensureRmsStyles();
+
+    function fillOne(widget) {
+        const selected = (widget.getAttribute('data-selected') || '')
+            .split(',').map(s => s.trim()).filter(Boolean);
+        widget.innerHTML = '';
+
+        const search = document.createElement('input');
+        search.type = 'text';
+        search.className = 'form-control form-control-sm rms-search';
+        search.placeholder = 'Search regions...';
+
+        const list = document.createElement('div');
+        list.className = 'rms-list';
+
+        if (!regionCache.length) {
+            const empty = document.createElement('div');
+            empty.className = 'rms-empty';
+            empty.textContent = 'No regions in this division.';
+            list.appendChild(empty);
+        }
+
+        regionCache.forEach(region => {
+            const isSel = selected.indexOf(region.name) !== -1;
+            // <label> wrapper → clicking anywhere on the row toggles the checkbox natively.
+            const item = document.createElement('label');
+            item.className = 'rms-item' + (isSel ? ' selected' : '');
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'rms-cb';
+            cb.value = region.name;            // code "R0001"
+            cb.checked = isSel;
+
+            const tick = document.createElement('i');
+            tick.className = 'fa fa-check rms-tick';
+
+            const lbl = document.createElement('span');
+            lbl.className = 'rms-label';
+            lbl.textContent = region.region_name; // name shown to user
+
+            cb.addEventListener('change', function () {
+                item.classList.toggle('selected', cb.checked);
+            });
+
+            item.appendChild(cb);
+            item.appendChild(tick);
+            item.appendChild(lbl);
+            list.appendChild(item);
+        });
+
+        search.addEventListener('input', function () {
+            const q = this.value.toLowerCase();
+            list.querySelectorAll('.rms-item').forEach(it => {
+                const t = it.querySelector('.rms-label').textContent.toLowerCase();
+                it.style.display = t.indexOf(q) !== -1 ? '' : 'none';
+            });
+        });
+
+        widget.appendChild(search);
+        widget.appendChild(list);
+    }
+
+    if (regionCache.length) {
+        widgets.forEach(fillOne);
+    } else {
+        // Cache not ready — fetch then fill
+        $.ajax({
+            url: '/api/method/scanify.api.get_region_list',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': window.csrf_token },
+            data: JSON.stringify({ division: currentDivision }),
+            success: function (r) {
+                if (r.message && r.message.success) {
+                    regionCache = r.message.data;
+                    widgets.forEach(fillOne);
                 }
             }
         });
@@ -1129,6 +1246,17 @@ function saveRecord() {
     config.fields.forEach(field => {
         // Skip display_only virtual fields (not real form inputs)
         if (field.type === 'display_only') {
+            return;
+        }
+
+        // Region multi-select → child rows [{region: code}]. Always send (even when
+        // empty) so de-selecting every region clears the exclusions on save.
+        if (field.type === 'region_multiselect') {
+            const widget = document.querySelector(`.region-multiselect-field[data-name="${field.name}"]`);
+            const rows = widget
+                ? Array.from(widget.querySelectorAll('.rms-cb:checked')).map(cb => ({ region: cb.value }))
+                : [];
+            data[field.name] = rows;
             return;
         }
 
