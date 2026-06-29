@@ -7197,6 +7197,57 @@ def check_statement_exists(stockist_code, statement_month, division=None):
     return {"exists": False}
 
 
+@frappe.whitelist()
+def create_ocr_statement(stockist_code, statement_month, uploaded_file=None, division=None):
+    """Create a Draft Stockist Statement for the single-file OCR flow.
+
+    The portal sends the editable Stockist Code, but the statement's `stockist_code`
+    is a Link that must hold the master id (PK) so fetch_from can populate
+    name/HQ/team/region and reports can join. Resolve the code → id here,
+    division-scoped, so a code that differs from the id (or is reused across
+    divisions) links to THIS division's stockist. Mirrors create_manual_statement
+    and the bulk flow so every creation path stores the PK consistently — replaces
+    the old client-side frappe.client.insert that wrote the raw editable code.
+    """
+    try:
+        if not stockist_code or not statement_month:
+            return {"success": False, "message": "Stockist code and statement month are required."}
+
+        if not division:
+            division = get_user_division()
+
+        stockist_pk = _resolve_stockist_pk(stockist_code, division)
+        if not stockist_pk:
+            return {"success": False, "message": f"Stockist '{stockist_code}' not found in this division."}
+
+        if frappe.db.get_value("Stockist Master", stockist_pk, "status") != "Active":
+            return {"success": False, "message": f"Stockist '{stockist_code}' is inactive. Statement upload is not allowed."}
+
+        if len(statement_month) == 7:
+            statement_month = statement_month + "-01"
+
+        existing = frappe.db.exists("Stockist Statement", {
+            "stockist_code": stockist_pk,
+            "statement_month": statement_month,
+        })
+        if existing:
+            return {"success": False, "message": f"A statement already exists: {existing}"}
+
+        doc = frappe.new_doc("Stockist Statement")
+        doc.stockist_code = stockist_pk
+        doc.statement_month = statement_month
+        doc.division = division
+        if uploaded_file:
+            doc.uploaded_file = uploaded_file
+        doc.extracted_data_status = "Pending"
+        doc.insert(ignore_permissions=True)
+
+        return {"success": True, "name": doc.name}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Create OCR Statement Error")
+        return {"success": False, "message": str(e)}
+
+
 # ─────────────────────────────────────────────────────
 # Primary Sales Upload, List & Export
 # ─────────────────────────────────────────────────────

@@ -362,32 +362,18 @@ async function upload_file(file) {
 }
 
 async function create_statement_doc(stockist_code, month, file_url) {
-  const statement_month = month + '-01';
-
-  return new Promise((resolve, reject) => {
-    $.ajax({
-      url: '/api/method/frappe.client.insert',
-      type: 'POST',
-      contentType: 'application/json',
-      headers: { 'X-Frappe-CSRF-Token': get_csrf_token() },
-      data: JSON.stringify({
-        doc: {
-          doctype: 'Stockist Statement',
-          stockist_code: stockist_code,
-          statement_month: statement_month,
-          uploaded_file: file_url,
-          division: get_active_division(),
-          extracted_data_status: 'Pending',
-          docstatus: 0
-        }
-      }),
-      success: function (r) {
-        if (r.message && r.message.name) resolve(r.message.name);
-        else reject(new Error('Failed to create statement'));
-      },
-      error: function (xhr) { reject(new Error(get_server_error(xhr) || 'Document creation failed')); }
-    });
+  // Route through the server endpoint (not frappe.client.insert) so the editable
+  // Stockist Code is resolved to the Stockist Master id (PK) before it lands in the
+  // Link field — otherwise the statement links to nothing/the wrong stockist and
+  // name/HQ/team/region come back empty. Mirrors the manual + bulk creation paths.
+  const result = await call_api('scanify.api.create_ocr_statement', {
+    stockist_code: stockist_code,
+    statement_month: month,
+    uploaded_file: file_url,
+    division: get_active_division()
   });
+  if (result && result.success && result.name) return result.name;
+  throw new Error((result && result.message) || 'Document creation failed');
 }
 
 async function extract_statement(doc_name, file_url) {
