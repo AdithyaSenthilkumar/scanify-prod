@@ -63,11 +63,27 @@ class StockistStatement(Document):
         if not self.stockist_code:
             return
 
+        # Prefer the stockist's own division; fall back to its HQ, then to whatever
+        # the caller already supplied (the portal sends the active session division).
+        # Only throw when none resolve — otherwise a stockist imported without a
+        # division blocks statement creation entirely (this was the prod-only 417).
         division = frappe.db.get_value("Stockist Master", self.stockist_code, "division")
-        if not division:
+        if not division and self.hq:
             division = frappe.db.get_value("HQ Master", self.hq, "division")
         if not division:
-            frappe.throw(f"Stockist {self.stockist_code} has no Division set")
+            # Last structural fallback before the session value: the stockist's
+            # region carries a division too (Region Master.division). Covers
+            # stockists imported without a division or HQ but with a region set.
+            region = frappe.db.get_value("Stockist Master", self.stockist_code, "region")
+            if region:
+                division = frappe.db.get_value("Region Master", region, "division")
+        if not division:
+            division = self.division
+        if not division:
+            frappe.throw(
+                f"Stockist {self.stockist_code} has no Division set. "
+                "Set a Division on the Stockist Master (or its HQ) and try again."
+            )
 
         self.division = division
     def _get_approved_scheme_qty_map(self):

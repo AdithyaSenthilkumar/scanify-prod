@@ -94,10 +94,12 @@ const masterConfigs = {
             { name: 'gst_rate', label: 'GST Rate (%)', type: 'number', default: 5 },
             { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true },
             { name: 'excluded_regions', label: 'Excluded Regions', type: 'region_multiselect', help: 'Tick the regions where this product is NOT sold — skipped during OCR extraction. Leave all unticked = available in all regions.' },
-            // display_only: surfaces the read-only comma-separated codes in the list view (skipped in the form)
-            { name: 'excluded_region_codes', label: 'Excluded Regions', type: 'display_only' }
+            // display_only fields surface read-only values in the list view (skipped in the form).
+            // _names is shown to users; _codes stays in the row data to pre-select the edit form.
+            { name: 'excluded_region_names', label: 'Excluded Regions', type: 'display_only' },
+            { name: 'excluded_region_codes', label: 'Excluded Region Codes', type: 'display_only' }
         ],
-        columns: ['product_code', 'product_name', 'sequence', 'product_group', 'category', 'pack', 'pack_conversion', 'pts', 'ptr', 'excluded_region_codes', 'status'],
+        columns: ['product_code', 'product_name', 'sequence', 'product_group', 'category', 'pack', 'pack_conversion', 'pts', 'ptr', 'excluded_region_names', 'status'],
         searchFields: ['product_code', 'product_name', 'product_group', 'category', 'pack'],
         excelColumns: [
             'Product Code', 'Product Name', 'Sequence', 'Product Group', 'Category',

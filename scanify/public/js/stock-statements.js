@@ -13,6 +13,20 @@ function get_csrf_token() {
   return window.csrftoken || window.csrf_token || (window.frappe && frappe.csrf_token) || '';
 }
 
+/** Pull the human-readable message out of a Frappe error response (417/4xx/5xx). */
+function get_server_error(xhr) {
+  try {
+    const j = (xhr && xhr.responseJSON) || JSON.parse((xhr && xhr.responseText) || '{}');
+    if (j._server_messages) {
+      const msgs = JSON.parse(j._server_messages);
+      if (msgs.length) return JSON.parse(msgs[0]).message;
+    }
+    if (j.exception) return j.exception.replace(/^[\w.]+Error:\s*/, '');
+    if (j.message) return j.message;
+  } catch (e) { /* fall through */ }
+  return '';
+}
+
 /** Get the active division from the navbar division-switcher or a cookie */
 function get_active_division() {
   // The division switcher stores the selected division in a cookie or DOM attribute
@@ -362,6 +376,7 @@ async function create_statement_doc(stockist_code, month, file_url) {
           stockist_code: stockist_code,
           statement_month: statement_month,
           uploaded_file: file_url,
+          division: get_active_division(),
           extracted_data_status: 'Pending',
           docstatus: 0
         }
@@ -370,7 +385,7 @@ async function create_statement_doc(stockist_code, month, file_url) {
         if (r.message && r.message.name) resolve(r.message.name);
         else reject(new Error('Failed to create statement'));
       },
-      error: function () { reject(new Error('Document creation failed')); }
+      error: function (xhr) { reject(new Error(get_server_error(xhr) || 'Document creation failed')); }
     });
   });
 }

@@ -1411,11 +1411,14 @@ IMPORTANT:
 
         mapping = json.loads(resp_text)
 
-        # Validate that returned codes actually exist
+        # Validate that returned codes actually exist AND that the matched stockist
+        # name is plausibly related to the filename (drops confident hallucinations).
         valid_codes = {s["name"] for s in stockists}
+        name_by_code = {s["name"]: s["stockist_name"] for s in stockists}
         validated = {}
         for fname, code in mapping.items():
-            if code and code in valid_codes:
+            if code and code in valid_codes \
+                    and _stockist_name_plausible_for_filename(fname, name_by_code.get(code, "")):
                 validated[fname] = code
             else:
                 validated[fname] = None
@@ -1862,8 +1865,16 @@ def process_bulk_extraction(docname, month, zip_file_url):
                     resp_text = resp_text.rsplit("```", 1)[0]
                 raw_map = json.loads(resp_text.strip())
                 valid_codes = {s["name"] for s in stockists_cat}
+                name_by_code = {s["name"]: s["stockist_name"] for s in stockists_cat}
                 for fname, code in raw_map.items():
-                    gemini_mapping[fname] = code if (code and code in valid_codes) else None
+                    # Reject codes Gemini hallucinated whose name shares nothing with the
+                    # filename — they fall through to fuzzy, then to "unmatched" (a surfaced
+                    # failure the user can reassign) rather than a silent wrong-stockist write.
+                    if code and code in valid_codes \
+                            and _stockist_name_plausible_for_filename(fname, name_by_code.get(code, "")):
+                        gemini_mapping[fname] = code
+                    else:
+                        gemini_mapping[fname] = None
                 frappe.logger().info(f"Gemini batch mapping completed: {len(gemini_mapping)} entries")
             except Exception as map_err:
                 frappe.logger().warning(f"Gemini batch mapping failed, using fuzzy fallback: {map_err}")
@@ -2306,6 +2317,50 @@ def get_unmatched_filenames_suggestion(zip_file_url):
     except Exception as e:
         return {"success": False, "message": str(e)}
 
+# Generic distributor/legal-form tokens that carry no identifying signal — shared by
+# the fuzzy matcher and the filename↔stockist plausibility guard.
+_STOCKIST_STOP_WORDS = frozenset({
+    'LLP', 'PVT', 'LTD', 'LIMITED', 'CO', 'COMPANY', 'AND', 'THE', 'A', 'AN',
+    'PHARMA', 'PHARMACEUTICAL', 'PHARMACEUTICALS', 'DIST', 'DISTRIBUTOR',
+    'DISTRIBUTORS', 'TRADERS', 'ENTERPRISES', 'AGENCY', 'AGENCIES',
+})
+
+
+def _stockist_name_plausible_for_filename(filename, stockist_name):
+    """Guardrail against confident-but-wrong filename→stockist matches.
+
+    Both Gemini and fuzzy matching can return a high-confidence stockist whose name
+    shares nothing with the filename (e.g. 'Muthu Pharma ...' assigned to 'Ator
+    Health'), silently creating the statement under the wrong stockist. A match is
+    only accepted when the filename shares a meaningful name token (substring or a
+    typo-level near match) with the stockist. Fail-open when there's nothing concrete
+    to compare so legitimate sparse filenames aren't rejected.
+    """
+    if not filename or not stockist_name:
+        return False
+
+    name = os.path.splitext(str(filename))[0].upper().replace('-', ' ').replace('_', ' ')
+    name = re.sub(
+        r'\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|STATEMENT|STOCK|SALES|REPORT)\b',
+        ' ', name, flags=re.IGNORECASE,
+    )
+    name = re.sub(r'\d+', ' ', name)
+
+    fwords = {w for w in name.split() if len(w) > 2 and w not in _STOCKIST_STOP_WORDS}
+    swords = {w for w in str(stockist_name).upper().split()
+              if len(w) > 2 and w not in _STOCKIST_STOP_WORDS}
+    if not fwords or not swords:
+        return True  # nothing meaningful to compare — don't block
+
+    for sw in swords:
+        for fw in fwords:
+            if sw == fw or sw in fw or fw in sw:
+                return True
+            if len(sw) >= 4 and len(fw) >= 4 and SequenceMatcher(None, sw, fw).ratio() >= 0.8:
+                return True
+    return False
+
+
 def identify_stockist_from_filename(filename, division=None, region=None):
     """
     Identify stockist code from filename using robust fuzzy matching.
@@ -2369,12 +2424,8 @@ def identify_stockist_from_filename(filename, division=None, region=None):
     best_match = None
     best_score = 0
     
-    # Stop words to ignore
-    stop_words = {
-        'LLP', 'PVT', 'LTD', 'LIMITED', 'CO', 'COMPANY', 'AND', 'THE', 'A', 'AN', 
-        'PHARMA', 'PHARMACEUTICAL', 'PHARMACEUTICALS', 'DIST', 'DISTRIBUTOR',
-        'DISTRIBUTORS', 'TRADERS', 'ENTERPRISES', 'AGENCY', 'AGENCIES'
-    }
+    # Stop words to ignore (shared with the plausibility guard)
+    stop_words = _STOCKIST_STOP_WORDS
     
     for s in stockists:
         stockist_name_clean = s['stockist_name'].upper().strip()
@@ -2452,7 +2503,8 @@ def identify_stockist_from_filename(filename, division=None, region=None):
     # Accept match if confidence is above threshold
     CONFIDENCE_THRESHOLD = 0.40  # Lowered slightly for flexibility
     
-    if best_match and best_score >= CONFIDENCE_THRESHOLD:
+    if best_match and best_score >= CONFIDENCE_THRESHOLD \
+            and _stockist_name_plausible_for_filename(filename, best_match['stockist_name']):
         frappe.logger().info(
             f"✓ Matched: {filename} -> {best_match['stockist_name']} "
             f"({best_match['stockist_code']}) [Score: {best_score:.2f}]"
@@ -3650,6 +3702,15 @@ def get_master_data(doctype, division=None, status=None):
             if "state" in r and r["state"]:
                 state_val = frappe.db.get_value("State Master", r["state"], "state_name")
                 r["state_label"] = state_val if state_val else r["state"]
+            # Product Master stores excluded regions as codes (for OCR matching) but the
+            # list view should show readable names. Resolve each code → region_name.
+            if "excluded_region_codes" in r and r["excluded_region_codes"]:
+                codes = [c.strip() for c in str(r["excluded_region_codes"]).split(",") if c.strip()]
+                names = [
+                    frappe.db.get_value("Region Master", c, "region_name") or c
+                    for c in codes
+                ]
+                r["excluded_region_names"] = ", ".join(names)
 
         return {"success": True, "data": data}
     except Exception as e:

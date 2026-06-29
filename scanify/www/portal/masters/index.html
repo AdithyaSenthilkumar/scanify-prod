@@ -240,5 +240,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/scanify/js/masters.js"></script>
+<script src="/assets/scanify/js/masters.js?v={{ frappe.utils.cint(frappe.utils.now_datetime().timestamp()) }}"></script>
 {% endblock %}
