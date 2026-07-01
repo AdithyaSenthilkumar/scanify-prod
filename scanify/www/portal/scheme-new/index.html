@@ -146,7 +146,13 @@
                             <select id="stockistSelect" class="form-control" required>
                                 <option value="">-- Select HQ first --</option>
                             </select>
-                            <small class="text-muted">Stockists from the entire region of the selected HQ</small>
+                            <div class="custom-control custom-checkbox mt-2">
+                                <input type="checkbox" class="custom-control-input" id="allHQsInRegion">
+                                <label class="custom-control-label" for="allHQsInRegion">
+                                    Show stockists from all HQs in the region
+                                </label>
+                            </div>
+                            <small class="text-muted">By default only the selected HQ's stockists are shown</small>
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -186,7 +192,7 @@
                         <tbody id="itemsTbody"></tbody>
                         <tfoot>
                             <tr>
-                                <td colspan="7" class="text-right"><strong>Total Scheme Value:</strong></td>
+                                <td colspan="7" class="text-right"><strong>Total Order Value:</strong></td>
                                 <td><strong id="totalValue">&#8377; 0.00</strong></td>
                                 <td></td>
                             </tr>

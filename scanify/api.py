@@ -1579,6 +1579,43 @@ def upload_bulk_zip():
 
 
 @frappe.whitelist()
+def upload_scheme_attachment():
+    """
+    Upload a supporting document (order copy / proof) for a Scheme Request.
+    Frappe's built-in upload_file restricts non-desk users to a MIME allowlist
+    that can exclude PDFs, so portal users upload proof documents through here.
+    The File is saved as private and returned; create_scheme_request_v2 later
+    links it to the created Scheme Request.
+    """
+    if frappe.session.user == "Guest":
+        frappe.throw("Authentication required", frappe.AuthenticationError)
+
+    files = frappe.request.files
+    if "file" not in files:
+        frappe.throw("No file provided")
+
+    uploaded = files["file"]
+    filename = uploaded.filename or "attachment"
+    allowed = (".pdf", ".jpg", ".jpeg", ".png")
+    if not filename.lower().endswith(allowed):
+        frappe.throw("Only PDF, JPG or PNG files are accepted")
+
+    content = uploaded.stream.read()
+
+    file_doc = frappe.get_doc({
+        "doctype": "File",
+        "file_name": filename,
+        "is_private": 1,
+        "content": content,
+        "folder": "Home",
+    })
+    file_doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {"file_url": file_doc.file_url, "file_name": file_doc.name}
+
+
+@frappe.whitelist()
 def get_bulk_jobs_list(division=None):
     """
     Return list of bulk OCR jobs for the portal list page.
@@ -5314,6 +5351,12 @@ def create_scheme_request_v2(data):
         doc.approval_status = "Pending"
         doc.repeated_request = 1 if str(data.get("repeated_request", 0)).lower() in ("1", "true", "yes") else 0
 
+        # Supporting document attachments (uploaded via upload_scheme_attachment)
+        for i in range(1, 5):
+            url = data.get("proof_attachment_%d" % i)
+            if url:
+                setattr(doc, "proof_attachment_%d" % i, url)
+
         for item in data.get("items", []):
             if not item.get("product_code"):
                 continue
@@ -5345,6 +5388,21 @@ def create_scheme_request_v2(data):
             })
 
         doc.insert(ignore_permissions=False)
+
+        # Re-point uploaded proof files to this Scheme Request so private-file
+        # access is granted through document permissions when viewing later.
+        for i in range(1, 5):
+            url = getattr(doc, "proof_attachment_%d" % i, None)
+            if not url:
+                continue
+            file_name = frappe.db.get_value("File", {"file_url": url}, "name")
+            if file_name:
+                frappe.db.set_value("File", file_name, {
+                    "attached_to_doctype": "Scheme Request",
+                    "attached_to_name": doc.name,
+                    "attached_to_field": "proof_attachment_%d" % i,
+                }, update_modified=False)
+
         frappe.db.commit()
 
         return {"success": True, "name": doc.name, "message": "Scheme request created successfully"}
@@ -6961,6 +7019,32 @@ def get_stockists_by_region(region, division=None):
         if s.hq and s.hq not in hq_names:
             hq_names[s.hq] = frappe.db.get_value("HQ Master", s.hq, "hq_name") or s.hq
         s["hq_name"] = hq_names.get(s.hq, s.hq or "")
+
+    return stockists
+
+
+@frappe.whitelist()
+def get_stockists_for_hq(hq, division=None):
+    """Get all active stockists belonging to a specific HQ."""
+    if not division:
+        division = get_user_division()
+    if not hq:
+        return []
+
+    filters = {"hq": hq, "status": "Active"}
+    if division and division != "Both":
+        filters["division"] = ["in", [division, "Both"]]
+
+    stockists = frappe.get_all(
+        "Stockist Master",
+        filters=filters,
+        fields=["name", "stockist_code", "stockist_name", "hq"],
+        order_by="stockist_name asc"
+    )
+
+    hq_name = frappe.db.get_value("HQ Master", hq, "hq_name") or hq
+    for s in stockists:
+        s["hq_name"] = hq_name
 
     return stockists
 

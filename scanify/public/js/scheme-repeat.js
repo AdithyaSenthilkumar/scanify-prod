@@ -12,6 +12,8 @@ let approvedProducts = [];   // products from approved schemes for the selected 
 let selectedDoctor = null;
 let doctorProductLimits = {};
 let hqDivisionMap = {};
+let currentHQ = '';           // selected HQ (for stockist filtering)
+let currentRegion = '';       // region of selected HQ (for "all HQs" toggle)
 
 function getActiveDivision() {
     try {
@@ -48,18 +50,27 @@ $(document).ready(function () {
             // Load ONLY approved doctors for this HQ
             loadApprovedDoctorsForHQ(hq);
 
-            // Load stockists from entire region
-            loadStockistsByRegion(region);
+            // Load stockists (HQ-only by default, or region-wide if checkbox on)
+            currentHQ = hq;
+            currentRegion = region;
+            loadStockists();
         } else {
             $('#regionDisplay').val('');
             $('#regionValue').val('');
             $('#teamDisplay').val('');
+            currentHQ = '';
+            currentRegion = '';
             $('#doctorSelect').prop('disabled', true).html('<option value="">-- Select HQ first --</option>');
             $('#stockistSelect').html('<option value="">-- Select HQ first --</option>');
         }
 
         // Clear doctor selection when HQ changes
         clearDoctorSelection();
+    });
+
+    // "All HQs in region" toggle → reload stockists accordingly
+    $('#allHQsInRegion').on('change', function () {
+        loadStockists();
     });
 
     // Doctor dropdown change
@@ -130,7 +141,7 @@ function loadApprovedDoctorsForHQ(hq) {
                         + ' data-hq="' + (d.hq || '') + '"'
                         + ' data-team="' + (d.team || '') + '"'
                         + ' data-region="' + (d.region || '') + '">'
-                        + (d.doctor_name || '') + ' (' + (d.doctor_code || d.name) + ')' + (d.place ? ' - ' + d.place : '')
+                        + (d.doctor_name || '')
                         + '</option>';
                 });
             } else {
@@ -141,6 +152,51 @@ function loadApprovedDoctorsForHQ(hq) {
         error: function (xhr) {
             console.error('Doctor load error:', xhr.responseText);
             $('#doctorSelect').html('<option value="">Error loading doctors</option>').prop('disabled', false);
+        }
+    });
+}
+
+function loadStockists() {
+    // Route to HQ-only or region-wide loading based on the checkbox.
+    if ($('#allHQsInRegion').is(':checked')) {
+        loadStockistsByRegion(currentRegion);
+    } else {
+        loadStockistsForHQ(currentHQ);
+    }
+}
+
+function renderStockistOptions(list, emptyMsg) {
+    var html = '<option value="">-- Select Stockist --</option>';
+    if (list && list.length > 0) {
+        list.forEach(function (s) {
+            // Show stockist name only — no HQ, no code (memory convention)
+            html += '<option value="' + s.name + '" data-name="' + (s.stockist_name || '') + '">' + (s.stockist_name || '') + '</option>';
+        });
+    } else {
+        html = '<option value="">' + emptyMsg + '</option>';
+    }
+    $('#stockistSelect').html(html);
+}
+
+function loadStockistsForHQ(hq) {
+    if (!hq) {
+        $('#stockistSelect').html('<option value="">-- Select HQ first --</option>');
+        return;
+    }
+    $('#stockistSelect').html('<option value="">Loading...</option>');
+    const division = getActiveDivision();
+    $.ajax({
+        url: '/api/method/scanify.api.get_stockists_for_hq',
+        type: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+        data: JSON.stringify({ hq: hq, division: division }),
+        success: function (r) {
+            renderStockistOptions(r.message, 'No stockists found for this HQ');
+        },
+        error: function (xhr) {
+            console.error(xhr.responseText);
+            $('#stockistSelect').html('<option value="">Error loading stockists</option>');
         }
     });
 }
@@ -159,16 +215,7 @@ function loadStockistsByRegion(region) {
         headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
         data: JSON.stringify({ region: region, division: division }),
         success: function (r) {
-            let html = '<option value="">-- Select Stockist --</option>';
-            if (r.message && r.message.length > 0) {
-                r.message.forEach(function (s) {
-                    var hqLabel = s.hq_name ? ' (HQ: ' + s.hq_name + ')' : '';
-                    html += '<option value="' + s.name + '" data-name="' + (s.stockist_name || '') + '">' + (s.stockist_name || '') + hqLabel + ' — ' + (s.stockist_code || s.name) + '</option>';
-                });
-            } else {
-                html = '<option value="">No stockists found in this region</option>';
-            }
-            $('#stockistSelect').html(html);
+            renderStockistOptions(r.message, 'No stockists found in this region');
         },
         error: function (xhr) {
             console.error(xhr.responseText);
@@ -535,27 +582,69 @@ function submitRepeatRequest() {
         items: items,
     };
 
-    $.ajax({
-        url: '/api/method/scanify.api.create_scheme_request_v2',
-        type: 'POST',
-        contentType: 'application/json',
-        headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-        data: JSON.stringify({ data: JSON.stringify(data) }),
-        success: function (r) {
-            $btn.prop('disabled', false).html('<i class="fa fa-redo"></i> Submit Repeat Request');
-            if (r.message && r.message.success) {
-                showAlert('Repeat scheme request created: ' + r.message.name, 'success');
-                setTimeout(function () { window.location.href = '/portal/scheme-list'; }, 1500);
-            } else {
-                var msg = (r.message && r.message.message) || 'Failed to create repeat request';
-                showAlert(msg, 'danger');
+    // Upload any supporting documents first, then create the request.
+    uploadSchemeAttachments().then(function (attachments) {
+        Object.assign(data, attachments);
+
+        $.ajax({
+            url: '/api/method/scanify.api.create_scheme_request_v2',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ data: JSON.stringify(data) }),
+            success: function (r) {
+                $btn.prop('disabled', false).html('<i class="fa fa-redo"></i> Submit Repeat Request');
+                if (r.message && r.message.success) {
+                    showAlert('Repeat scheme request created: ' + r.message.name, 'success');
+                    setTimeout(function () { window.location.href = '/portal/scheme-list'; }, 1500);
+                } else {
+                    var msg = (r.message && r.message.message) || 'Failed to create repeat request';
+                    showAlert(msg, 'danger');
+                }
+            },
+            error: function (xhr) {
+                $btn.prop('disabled', false).html('<i class="fa fa-redo"></i> Submit Repeat Request');
+                console.error(xhr.responseText);
+                showAlert('Error submitting repeat request. Please try again.', 'danger');
             }
-        },
-        error: function (xhr) {
-            $btn.prop('disabled', false).html('<i class="fa fa-redo"></i> Submit Repeat Request');
-            console.error(xhr.responseText);
-            showAlert('Error submitting repeat request. Please try again.', 'danger');
-        }
+        });
+    }).catch(function (err) {
+        console.error(err);
+        $btn.prop('disabled', false).html('<i class="fa fa-redo"></i> Submit Repeat Request');
+        showAlert('Error uploading supporting documents. Please try again.', 'danger');
+    });
+}
+
+/**
+ * Upload the (optional) supporting-document file inputs and resolve to a map of
+ * { proof_attachment_1: url, ... } for whichever files were chosen.
+ */
+function uploadSchemeAttachments() {
+    var inputIds = ['attachment1', 'attachment2', 'attachment3', 'attachment4'];
+    var tasks = inputIds.map(function (id, idx) {
+        var input = document.getElementById(id);
+        var file = input && input.files && input.files[0];
+        var field = 'proof_attachment_' + (idx + 1);
+        if (!file) return Promise.resolve([field, null]);
+
+        var fd = new FormData();
+        fd.append('file', file);
+        return fetch('/api/method/scanify.api.upload_scheme_attachment', {
+            method: 'POST',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            body: fd
+        }).then(function (res) {
+            if (!res.ok) throw new Error('Upload failed for ' + file.name);
+            return res.json();
+        }).then(function (j) {
+            return [field, (j.message && j.message.file_url) || null];
+        });
+    });
+
+    return Promise.all(tasks).then(function (pairs) {
+        var out = {};
+        pairs.forEach(function (p) { if (p[1]) out[p[0]] = p[1]; });
+        return out;
     });
 }
 

@@ -273,7 +273,7 @@
     </div>
     <div class="chart-grid g3" style="margin-top:20px;">
         <div class="ins-chart-card">
-            <div class="ins-chart-header"><div><h5>Top Doctors by Value</h5><p>Top 10 by scheme value</p></div></div>
+            <div class="ins-chart-header"><div><h5>Top Doctors by Value</h5><p>Top 10 by order value</p></div></div>
             <div class="ins-chart-body"><canvas id="chartTopDoctors"></canvas></div>
         </div>
         <div class="ins-chart-card">
@@ -281,7 +281,7 @@
             <div class="ins-chart-body"><canvas id="chartTopHQs"></canvas></div>
         </div>
         <div class="ins-chart-card">
-            <div class="ins-chart-header"><div><h5>Scheme Value by Region</h5><p>Regional distribution</p></div></div>
+            <div class="ins-chart-header"><div><h5>Order Value by Region</h5><p>Regional distribution</p></div></div>
             <div class="ins-chart-body"><canvas id="chartRegionScheme"></canvas></div>
         </div>
     </div>
@@ -382,7 +382,7 @@
             <div class="ins-chart-body"><canvas id="chartProdClosing"></canvas></div>
         </div>
         <div class="ins-chart-card">
-            <div class="ins-chart-header"><div><h5>Top Products — Scheme Value</h5><p>From scheme requests</p></div></div>
+            <div class="ins-chart-header"><div><h5>Top Products — Order Value</h5><p>From scheme requests</p></div></div>
             <div class="ins-chart-body"><canvas id="chartProdScheme"></canvas></div>
         </div>
     </div>
@@ -639,7 +639,7 @@
                     data: {
                         labels: d.top_doctors.map(function(r){ return r.doctor_name && r.doctor_name.length > 20 ? r.doctor_name.substring(0,20)+'…' : r.doctor_name; }),
                         datasets: [{
-                            label: 'Scheme Value (₹)',
+                            label: 'Order Value (₹)',
                             data: d.top_doctors.map(function(r){ return r.total_value; }),
                             backgroundColor: PALETTE.slice(0, d.top_doctors.length),
                             borderRadius: 6, borderSkipped: false,
@@ -663,7 +663,7 @@
                     data: {
                         labels: d.top_hqs.map(function(r){ return r.hq; }),
                         datasets: [{
-                            label: 'Scheme Value (₹)',
+                            label: 'Order Value (₹)',
                             data: d.top_hqs.map(function(r){ return r.total_value; }),
                             backgroundColor: PALETTE.slice(0, d.top_hqs.length),
                             borderRadius: 6, borderSkipped: false,
@@ -678,7 +678,7 @@
                 });
             } else { showEmpty('chartTopHQs'); }
 
-            // Chart: Region Scheme Value (bar)
+            // Chart: Region Order Value (bar)
             clearEmpty('chartRegionScheme');
             destroyChart('chartRegionScheme');
             if (d.region_breakdown.length) {
@@ -687,7 +687,7 @@
                     data: {
                         labels: d.region_breakdown.map(function(r){ return r.region; }),
                         datasets: [{
-                            label: 'Scheme Value (₹)',
+                            label: 'Order Value (₹)',
                             data: d.region_breakdown.map(function(r){ return r.total_value; }),
                             backgroundColor: COLORS.indigoLight,
                             borderColor: COLORS.indigo,
@@ -1044,7 +1044,7 @@
                 });
             } else { showEmpty('chartProdClosing'); }
 
-            // Top products by scheme value (horizontal bar)
+            // Top products by order value (horizontal bar)
             clearEmpty('chartProdScheme');
             destroyChart('chartProdScheme');
             if (d.top_products_scheme.length) {
@@ -1053,7 +1053,7 @@
                     data: {
                         labels: d.top_products_scheme.map(function(r){ return (r.product_name || r.product_code || '').substring(0,22); }),
                         datasets: [{
-                            label: 'Scheme Value (₹)',
+                            label: 'Order Value (₹)',
                             data: d.top_products_scheme.map(function(r){ return r.total_value; }),
                             backgroundColor: PALETTE.slice(0, d.top_products_scheme.length),
                             borderRadius: 6, borderSkipped: false,
