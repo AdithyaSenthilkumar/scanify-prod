@@ -57,11 +57,12 @@
                 <table class="table table-hover mb-0">
                     <thead>
                         <tr>
-                            <th>Deduction ID</th>
-                            <th>Scheme Request</th>
-                            <th>Stockist Statement</th>
+                            <th>Deduction</th>
+                            <th>Doctor</th>
+                            <th>Stockist</th>
+                            <th>Statement Month</th>
                             <th>Date</th>
-                            <th>Total Qty</th>
+                            <th class="text-right">Total Qty</th>
                             <th class="text-right">Total Value</th>
                             <th>Status</th>
                         </tr>
@@ -80,6 +81,21 @@
 
     <!-- Pagination -->
     <div id="deduction-pagination" class="d-flex justify-content-between align-items-center mt-3"></div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal fade" id="dedDetailModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa fa-cubes"></i> Deduction Detail</h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body" id="dedDetailBody">
+                <div class="text-center py-4"><i class="fa fa-spinner fa-spin fa-2x text-muted"></i></div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <style>
@@ -190,12 +206,13 @@
         const pageRows = rows.slice(start, start + DED_PAGE_SIZE);
 
         const html = pageRows.map(r => `
-            <tr>
-                <td><strong>${r.name}</strong></td>
-                <td>${r.scheme_request || '-'}</td>
-                <td>${r.stockist_statement || '-'}</td>
+            <tr style="cursor:pointer;" onclick="openDedDetail('${r.name}')">
+                <td><strong>${r.name}</strong><br><small class="text-muted">${r.scheme_request || ''}</small></td>
+                <td>${r.doctor_name || '-'}</td>
+                <td>${r.stockist_name || '-'}</td>
+                <td>${r.statement_month_label || '-'}</td>
                 <td>${fmtDate(r.deduction_date || r.creation)}</td>
-                <td>${r.total_deducted_qty || 0}</td>
+                <td class="text-right">${r.total_deducted_qty || 0}</td>
                 <td class="text-right">${fmtCurrency(r.total_deducted_value)}</td>
                 <td>${statusBadge(r.status, r.docstatus)}</td>
             </tr>
@@ -227,6 +244,59 @@
         if (page < 1 || page > totalPages) return;
         dedCurrentPage = page;
         renderTable(allDeductions);
+    }
+
+    function openDedDetail(name) {
+        $('#dedDetailBody').html('<div class="text-center py-4"><i class="fa fa-spinner fa-spin fa-2x text-muted"></i></div>');
+        $('#dedDetailModal').modal('show');
+        fetch('/api/method/scanify.api.get_scheme_deduction_detail', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            body: JSON.stringify({ name: name })
+        })
+            .then(r => r.json())
+            .then(r => {
+                const d = r.message;
+                if (!d || !d.success) {
+                    $('#dedDetailBody').html('<div class="alert alert-danger">Failed to load detail</div>');
+                    return;
+                }
+                let rows = (d.items || []).map(it => `
+                    <tr>
+                        <td><strong>${it.product_name || it.product_code}</strong><br><small class="text-muted">${it.product_code || ''}</small></td>
+                        <td>${it.pack || '-'}</td>
+                        <td class="text-right">${it.scheme_free_qty || 0}</td>
+                        <td class="text-right">${it.deduct_qty || 0}</td>
+                        <td class="text-right">${fmtCurrency(it.pts)}</td>
+                        <td class="text-right">${fmtCurrency(it.deducted_value)}</td>
+                    </tr>`).join('');
+                if (!rows) rows = '<tr><td colspan="6" class="text-center text-muted">No items</td></tr>';
+                $('#dedDetailBody').html(`
+                    <div class="mb-2">
+                        <strong>${d.name}</strong> ${statusBadge(d.status, d.docstatus)}
+                        <span class="mx-2">|</span><strong>Doctor:</strong> ${d.doctor_name || '-'}
+                        <span class="mx-2">|</span><strong>Stockist:</strong> ${d.stockist_name || '-'}
+                        <span class="mx-2">|</span><strong>Month:</strong> ${d.statement_month_label || '-'}
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered mb-0">
+                            <thead class="bg-light">
+                                <tr><th>Product</th><th>Pack</th><th class="text-right">Scheme Free</th><th class="text-right">Deducted</th><th class="text-right">PTS</th><th class="text-right">Value</th></tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                            <tfoot>
+                                <tr class="table-active">
+                                    <td colspan="3" class="text-right"><strong>Totals</strong></td>
+                                    <td class="text-right"><strong>${d.total_deducted_qty || 0}</strong></td>
+                                    <td></td>
+                                    <td class="text-right"><strong>${fmtCurrency(d.total_deducted_value)}</strong></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                `);
+            })
+            .catch(() => $('#dedDetailBody').html('<div class="alert alert-danger">Error loading detail</div>'));
     }
 
     document.addEventListener('DOMContentLoaded', loadDeductions);

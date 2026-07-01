@@ -9,9 +9,14 @@
             <h1 class="page-title"><i class="fa fa-redo"></i> Repeat Scheme Request</h1>
             <p class="page-subtitle">Create repeated requests from approved schemes in <strong>{{ division }}</strong> division</p>
         </div>
-        <a href="/portal/scheme-list" class="btn btn-secondary">
-            <i class="fa fa-arrow-left"></i> Back to Scheme List
-        </a>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-info text-white" onclick="openSchemeHistoryFromForm()">
+                <i class="fa fa-history"></i> History
+            </button>
+            <a href="/portal/scheme-list" class="btn btn-secondary">
+                <i class="fa fa-arrow-left"></i> Back to Scheme List
+            </a>
+        </div>
     </div>
 
     <div id="limitBanner" class="alert d-none mb-3"></div>
@@ -280,5 +285,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/scanify/js/scheme-repeat.js"></script>
+{% include "templates/includes/scheme_history_modal.html" %}
+<script src="/assets/scanify/js/scheme-history.js?v=20260701b"></script>
+<script src="/assets/scanify/js/scheme-repeat.js?v=20260701"></script>
 {% endblock %}

@@ -21,6 +21,9 @@
                 <p class="page-subtitle text-muted" id="headerSubtitle"></p>
             </div>
             <div class="d-flex gap-2">
+                <button type="button" class="btn btn-info text-white" onclick="openHistoryTabs()">
+                    <i class="fa fa-history"></i> History
+                </button>
                 <a href="/portal/scheme-list" class="btn btn-outline-secondary">
                     <i class="fa fa-arrow-left"></i> Back to List
                 </a>
@@ -39,12 +42,6 @@
                 <div class="card shadow-sm border-0 h-100">
                     <div class="card-header bg-success text-white py-2 px-3">
                         <i class="fa fa-user-md"></i> <strong>Doctor Details</strong>
-                        {% if is_manager %}
-                        <button class="btn btn-sm btn-light float-right" id="viewDoctorHistoryBtn"
-                            onclick="viewDoctorHistory()" title="View Doctor History">
-                            <i class="fa fa-history"></i> History
-                        </button>
-                        {% endif %}
                     </div>
                     <div class="card-body py-2">
                         <table class="table table-sm mb-0 table-borderless">
@@ -115,12 +112,6 @@
         <div class="card shadow-sm border-0 mb-4">
             <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center">
                 <div><i class="fa fa-cubes"></i> <strong>Products &amp; Quantities</strong></div>
-                {% if is_manager %}
-                <button class="btn btn-sm btn-outline-primary" onclick="viewProductHistory()"
-                    title="View Product History">
-                    <i class="fa fa-chart-bar"></i> Product History
-                </button>
-                {% endif %}
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -284,6 +275,40 @@
         </div>
     </div>
 
+    <!-- Remap Stockist Modal -->
+    <div class="modal fade" id="remapStockistModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="fa fa-exchange-alt"></i> Remap Stockist</h5>
+                    <button type="button" class="close" style="color:white;" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted">Change the stockist for this pending scheme. Products and quantities are unchanged.</p>
+                    <div class="form-group">
+                        <label><strong>Stockist <span class="text-danger">*</span></strong></label>
+                        <select id="remapStockistSelect" class="form-control">
+                            <option value="">Loading...</option>
+                        </select>
+                        <div class="custom-control custom-checkbox mt-2">
+                            <input type="checkbox" class="custom-control-input" id="remapAllHQsInRegion" onchange="loadRemapStockists()">
+                            <label class="custom-control-label" for="remapAllHQsInRegion">
+                                Show stockists from all HQs in the region
+                            </label>
+                        </div>
+                        <small class="text-muted">By default only the scheme HQ's stockists are shown</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="remapSaveBtn" onclick="confirmRemapStockist()">
+                        <i class="fa fa-save"></i> Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div><!-- /portal-page -->
 
 <style>
@@ -346,10 +371,85 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "templates/includes/scheme_history_modal.html" %}
+<script src="/assets/scanify/js/scheme-history.js?v=20260701b"></script>
 <script>
     const SCHEME_NAME = "{{ scheme_name }}";
     const IS_MANAGER = {{ 'true' if is_manager else 'false' }};
     let schemeData = null;
+
+    // Open the unified tabbed history modal using the loaded scheme context
+    function openHistoryTabs() {
+        if (!schemeData) return;
+        openSchemeHistory({
+            doctor_code: schemeData.doctor_code,
+            stockist_code: schemeData.stockist_code,
+            hq: schemeData.hq,
+            products: (schemeData.items || []).map(function (it) {
+                return { product_code: it.product_code, product_name: it.product_name };
+            }),
+        });
+    }
+
+    // ===================== REMAP STOCKIST (pending schemes) =====================
+    function openRemapStockist() {
+        if (!schemeData) return;
+        document.getElementById('remapAllHQsInRegion').checked = false;
+        loadRemapStockists();
+        $('#remapStockistModal').modal('show');
+    }
+
+    function loadRemapStockists() {
+        const allRegion = document.getElementById('remapAllHQsInRegion').checked;
+        const $sel = $('#remapStockistSelect');
+        $sel.html('<option value="">Loading...</option>');
+        const method = allRegion ? 'get_stockists_by_region' : 'get_stockists_for_hq';
+        const payload = allRegion
+            ? { region: schemeData.region, division: schemeData.division }
+            : { hq: schemeData.hq, division: schemeData.division };
+        fetch('/api/method/scanify.api.' + method, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            body: JSON.stringify(payload)
+        }).then(r => r.json()).then(r => {
+            const rows = r.message || [];
+            let html = '<option value="">-- Select Stockist --</option>';
+            rows.forEach(function (s) {
+                const selected = s.name === schemeData.stockist_code ? ' selected' : '';
+                html += `<option value="${s.name}"${selected}>${s.stockist_name}</option>`;
+            });
+            $sel.html(html);
+        }).catch(() => $sel.html('<option value="">Error loading stockists</option>'));
+    }
+
+    function confirmRemapStockist() {
+        const stockist = $('#remapStockistSelect').val();
+        if (!stockist) { showAlert('Please select a stockist', 'warning'); return; }
+        const $btn = $('#remapSaveBtn');
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Saving...');
+        fetch('/api/method/scanify.api.remap_scheme_stockist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            body: JSON.stringify({ scheme_request: SCHEME_NAME, stockist_code: stockist })
+        }).then(r => r.json()).then(r => {
+            $btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save');
+            const d = r.message;
+            if (d && d.success) {
+                schemeData.stockist_code = d.stockist_code;
+                schemeData.stockist_name = d.stockist_name;
+                schemeData.stockist_display_code = d.stockist_display_code;
+                $('#d-stockist').html(`${d.stockist_name} <small class="text-muted">(${d.stockist_display_code || ''})</small>`
+                    + ` <button class="btn btn-sm btn-outline-primary ml-2" onclick="openRemapStockist()" title="Change stockist"><i class="fa fa-exchange-alt"></i> Remap</button>`);
+                $('#remapStockistModal').modal('hide');
+                showAlert('Stockist remapped to ' + d.stockist_name, 'success');
+            } else {
+                showAlert((d && d.message) || 'Failed to remap stockist', 'danger');
+            }
+        }).catch(() => {
+            $btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save');
+            showAlert('Error remapping stockist', 'danger');
+        });
+    }
 
     $(document).ready(function () {
         loadSchemeDetail();
@@ -410,8 +510,11 @@
         // Request / stockist
         $('#d-schemeId').html(`<strong>${d.name}</strong>`);
         $('#d-appDate').text(d.application_date || '-');
-        $('#d-hq').text(d.hq || '-');
-        $('#d-stockist').html(`${d.stockist_name || '-'} <small class="text-muted">(${d.stockist_display_code || ''})</small>`);
+        $('#d-hq').text(d.hq_name || d.hq || '-');
+        $('#d-stockist').html(`${d.stockist_name || '-'} <small class="text-muted">(${d.stockist_display_code || ''})</small>`
+            + (d.approval_status === 'Pending'
+                ? ` <button class="btn btn-sm btn-outline-primary ml-2" onclick="openRemapStockist()" title="Change stockist"><i class="fa fa-exchange-alt"></i> Remap</button>`
+                : ''));
         $('#d-division').text(d.division || '-');
         $('#d-requestedBy').text(d.requested_by || '-');
 

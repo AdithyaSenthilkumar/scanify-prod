@@ -4930,6 +4930,7 @@ def get_scheme_detail(scheme_name):
             "specialization": doc.specialization,
             "hospital_address": doc.hospital_address,
             "hq": doc.hq,
+            "hq_name": frappe.db.get_value("HQ Master", doc.hq, "hq_name") if doc.hq else "",
             "region": doc.region,
             "team": doc.team,
             "stockist_code": doc.stockist_code,
@@ -5042,8 +5043,8 @@ def fetch_deduction_items_portal(scheme_request, stockist_statement, division=No
                 "message": f"Stockist mismatch: Scheme ({scheme.stockist_code}) vs Statement ({statement.stockist_code})"
             }
 
-        # Build statement product map — use sales_qty for deduction display
-        stmt_map = {item.product_code: flt(item.sales_qty) for item in statement.items}
+        # Build statement product map — keep the item so we can read sales_qty + current pts
+        stmt_map = {item.product_code: item for item in statement.items}
 
         items = []
         skipped = []
@@ -5051,17 +5052,27 @@ def fetch_deduction_items_portal(scheme_request, stockist_statement, division=No
             if scheme_item.product_code not in stmt_map:
                 skipped.append(scheme_item.product_code)
                 continue
-            product = frappe.get_doc("Product Master", scheme_item.product_code)
+
             scheme_free_qty = flt(scheme_item.free_quantity)
-            current_sales_qty = stmt_map[scheme_item.product_code]
+            special_rate = flt(scheme_item.special_rate)
+            # Nothing to do for a product with neither free goods nor a discount
+            if scheme_free_qty <= 0 and special_rate <= 0:
+                continue
+
+            product = frappe.get_doc("Product Master", scheme_item.product_code)
+            stmt_item = stmt_map[scheme_item.product_code]
+            # Effective current PTS on the statement line (per-line override or master)
+            current_pts = flt(stmt_item.pts) or flt(product.pts)
             items.append({
                 "product_code": scheme_item.product_code,
                 "product_name": product.product_name,
                 "pack": product.pack,
                 "scheme_free_qty": scheme_free_qty,
-                "current_sales_qty": current_sales_qty,
+                "current_sales_qty": flt(stmt_item.sales_qty),
                 "deduct_qty": scheme_free_qty,
                 "pts": flt(product.pts),
+                "current_pts": current_pts,
+                "special_rate": special_rate,
                 "deducted_value": scheme_free_qty * flt(product.pts),
             })
 
@@ -5128,6 +5139,8 @@ def create_scheme_deduction_portal(scheme_request, stockist_statement, items, de
                 "deduct_qty": deduct_qty,
                 "pts": pts,
                 "deducted_value": deducted_value,
+                # Discount: when > 0, on_submit reprices the statement line PTS to this
+                "special_rate": flt(item.get("special_rate", 0)),
             })
             total_qty += deduct_qty
             total_value += deducted_value
@@ -5135,8 +5148,12 @@ def create_scheme_deduction_portal(scheme_request, stockist_statement, items, de
         doc.total_deducted_qty = total_qty
         doc.total_deducted_value = total_value
         doc.insert(ignore_permissions=False)
-        # Auto-submit the deduction (no draft state needed)
+        # Auto-submit the deduction (no draft state needed). on_submit applies the
+        # deduction to the statement and recalculates its closing/totals.
         doc.submit()
+
+        # Mark the source scheme as Deducted (final lifecycle status)
+        frappe.db.set_value("Scheme Request", scheme_request, "approval_status", "Deducted")
         frappe.db.commit()
 
         return {"success": True, "name": doc.name, "message": "Scheme deduction created successfully"}
@@ -5189,55 +5206,461 @@ def create_bulk_scheme_deductions_portal(deductions, deduction_date, division=No
 
 @frappe.whitelist()
 def get_scheme_deductions_portal(division=None, search=None, status=None, from_date=None, to_date=None):
-    """List scheme deductions for the portal with filters"""
+    """List scheme deductions for the portal, enriched with human-readable
+    doctor / stockist / statement-month so the UI shows names not raw codes."""
     try:
         if not division:
             division = get_user_division()
 
-        filters = [["Scheme Deduction", "division", "=", division]]
+        conditions = ["sd.division = %(division)s"]
+        params = {"division": division}
 
         if search:
-            filters = [
-                ["Scheme Deduction", "division", "=", division],
-                "|",
-                ["Scheme Deduction", "name", "like", f"%{search}%"],
-                ["Scheme Deduction", "scheme_request", "like", f"%{search}%"],
-                ["Scheme Deduction", "stockist_statement", "like", f"%{search}%"],
-            ]
-            # Use simpler OR approach via SQL
-            deductions = frappe.db.sql("""
-                SELECT name, scheme_request, stockist_statement, deduction_date, 
-                       total_deducted_qty, total_deducted_value, status, docstatus, creation
-                FROM `tabScheme Deduction`
-                WHERE division = %(division)s
-                AND (name LIKE %(s)s OR scheme_request LIKE %(s)s OR stockist_statement LIKE %(s)s)
-                ORDER BY creation DESC
-                LIMIT 100
-            """, {"division": division, "s": f"%{search}%"}, as_dict=True)
-        else:
-            q_filters = {"division": division}
-            if status:
-                q_filters["status"] = status
-            if from_date:
-                q_filters["creation"] = [">=", from_date]
-            if to_date:
-                if "creation" in q_filters:
-                    q_filters["creation"] = ["between", [from_date, to_date]]
-                else:
-                    q_filters["creation"] = ["<=", to_date]
-
-            deductions = frappe.get_all(
-                "Scheme Deduction",
-                filters=q_filters,
-                fields=["name", "scheme_request", "stockist_statement", "deduction_date",
-                        "total_deducted_qty", "total_deducted_value", "status", "docstatus", "creation"],
-                order_by="creation desc",
-                limit=200
+            conditions.append(
+                "(sd.name LIKE %(s)s OR sr.doctor_name LIKE %(s)s "
+                "OR sr.stockist_name LIKE %(s)s OR sd.scheme_request LIKE %(s)s)"
             )
+            params["s"] = f"%{search}%"
+        if status:
+            conditions.append("sd.status = %(status)s")
+            params["status"] = status
+        if from_date and to_date:
+            conditions.append("sd.deduction_date BETWEEN %(from_date)s AND %(to_date)s")
+            params["from_date"] = from_date
+            params["to_date"] = to_date
+        elif from_date:
+            conditions.append("sd.deduction_date >= %(from_date)s")
+            params["from_date"] = from_date
+        elif to_date:
+            conditions.append("sd.deduction_date <= %(to_date)s")
+            params["to_date"] = to_date
+
+        where_sql = " AND ".join(conditions)
+        deductions = frappe.db.sql(f"""
+            SELECT
+                sd.name, sd.scheme_request, sd.stockist_statement, sd.deduction_date,
+                sd.total_deducted_qty, sd.total_deducted_value, sd.status, sd.docstatus, sd.creation,
+                sr.doctor_name, sr.stockist_name, sr.hq, sr.application_date,
+                DATE_FORMAT(ss.statement_month, '%%b-%%Y') as statement_month_label
+            FROM `tabScheme Deduction` sd
+            LEFT JOIN `tabScheme Request` sr ON sd.scheme_request = sr.name
+            LEFT JOIN `tabStockist Statement` ss ON sd.stockist_statement = ss.name
+            WHERE {where_sql}
+            ORDER BY sd.creation DESC
+            LIMIT 200
+        """, params, as_dict=True)
+
+        # Resolve HQ display name (small, cached)
+        hq_cache = {}
+        for d in deductions:
+            hq = d.get("hq")
+            if hq and hq not in hq_cache:
+                hq_cache[hq] = frappe.db.get_value("HQ Master", hq, "hq_name") or hq
+            d["hq_name"] = hq_cache.get(hq, hq or "")
 
         return {"success": True, "data": deductions}
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Get Scheme Deductions Portal Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_scheme_deduction_detail(name):
+    """Full detail of a single Scheme Deduction for the list click-through popup."""
+    try:
+        doc = frappe.get_doc("Scheme Deduction", name)
+        sr = frappe.db.get_value(
+            "Scheme Request", doc.scheme_request,
+            ["doctor_name", "stockist_name", "hq", "application_date"], as_dict=True
+        ) or {}
+        stmt_month = frappe.db.get_value("Stockist Statement", doc.stockist_statement, "statement_month")
+        items = []
+        for it in doc.items:
+            items.append({
+                "product_code": it.product_code,
+                "product_name": it.product_name,
+                "pack": it.pack,
+                "scheme_free_qty": flt(it.scheme_free_qty),
+                "current_free_qty": flt(it.current_free_qty),
+                "deduct_qty": flt(it.deduct_qty),
+                "pts": flt(it.pts),
+                "deducted_value": flt(it.deducted_value),
+            })
+        return {
+            "success": True,
+            "name": doc.name,
+            "scheme_request": doc.scheme_request,
+            "stockist_statement": doc.stockist_statement,
+            "statement_month_label": stmt_month.strftime("%b-%Y") if stmt_month else "",
+            "deduction_date": str(doc.deduction_date) if doc.deduction_date else "",
+            "status": doc.status,
+            "docstatus": doc.docstatus,
+            "total_deducted_qty": flt(doc.total_deducted_qty),
+            "total_deducted_value": flt(doc.total_deducted_value),
+            "doctor_name": sr.get("doctor_name"),
+            "stockist_name": sr.get("stockist_name"),
+            "items": items,
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Scheme Deduction Detail Error")
+        return {"success": False, "message": str(e)}
+
+
+def _month_bounds(month_str):
+    """Given 'YYYY-MM' (or 'YYYY-MM-DD') return (first_day, last_day) date strings."""
+    import calendar as _cal
+    if not month_str:
+        return None, None
+    parts = str(month_str).split("-")
+    y, m = int(parts[0]), int(parts[1])
+    last = _cal.monthrange(y, m)[1]
+    return f"{y:04d}-{m:02d}-01", f"{y:04d}-{m:02d}-{last:02d}"
+
+
+@frappe.whitelist()
+def get_bulk_deduction_candidates(division=None, zone=None, region=None, team=None,
+                                  hq=None, scheme_month=None, statement_month=None):
+    """List Approved (not-yet-Deducted) scheme requests for a scheme month, each
+    resolved to its stockist's statement for the target statement month.
+    Schemes whose stockist has no statement that month are returned with
+    can_deduct=False so the UI can show them disabled."""
+    try:
+        if not division:
+            division = get_user_division()
+
+        conditions = [
+            "sr.docstatus = 1",
+            "sr.approval_status = 'Approved'",
+            "sr.division = %(division)s",
+        ]
+        params = {"division": division}
+
+        s_from, s_to = _month_bounds(scheme_month)
+        if s_from:
+            conditions.append("sr.application_date BETWEEN %(s_from)s AND %(s_to)s")
+            params["s_from"] = s_from
+            params["s_to"] = s_to
+
+        if hq:
+            conditions.append("sr.hq = %(hq)s")
+            params["hq"] = hq
+        if team:
+            conditions.append("sr.team = %(team)s")
+            params["team"] = team
+        if region:
+            conditions.append("sr.region = %(region)s")
+            params["region"] = region
+        elif zone:
+            # Resolve all regions in the zone, then filter schemes to those regions
+            zone_regions = frappe.get_all("Region Master", filters={"zone": zone}, pluck="name")
+            if zone_regions:
+                conditions.append("sr.region IN %(zone_regions)s")
+                params["zone_regions"] = tuple(zone_regions)
+            else:
+                return {"success": True, "data": [], "statement_month": statement_month}
+
+        where_sql = " AND ".join(conditions)
+        schemes = frappe.db.sql(f"""
+            SELECT sr.name, sr.application_date, sr.doctor_name, sr.doctor_code,
+                   sr.stockist_code, sr.stockist_name, sr.hq, sr.total_scheme_value
+            FROM `tabScheme Request` sr
+            WHERE {where_sql}
+            ORDER BY sr.application_date DESC
+            LIMIT 300
+        """, params, as_dict=True)
+
+        st_year = st_month = None
+        if statement_month:
+            _p = str(statement_month).split("-")
+            st_year, st_month = int(_p[0]), int(_p[1])
+
+        hq_cache = {}
+        out = []
+        for sc in schemes:
+            hqv = sc.get("hq")
+            if hqv and hqv not in hq_cache:
+                hq_cache[hqv] = frappe.db.get_value("HQ Master", hqv, "hq_name") or hqv
+            sc["hq_name"] = hq_cache.get(hqv, hqv or "")
+
+            row = {
+                "scheme_request": sc["name"],
+                "application_date": str(sc["application_date"]) if sc["application_date"] else "",
+                "doctor_name": sc["doctor_name"],
+                "stockist_code": sc["stockist_code"],
+                "stockist_name": sc["stockist_name"],
+                "hq_name": sc["hq_name"],
+                "stockist_statement": None,
+                "items": [],
+                "total_free_qty": 0,
+                "total_value": 0,
+                "can_deduct": False,
+                "reason": "",
+            }
+
+            # Already-deducted guard (belt & suspenders; Approved filter usually covers it)
+            existing = frappe.db.exists("Scheme Deduction", {
+                "scheme_request": sc["name"], "docstatus": ["!=", 2]
+            })
+            if existing:
+                row["reason"] = f"Already deducted ({existing})"
+                out.append(row)
+                continue
+
+            # Resolve the stockist's statement for the target month
+            stmt_name = None
+            if st_year:
+                stmt = frappe.db.sql("""
+                    SELECT name FROM `tabStockist Statement`
+                    WHERE stockist_code = %(sc)s
+                      AND YEAR(statement_month) = %(y)s AND MONTH(statement_month) = %(m)s
+                      AND docstatus != 2
+                      AND (division IS NULL OR division = %(division)s OR division = 'Both')
+                    ORDER BY docstatus DESC LIMIT 1
+                """, {"sc": sc["stockist_code"], "y": st_year, "m": st_month, "division": division}, as_dict=True)
+                stmt_name = stmt[0]["name"] if stmt else None
+
+            if not stmt_name:
+                row["reason"] = "No statement for the selected statement month"
+                out.append(row)
+                continue
+
+            result = fetch_deduction_items_portal(sc["name"], stmt_name, division)
+            if not result.get("success"):
+                row["reason"] = result.get("message") or "Could not build deduction items"
+                out.append(row)
+                continue
+
+            items = result.get("items", [])
+            row["stockist_statement"] = stmt_name
+            row["items"] = items
+            row["total_free_qty"] = sum(flt(i.get("deduct_qty")) for i in items)
+            row["total_value"] = sum(flt(i.get("deducted_value")) for i in items)
+            row["has_discount"] = any(flt(i.get("special_rate")) > 0 for i in items)
+            row["can_deduct"] = len(items) > 0
+            if not items:
+                row["reason"] = "No scheme products present in the statement"
+            out.append(row)
+
+        return {"success": True, "data": out, "statement_month": statement_month}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Bulk Deduction Candidates Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def delete_and_revert_scheme(scheme_request):
+    """Undo any deduction for a scheme (reversing the statement via the deduction
+    controller's on_cancel) and then delete the scheme request."""
+    try:
+        if not scheme_request:
+            return {"success": False, "message": "No scheme specified"}
+
+        scheme = frappe.get_doc("Scheme Request", scheme_request)
+        division = get_user_division()
+        if scheme.division and division and division != "Both" and scheme.division not in (division, "Both"):
+            return {"success": False, "message": "This scheme belongs to another division"}
+
+        # 1) Cancel + delete any non-cancelled deductions (on_cancel reverses the
+        #    statement and recalculates its closing/totals).
+        reverted = []
+        deductions = frappe.get_all(
+            "Scheme Deduction",
+            filters={"scheme_request": scheme_request, "docstatus": ["!=", 2]},
+            pluck="name",
+        )
+        for dname in deductions:
+            dd = frappe.get_doc("Scheme Deduction", dname)
+            if dd.docstatus == 1:
+                dd.cancel()
+            reverted.append(dname)
+            # Remove the cancelled deduction so it no longer links to the scheme
+            frappe.delete_doc("Scheme Deduction", dname, force=1, ignore_permissions=True)
+
+        # 2) Cancel (if submitted) and delete the scheme request
+        if scheme.docstatus == 1:
+            scheme.cancel()
+        frappe.delete_doc("Scheme Request", scheme_request, force=1)
+        frappe.db.commit()
+
+        msg = "Scheme deleted"
+        if reverted:
+            msg += f" and {len(reverted)} deduction(s) reverted"
+        return {"success": True, "reverted": reverted, "message": msg}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Delete And Revert Scheme Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def remap_scheme_stockist(scheme_request, stockist_code):
+    """Change the stockist on a PENDING scheme request (original or repeated).
+    Only the stockist mapping is updated; items/values are untouched."""
+    try:
+        if not scheme_request or not stockist_code:
+            return {"success": False, "message": "Scheme and stockist are required"}
+
+        scheme = frappe.get_doc("Scheme Request", scheme_request)
+        division = get_user_division()
+        if scheme.division and division and division != "Both" and scheme.division not in (division, "Both"):
+            return {"success": False, "message": "This scheme belongs to another division"}
+        if scheme.approval_status != "Pending":
+            return {"success": False, "message": "Only pending schemes can be remapped"}
+
+        stockist_name = frappe.db.get_value("Stockist Master", stockist_code, "stockist_name")
+        if not stockist_name:
+            return {"success": False, "message": "Invalid stockist"}
+
+        frappe.db.set_value("Scheme Request", scheme_request, {
+            "stockist_code": stockist_code,
+            "stockist_name": stockist_name,
+        })
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "stockist_code": stockist_code,
+            "stockist_name": stockist_name,
+            "stockist_display_code": get_stockist_code_map([stockist_code]).get(stockist_code, stockist_code),
+            "message": "Stockist remapped successfully",
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Remap Scheme Stockist Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_stockist_statement_history(stockist_code, division=None):
+    """Statement-level secondary sales history for a stockist (recent months)."""
+    try:
+        if not division:
+            division = get_user_division()
+        if not stockist_code:
+            return {"success": True, "data": []}
+        rows = frappe.db.sql("""
+            SELECT ss.name,
+                   DATE_FORMAT(ss.statement_month, '%%b-%%Y') as month_label,
+                   ss.statement_month,
+                   ss.total_opening_value, ss.total_purchase_value,
+                   ss.total_sales_value_pts, ss.total_sales_value_ptr,
+                   ss.total_free_value, ss.total_closing_value,
+                   ss.docstatus,
+                   COALESCE(SUM(si.sales_qty), 0)       as sales_qty,
+                   COALESCE(SUM(si.free_qty), 0)        as free_qty,
+                   COALESCE(SUM(si.free_qty_scheme), 0) as free_qty_scheme,
+                   COUNT(DISTINCT si.product_code)      as product_count
+            FROM `tabStockist Statement` ss
+            LEFT JOIN `tabStockist Statement Item` si ON si.parent = ss.name
+            WHERE ss.stockist_code = %(sc)s
+              AND ss.docstatus != 2
+              AND (ss.division IS NULL OR ss.division = %(division)s OR ss.division = 'Both')
+            GROUP BY ss.name
+            ORDER BY ss.statement_month DESC
+            LIMIT 24
+        """, {"sc": stockist_code, "division": division}, as_dict=True)
+        return {"success": True, "data": rows}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Stockist Statement History Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_scheme_history_portal(doctor_code=None, stockist_code=None, hq=None, division=None):
+    """Recent scheme requests for the doctor / stockist context (for history tab)."""
+    try:
+        if not division:
+            division = get_user_division()
+        conditions = ["sr.docstatus != 2", "sr.division = %(division)s"]
+        params = {"division": division}
+        if doctor_code:
+            conditions.append("sr.doctor_code = %(doctor_code)s")
+            params["doctor_code"] = doctor_code
+        if stockist_code:
+            conditions.append("sr.stockist_code = %(stockist_code)s")
+            params["stockist_code"] = stockist_code
+        if hq:
+            conditions.append("sr.hq = %(hq)s")
+            params["hq"] = hq
+        where_sql = " AND ".join(conditions)
+        rows = frappe.db.sql(f"""
+            SELECT sr.name, sr.application_date, sr.doctor_name, sr.stockist_name, sr.hq,
+                   sr.total_scheme_value, sr.approval_status,
+                   COALESCE(sr.repeated_request, 0) as repeated_request,
+                   COUNT(sri.name) as product_count,
+                   COALESCE(SUM(sri.free_quantity), 0) as total_free_qty
+            FROM `tabScheme Request` sr
+            LEFT JOIN `tabScheme Request Item` sri ON sri.parent = sr.name
+            WHERE {where_sql}
+            GROUP BY sr.name
+            ORDER BY sr.application_date DESC
+            LIMIT 50
+        """, params, as_dict=True)
+        hq_cache = {}
+        for r in rows:
+            r["application_date"] = str(r["application_date"]) if r["application_date"] else ""
+            hq = r.get("hq")
+            if hq and hq not in hq_cache:
+                hq_cache[hq] = frappe.db.get_value("HQ Master", hq, "hq_name") or hq
+            r["hq_name"] = hq_cache.get(hq, hq or "")
+        return {"success": True, "data": rows}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Scheme History Portal Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_schemes_for_stockist(stockist_code, division=None):
+    """Approved (not-yet-deducted) scheme requests for a given stockist."""
+    try:
+        if not division:
+            division = get_user_division()
+        if not stockist_code:
+            return {"success": True, "data": []}
+        rows = frappe.db.sql("""
+            SELECT sr.name, sr.application_date, sr.doctor_name, sr.doctor_code,
+                   sr.total_scheme_value, sr.approval_status
+            FROM `tabScheme Request` sr
+            WHERE sr.docstatus = 1
+              AND sr.approval_status = 'Approved'
+              AND sr.stockist_code = %(sc)s
+              AND sr.division = %(division)s
+            ORDER BY sr.application_date DESC
+            LIMIT 100
+        """, {"sc": stockist_code, "division": division}, as_dict=True)
+        for r in rows:
+            r["application_date"] = str(r["application_date"]) if r["application_date"] else ""
+        return {"success": True, "data": rows}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Schemes For Stockist Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_stockist_list_for_deduction(division=None, search=""):
+    """Active stockists for the manual-deduction stockist dropdown (name shown,
+    internal id used as value per the stockist-code convention)."""
+    try:
+        if not division:
+            division = get_user_division()
+        search = (search or "").strip()
+        conditions = ["status = 'Active'"]
+        params = {}
+        if division and division != "Both":
+            conditions.append("(division = %(division)s OR division = 'Both')")
+            params["division"] = division
+        if search:
+            conditions.append("(stockist_name LIKE %(s)s OR stockist_code LIKE %(s)s)")
+            params["s"] = f"%{search}%"
+        where_sql = " AND ".join(conditions)
+        rows = frappe.db.sql(f"""
+            SELECT name, stockist_code, stockist_name, hq
+            FROM `tabStockist Master`
+            WHERE {where_sql}
+            ORDER BY stockist_name ASC
+            LIMIT 500
+        """, params, as_dict=True)
+        return {"success": True, "data": rows}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Stockist List For Deduction Error")
         return {"success": False, "message": str(e)}
 
 
@@ -9983,7 +10406,7 @@ def get_scheme_report_filter_options(division=None):
         (division,), as_dict=True,
     )
     teams = frappe.db.sql(
-        "SELECT name, region FROM `tabTeam Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        "SELECT name, team_name, region FROM `tabTeam Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_dict=True,
     )
     hqs = frappe.db.sql(
@@ -10001,7 +10424,7 @@ def get_scheme_report_filter_options(division=None):
     return {
         "zones": [z[0] for z in zones],
         "regions": [{"name": r.name, "region_name": r.region_name or r.name, "zone": r.zone or ""} for r in regions],
-        "teams": [{"name": t.name, "region": t.region or ""} for t in teams],
+        "teams": [{"name": t.name, "team_name": t.team_name or t.name, "region": t.region or ""} for t in teams],
         "hqs": [{"name": h.name, "hq_name": h.hq_name or "", "team": h.team or ""} for h in hqs],
         "products": [{"code": p.product_code, "name": p.product_name,
                        "category": p.category or "", "group": p.product_group or "",

@@ -1,0 +1,38 @@
+{# Reusable tabbed history modal. Requires /assets/scanify/js/scheme-history.js.
+   Trigger with openSchemeHistory({doctor_code, stockist_code, hq, products}) or
+   openSchemeHistoryFromForm(). #}
+<style>
+    #schemeHistoryModal .sh-stats { margin-left: -4px; margin-right: -4px; }
+    #schemeHistoryModal .sh-stats > .col { padding-left: 4px; padding-right: 4px; }
+    #schemeHistoryModal .sh-stat { background: #f8fafc; }
+    #schemeHistoryModal .sh-stat-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: .3px; }
+    #schemeHistoryModal .sh-stat-value { font-size: 1.05rem; font-weight: 600; line-height: 1.2; }
+    #schemeHistoryModal .sh-stat-sub { font-size: 0.68rem; }
+    #schemeHistoryModal .nav-tabs .nav-link { font-weight: 500; }
+    #schemeHistoryModal table th { font-size: 0.72rem; text-transform: uppercase; color: #64748b; white-space: nowrap; }
+    #schemeHistoryModal table td { font-size: 0.85rem; vertical-align: middle; }
+</style>
+<div class="modal fade" id="schemeHistoryModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa fa-history"></i> History</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <ul class="nav nav-tabs" role="tablist">
+                    <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#sh-scheme" role="tab"><i class="fa fa-file-alt"></i> Scheme</a></li>
+                    <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#sh-secondary" role="tab"><i class="fa fa-chart-line"></i> Secondary Sales</a></li>
+                    <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#sh-product" role="tab"><i class="fa fa-cube"></i> Product</a></li>
+                    <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#sh-doctor" role="tab"><i class="fa fa-user-md"></i> Doctor</a></li>
+                </ul>
+                <div class="tab-content pt-3">
+                    <div class="tab-pane fade show active" id="sh-scheme" role="tabpanel"></div>
+                    <div class="tab-pane fade" id="sh-secondary" role="tabpanel"></div>
+                    <div class="tab-pane fade" id="sh-product" role="tabpanel"></div>
+                    <div class="tab-pane fade" id="sh-doctor" role="tabpanel"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

@@ -15,7 +15,9 @@
   "deduct_qty",
   "column_break_2",
   "pts",
-  "deducted_value"
+  "deducted_value",
+  "special_rate",
+  "original_pts"
  ],
  "fields": [
   {
@@ -89,6 +91,22 @@
    "fieldname": "deducted_value",
    "fieldtype": "Currency",
    "label": "Deducted Value",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Discounted PTS from scheme request; when > 0 the statement line PTS is repriced to this on apply",
+   "fieldname": "special_rate",
+   "fieldtype": "Currency",
+   "label": "Special Rate",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Statement line PTS captured before the discount was applied; restored on revert",
+   "fieldname": "original_pts",
+   "fieldtype": "Currency",
+   "label": "Original PTS",
    "read_only": 1
   }
  ],

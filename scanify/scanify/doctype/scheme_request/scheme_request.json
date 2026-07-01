@@ -168,7 +168,7 @@
       "fieldname": "approval_status",
       "fieldtype": "Select",
       "label": "Status",
-      "options": "Pending\nApproved\nRejected\nRerouted",
+      "options": "Pending\nApproved\nRejected\nRerouted\nDeducted",
       "read_only": 1
     },
     {

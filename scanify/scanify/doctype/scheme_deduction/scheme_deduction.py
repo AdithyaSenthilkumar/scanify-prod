@@ -92,11 +92,18 @@ class SchemeDeduction(Document):
             # Find matching product in statement
             for stmt_item in statement.items:
                 if stmt_item.product_code == deduction_item.product_code:
-                    # CORRECT DEDUCTION LOGIC:
-                    # 1. Add to free_qty_scheme (this represents scheme free goods)
-                    stmt_item.free_qty_scheme = flt(stmt_item.free_qty_scheme) + flt(deduction_item.deduct_qty)
-                    
-                    
+                    # 1. Free goods → add to free_qty_scheme (scheme free goods)
+                    if flt(deduction_item.deduct_qty):
+                        stmt_item.free_qty_scheme = flt(stmt_item.free_qty_scheme) + flt(deduction_item.deduct_qty)
+
+                    # 2. Discount → reprice the statement line PTS to the special rate,
+                    #    capturing the pre-discount PTS so revert can restore it exactly.
+                    if flt(deduction_item.special_rate) > 0:
+                        master_pts = flt(frappe.db.get_value("Product Master", stmt_item.product_code, "pts"))
+                        original_pts = flt(stmt_item.pts) or master_pts
+                        deduction_item.db_set("original_pts", original_pts, update_modified=False)
+                        stmt_item.pts = flt(deduction_item.special_rate)
+
                     products_updated.append(deduction_item.product_code)
                     break
         
@@ -120,12 +127,20 @@ class SchemeDeduction(Document):
         for deduction_item in self.items:
             for stmt_item in statement.items:
                 if stmt_item.product_code == deduction_item.product_code:
-                    # REVERSE THE DEDUCTION:
-                    # Subtract only from free_qty_scheme; sales_qty was never reduced on apply.
-                    stmt_item.free_qty_scheme = max(
-                        flt(stmt_item.free_qty_scheme) - flt(deduction_item.deduct_qty),
-                        0,
-                    )
+                    # 1. Free goods → subtract from free_qty_scheme (sales_qty was never reduced)
+                    if flt(deduction_item.deduct_qty):
+                        stmt_item.free_qty_scheme = max(
+                            flt(stmt_item.free_qty_scheme) - flt(deduction_item.deduct_qty),
+                            0,
+                        )
+
+                    # 2. Discount → restore the captured pre-discount PTS (falls back to
+                    #    Master PTS if not captured for any reason).
+                    if flt(deduction_item.special_rate) > 0:
+                        restore_pts = flt(deduction_item.original_pts) or flt(
+                            frappe.db.get_value("Product Master", stmt_item.product_code, "pts")
+                        )
+                        stmt_item.pts = restore_pts
                     break
         
         # Recalculate closing balances

@@ -7,7 +7,7 @@
     <div class="page-header d-flex justify-content-between align-items-center">
         <div>
             <h1 class="page-title"><i class="fa fa-minus-circle"></i> Manual Deduction</h1>
-            <p class="page-subtitle">Create deductions for <strong>{{ division }}</strong> division</p>
+            <p class="page-subtitle">Create a deduction for <strong>{{ division }}</strong> division</p>
         </div>
         <a href="/portal/scheme-deduction-list" class="btn btn-secondary">
             <i class="fa fa-list"></i> Deduction List
@@ -20,32 +20,38 @@
         </div>
         <div class="card-body">
             <div class="row">
-                <div class="col-md-6">
-                    <div class="form-group mb-3">
-                        <label><strong>Scheme Request <span class="text-danger">*</span></strong></label>
-                        <select id="schemeSelect" class="form-control">
-                            <option value="">-- Select Scheme --</option>
-                        </select>
-                        <small class="text-muted">Only submitted schemes in active division are shown</small>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="form-group mb-3">
-                        <label><strong>Stockist Statement <span class="text-danger">*</span></strong></label>
-                        <select id="statementSelect" class="form-control" disabled>
-                            <option value="">-- Select Scheme first --</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-            <div class="row">
                 <div class="col-md-4">
-                    <div class="form-group mb-0">
+                    <div class="form-group mb-3">
+                        <label><strong>Statement Month <span class="text-danger">*</span></strong></label>
+                        <input type="month" id="monthSelect" class="form-control">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group mb-3">
+                        <label><strong>Stockist <span class="text-danger">*</span></strong></label>
+                        <select id="stockistSelect" class="form-control">
+                            <option value="">-- Select Stockist --</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group mb-3">
                         <label><strong>Deduction Date <span class="text-danger">*</span></strong></label>
                         <input type="date" id="deductionDate" class="form-control" required>
                     </div>
                 </div>
-                <div class="col-md-8 d-flex align-items-end">
+            </div>
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="form-group mb-0">
+                        <label><strong>Scheme Request <span class="text-danger">*</span></strong></label>
+                        <select id="schemeSelect" class="form-control" disabled>
+                            <option value="">-- Select month &amp; stockist first --</option>
+                        </select>
+                        <small class="text-muted">Only Approved schemes for the chosen stockist are shown</small>
+                    </div>
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
                     <div id="selectedSchemeInfo" class="alert alert-info mb-0 w-100" style="display:none;"></div>
                 </div>
             </div>
@@ -75,6 +81,7 @@
                                 <th>Statement Sales Qty</th>
                                 <th>Deduct Qty</th>
                                 <th>PTS Rate</th>
+                                <th>Discount (PTS &rarr; Special)</th>
                                 <th class="text-right">Deducted Value</th>
                             </tr>
                         </thead>
@@ -83,6 +90,7 @@
                             <tr>
                                 <td colspan="4" class="text-right"><strong>Totals:</strong></td>
                                 <td><strong id="totalDeductQty">0</strong></td>
+                                <td></td>
                                 <td></td>
                                 <td class="text-right"><strong id="totalDeductValue">&#8377; 0.00</strong></td>
                             </tr>
@@ -130,8 +138,9 @@
 
 {% block scripts %}
 <script>
-    let selectedSchemeMeta = null;
     let deductionItems = [];
+    let resolvedStatement = null;   // statement name resolved from stockist + month
+    let schemeStatements = [];      // statements list for the chosen stockist
 
     function getActiveDivision() {
         try {
@@ -144,121 +153,122 @@
     }
 
     $(document).ready(function () {
-        document.getElementById('deductionDate').value = new Date().toISOString().split('T')[0];
-        loadSchemeOptions();
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('deductionDate').value = today;
+        document.getElementById('monthSelect').value = today.slice(0, 7);
 
+        loadStockists();
+
+        $('#monthSelect').on('change', onSelectionChange);
+        $('#stockistSelect').on('change', onSelectionChange);
         $('#schemeSelect').on('change', onSchemeChange);
-        $('#statementSelect').on('change', function () {
-            if (this.value) {
-                loadDeductionItems();
-            } else {
-                hideItemsSection();
-            }
-        });
     });
 
-    function loadSchemeOptions() {
-        const division = getActiveDivision();
-
-        $('#schemeSelect').html('<option value="">Loading schemes...</option>');
-        $('#statementSelect').prop('disabled', true).html('<option value="">-- Select Scheme first --</option>');
-        hideItemsSection();
-
+    function loadStockists() {
         $.ajax({
-            url: '/api/method/scanify.api.get_scheme_requests_for_deduction',
+            url: '/api/method/scanify.api.get_stockist_list_for_deduction',
             type: 'POST',
             contentType: 'application/json',
             headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-            data: JSON.stringify({ division: division, search: '' }),
+            data: JSON.stringify({ division: getActiveDivision(), search: '' }),
             success: function (r) {
-                const rows = r.message && r.message.success ? (r.message.data || []) : [];
-                if (!rows.length) {
-                    $('#schemeSelect').html('<option value="">No schemes found</option>');
-                    return;
-                }
-                let html = '<option value="">-- Select Scheme --</option>';
-                rows.forEach(function (row) {
-                    html += `<option value="${row.name}">${row.name} | ${row.doctor_name || '-'} | ${row.stockist_name || '-'}</option>`;
+                const rows = (r.message && r.message.success) ? (r.message.data || []) : [];
+                let html = '<option value="">-- Select Stockist --</option>';
+                rows.forEach(function (s) {
+                    html += `<option value="${s.name}">${s.stockist_name}</option>`;
                 });
-                $('#schemeSelect').html(html);
+                $('#stockistSelect').html(html);
             },
-            error: function (xhr) {
-                console.error(xhr.responseText);
-                $('#schemeSelect').html('<option value="">Error loading schemes</option>');
-            }
+            error: function (xhr) { console.error(xhr.responseText); }
         });
     }
 
-    function onSchemeChange() {
-        const schemeName = $('#schemeSelect').val();
-        selectedSchemeMeta = null;
-        hideItemsSection();
-        $('#statementSelect').prop('disabled', true).html('<option value="">-- Select Scheme first --</option>');
-        $('#selectedSchemeInfo').hide().html('');
+    // When month or stockist changes, reload the scheme dropdown
+    function onSelectionChange() {
+        const stockist = $('#stockistSelect').val();
+        const month = $('#monthSelect').val();
+        resetSchemeAndItems();
 
-        if (!schemeName) return;
+        if (!stockist || !month) {
+            $('#schemeSelect').prop('disabled', true).html('<option value="">-- Select month & stockist first --</option>');
+            return;
+        }
 
-        $.ajax({
-            url: '/api/method/scanify.api.get_scheme_detail',
-            type: 'POST',
-            contentType: 'application/json',
-            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-            data: JSON.stringify({ scheme_name: schemeName }),
-            success: function (r) {
-                if (!(r.message && r.message.success)) {
-                    showAlert((r.message && r.message.message) || 'Failed to load scheme details', 'danger');
-                    return;
-                }
-                selectedSchemeMeta = r.message;
-                $('#selectedSchemeInfo').html(`
-                    <strong>Scheme:</strong> ${r.message.name}
-                    <span class="mx-2">|</span>
-                    <strong>Doctor:</strong> ${r.message.doctor_name || '-'}
-                    <span class="mx-2">|</span>
-                    <strong>Stockist:</strong> ${r.message.stockist_name || '-'}
-                `).show();
-                loadStatementOptions(r.message.stockist_code);
-            },
-            error: function (xhr) {
-                console.error(xhr.responseText);
-                showAlert('Error loading scheme details', 'danger');
-            }
-        });
+        // Load this stockist's statements (to resolve the target statement) and approved schemes
+        loadStockistStatements(stockist);
+        loadSchemesForStockist(stockist);
     }
 
-    function loadStatementOptions(stockistCode) {
-        $('#statementSelect').prop('disabled', true).html('<option value="">Loading statements...</option>');
-
+    function loadStockistStatements(stockist) {
+        schemeStatements = [];
         $.ajax({
             url: '/api/method/scanify.api.get_stockist_statements_for_deduction',
             type: 'POST',
             contentType: 'application/json',
             headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-            data: JSON.stringify({ stockist_code: stockistCode, division: getActiveDivision() }),
+            data: JSON.stringify({ stockist_code: stockist, division: getActiveDivision() }),
             success: function (r) {
-                const rows = r.message && r.message.success ? (r.message.data || []) : [];
+                schemeStatements = (r.message && r.message.success) ? (r.message.data || []) : [];
+            },
+            error: function (xhr) { console.error(xhr.responseText); }
+        });
+    }
+
+    function loadSchemesForStockist(stockist) {
+        $('#schemeSelect').prop('disabled', true).html('<option value="">Loading schemes...</option>');
+        $.ajax({
+            url: '/api/method/scanify.api.get_schemes_for_stockist',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ stockist_code: stockist, division: getActiveDivision() }),
+            success: function (r) {
+                const rows = (r.message && r.message.success) ? (r.message.data || []) : [];
                 if (!rows.length) {
-                    $('#statementSelect').prop('disabled', true).html('<option value="">No statements found</option>');
+                    $('#schemeSelect').prop('disabled', true).html('<option value="">No approved schemes for this stockist</option>');
                     return;
                 }
-
-                let html = '<option value="">-- Select Statement --</option>';
-                rows.forEach(function (row) {
-                    html += `<option value="${row.name}">${row.name} | ${row.month_label || row.statement_month || '-'}</option>`;
+                let html = '<option value="">-- Select Scheme --</option>';
+                rows.forEach(function (s) {
+                    html += `<option value="${s.name}">${s.name} | ${s.doctor_name || '-'} | ${s.application_date || ''}</option>`;
                 });
-                $('#statementSelect').prop('disabled', false).html(html);
+                $('#schemeSelect').prop('disabled', false).html(html);
             },
             error: function (xhr) {
                 console.error(xhr.responseText);
-                $('#statementSelect').prop('disabled', true).html('<option value="">Error loading statements</option>');
+                $('#schemeSelect').prop('disabled', true).html('<option value="">Error loading schemes</option>');
             }
         });
     }
 
+    // Resolve which statement matches the chosen month (YYYY-MM)
+    function resolveStatementForMonth() {
+        const month = $('#monthSelect').val(); // YYYY-MM
+        if (!month) return null;
+        const match = schemeStatements.find(function (s) {
+            const sm = (s.statement_month || '').substring(0, 7);
+            return sm === month;
+        });
+        return match ? match.name : null;
+    }
+
+    function onSchemeChange() {
+        const scheme = $('#schemeSelect').val();
+        hideItemsSection();
+        $('#selectedSchemeInfo').hide().html('');
+        if (!scheme) return;
+
+        resolvedStatement = resolveStatementForMonth();
+        if (!resolvedStatement) {
+            $('#selectedSchemeInfo').html('<i class="fa fa-exclamation-triangle"></i> No statement found for this stockist in the selected month.').show();
+            return;
+        }
+        loadDeductionItems();
+    }
+
     function loadDeductionItems() {
         const scheme = $('#schemeSelect').val();
-        const statement = $('#statementSelect').val();
-        if (!scheme || !statement) return;
+        if (!scheme || !resolvedStatement) return;
 
         $('#itemsCard').show();
         $('#deductionItemsLoading').show();
@@ -273,7 +283,7 @@
             headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
             data: JSON.stringify({
                 scheme_request: scheme,
-                stockist_statement: statement,
+                stockist_statement: resolvedStatement,
                 division: getActiveDivision(),
             }),
             success: function (r) {
@@ -282,6 +292,11 @@
                     showAlert((r.message && r.message.message) || 'Failed to load deduction items', 'danger');
                     return;
                 }
+                $('#selectedSchemeInfo').html(`
+                    <strong>Doctor:</strong> ${r.message.scheme_doctor || '-'}
+                    <span class="mx-2">|</span><strong>HQ:</strong> ${r.message.scheme_hq || '-'}
+                `).show();
+
                 const items = r.message.items || [];
                 if (!items.length) {
                     $('#deductionNoItems').show();
@@ -322,6 +337,9 @@
                         oninput="updateDeductRow(${idx})">
                 </td>
                 <td>&#8377; ${formatCurrency(item.pts || 0)}</td>
+                <td>${(item.special_rate || 0) > 0
+                    ? `<span class="badge badge-warning">&#8377; ${formatCurrency(item.current_pts || item.pts || 0)} &rarr; &#8377; ${formatCurrency(item.special_rate)}</span>`
+                    : '<span class="text-muted">&mdash;</span>'}</td>
                 <td class="text-right" id="deduct-value-${idx}">&#8377; ${formatCurrency(item.deducted_value || 0)}</td>
             </tr>`;
         });
@@ -334,7 +352,7 @@
         const pts = parseFloat(deductionItems[idx].pts || 0);
         deductionItems[idx].deduct_qty = qty;
         deductionItems[idx].deducted_value = qty * pts;
-        $(`#deduct-value-${idx}`).text('\u20B9 ' + formatCurrency(qty * pts));
+        $(`#deduct-value-${idx}`).text('₹ ' + formatCurrency(qty * pts));
         updateTotals();
     }
 
@@ -348,16 +366,15 @@
             totalValue += qty * pts;
         });
         $('#totalDeductQty').text(totalQty);
-        $('#totalDeductValue').text('\u20B9 ' + formatCurrency(totalValue));
+        $('#totalDeductValue').text('₹ ' + formatCurrency(totalValue));
     }
 
     function submitDeduction() {
         const scheme = $('#schemeSelect').val();
-        const statement = $('#statementSelect').val();
         const deductionDate = $('#deductionDate').val();
 
-        if (!scheme || !statement || !deductionDate) {
-            showAlert('Please select scheme, statement, and deduction date', 'warning');
+        if (!scheme || !resolvedStatement || !deductionDate) {
+            showAlert('Please select month, stockist, scheme and deduction date', 'warning');
             return;
         }
 
@@ -372,8 +389,9 @@
                 deduct_qty: qty,
                 pts: item.pts,
                 deducted_value: qty * (item.pts || 0),
+                special_rate: item.special_rate || 0,
             };
-        }).filter(item => item.deduct_qty > 0);
+        }).filter(item => item.deduct_qty > 0 || (item.special_rate || 0) > 0);
 
         if (!items.length) {
             showAlert('No items to deduct', 'warning');
@@ -389,7 +407,7 @@
             headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
             data: JSON.stringify({
                 scheme_request: scheme,
-                stockist_statement: statement,
+                stockist_statement: resolvedStatement,
                 items: JSON.stringify(items),
                 deduction_date: deductionDate,
                 division: getActiveDivision(),
@@ -420,11 +438,15 @@
         deductionItems = [];
     }
 
-    function resetDeduction() {
-        $('#schemeSelect').val('');
-        $('#statementSelect').prop('disabled', true).html('<option value="">-- Select Scheme first --</option>');
+    function resetSchemeAndItems() {
+        resolvedStatement = null;
         $('#selectedSchemeInfo').hide().html('');
         hideItemsSection();
+    }
+
+    function resetDeduction() {
+        $('#schemeSelect').val('');
+        resetSchemeAndItems();
     }
 
     function formatCurrency(v) {
@@ -432,7 +454,7 @@
     }
 
     function showAlert(msg, type) {
-        const a = $(`<div class="alert alert-${type} alert-dismissible fade show" role="alert" 
+        const a = $(`<div class="alert alert-${type} alert-dismissible fade show" role="alert"
             style="position:fixed;top:90px;right:24px;z-index:9999;min-width:350px;">
             <strong>${msg}</strong>
             <button type="button" class="close" data-dismiss="alert">&times;</button></div>`);

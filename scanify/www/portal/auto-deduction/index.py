@@ -1,4 +1,5 @@
 import frappe
+from scanify.api import get_user_division, get_scheme_report_filter_options
 
 
 def get_context(context):
@@ -6,20 +7,14 @@ def get_context(context):
         frappe.throw("Please login to continue", frappe.PermissionError)
 
     context.no_cache = 1
-    user = frappe.session.user
+    division = get_user_division() or "Prima"
+    context.division = division
 
-    # Get division
-    user_division = None
-    if hasattr(frappe.session, "user_division") and frappe.session.user_division:
-        user_division = frappe.session.user_division
-    if not user_division:
-        user_division = frappe.db.get_value("User", user, "division")
-    if not user_division:
-        user_division = "Prima"
-
-    context.division = user_division
-
-    # Only managers/system managers can perform deductions
-    roles = frappe.get_roles(user)
+    # Hierarchy filter options (Zone -> Region -> Team -> HQ), cascaded client-side
+    opts = get_scheme_report_filter_options(division)
+    context.zones = opts.get("zones", [])
+    context.regions = opts.get("regions", [])
+    context.teams = opts.get("teams", [])
+    context.hqs = opts.get("hqs", [])
 
     return context
