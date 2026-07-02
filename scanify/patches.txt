@@ -7,3 +7,4 @@
 
 scanify.patches.add_division_to_user
 scanify.patches.drop_stockist_code_unique_index
+scanify.patches.drop_product_code_unique_index

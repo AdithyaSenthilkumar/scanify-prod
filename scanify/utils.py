@@ -60,9 +60,15 @@ def get_hq_from_team(team_name):
 
 def generate_monthly_statements_template(stockist_code, month):
 	"""Generate template for monthly statement entry"""
-	products = frappe.get_all("Product Master", 
-		filters={"status": "Active"},
-		fields=["product_code", "product_name", "pack", "pts"])
+	# Scope products to the stockist's division — the same Product Code can
+	# exist in different divisions and items link by the Product Master id.
+	filters = {"status": "Active"}
+	stockist_division = frappe.db.get_value("Stockist Master", stockist_code, "division")
+	if stockist_division:
+		filters["division"] = ["in", [stockist_division, "Both"]]
+	products = frappe.get_all("Product Master",
+		filters=filters,
+		fields=["name", "product_code", "product_name", "pack", "pts"])
 	
 	# Get previous month closing as opening
 	prev_month = add_months(getdate(month), -1)
@@ -89,9 +95,10 @@ def generate_monthly_statements_template(stockist_code, month):
 	})
 	
 	for product in products:
+		# Link by the Product Master id; prev items' product_code is also the id.
 		statement.append("items", {
-			"product_code": product.product_code,
-			"opening_qty": opening_balances.get(product.product_code, 0)
+			"product_code": product.name,
+			"opening_qty": opening_balances.get(product.name, 0)
 		})
 	
 	return statement

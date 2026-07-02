@@ -18,6 +18,10 @@ class ProductMaster(Document):
 		self.excluded_region_codes = ", ".join(seen)
 
 	def check_duplicate_in_division(self):
+		"""Product Code must be unique WITHIN a division (but the same code may be
+		reused across different divisions). The autoname is a series (PRD-####) so
+		the code is NOT the primary key; references link by the id and display the
+		editable code. Legacy documents keep name == product_code."""
 		if not self.product_code or not self.division:
 			return
 		filters = {"product_code": self.product_code, "division": self.division}

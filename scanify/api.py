@@ -73,15 +73,23 @@ def get_gemini_settings():
         frappe.log_error(frappe.get_traceback(), "Gemini Settings Error")
         frappe.throw(_("Error fetching Gemini settings: {0}").format(str(e)))
 
-def build_product_catalog_for_prompt():
+def build_product_catalog_for_prompt(division=None):
     """
     Build comprehensive product catalog with all matching hints for Gemini
-    Returns formatted string for prompt inclusion
+    Returns formatted string for prompt inclusion.
+
+    When a division is given the catalog is scoped to that division (plus legacy
+    "Both" rows). This matters now that the same Product Code can exist in
+    DIFFERENT divisions: Gemini must only ever see this division's codes.
     """
+    filters = {"status": "Active"}
+    if division:
+        filters["division"] = ["in", [division, "Both"]]
     products = frappe.get_all(
         "Product Master",
-        filters={"status": "Active"},
+        filters=filters,
         fields=[
+            "name",
             "product_code",
             "product_name",
             "pack",
@@ -192,13 +200,34 @@ def extract_stockist_statement(doc_name, file_url):
 
 
 def _build_correction_map(stockist_code):
-    """Build {RAW_PRODUCT_NAME: product_code} map from Stockist Product Correction for a stockist."""
+    """Build {RAW_PRODUCT_NAME: product_code} map from Stockist Product Correction for a stockist.
+
+    `mapped_product_code` is a Link (the Product Master id/PK). Gemini only ever
+    sees business Product Codes from the catalog, so translate each PK to its
+    editable product_code for the prompt hints and response comparison. Legacy
+    rows where the PK equals the code fall back to the stored value."""
     corrections = frappe.get_all(
         "Stockist Product Correction",
         filters={"stockist_code": stockist_code, "status": "Active"},
         fields=["raw_product_name", "mapped_product_code"],
     )
-    return {c["raw_product_name"].strip().upper(): c["mapped_product_code"] for c in corrections}
+    if not corrections:
+        return {}
+
+    pks = {c["mapped_product_code"] for c in corrections if c.get("mapped_product_code")}
+    pk_to_code = {}
+    if pks:
+        for p in frappe.get_all(
+            "Product Master",
+            filters={"name": ["in", list(pks)]},
+            fields=["name", "product_code"],
+        ):
+            pk_to_code[p["name"]] = p["product_code"] or p["name"]
+
+    return {
+        c["raw_product_name"].strip().upper(): pk_to_code.get(c["mapped_product_code"], c["mapped_product_code"])
+        for c in corrections
+    }
 
 
 def _build_correction_prompt(stockist_code):
@@ -288,25 +317,32 @@ def _normalize_row_type(row_type, raw_product_name):
     return "product"
 
 
-def _build_division_product_codes(statement_division, products_list=None):
-    """Build the valid product-code set for a statement division."""
-    division_product_codes = set()
+def _build_division_product_map(statement_division, products_list=None):
+    """Build {product_code: product id (PK)} for a statement division.
+
+    Keys are the editable business Product Codes Gemini returns; values are the
+    Product Master ids that statement item Link fields must store. Scoped to the
+    statement's division so a code reused across divisions resolves to THIS
+    division's product. Membership checks use the keys (same semantics as the
+    old code set)."""
+    division_product_map = {}
     if not statement_division:
-        return division_product_codes
+        return division_product_map
 
     source_products = products_list
     if source_products is None:
         source_products = frappe.get_all(
             "Product Master",
             filters={"status": "Active"},
-            fields=["product_code", "division"],
+            fields=["name", "product_code", "division"],
         )
 
     for product in source_products:
         if product.get("division") in (statement_division, "Both"):
-            division_product_codes.add(product["product_code"])
+            # Legacy products (and products_list rows without `name`) have PK == code.
+            division_product_map[product["product_code"]] = product.get("name") or product["product_code"]
 
-    return division_product_codes
+    return division_product_map
 
 
 def _build_region_excluded_codes(statement_region):
@@ -324,13 +360,19 @@ def _build_region_excluded_codes(statement_region):
         filters={"region": statement_region, "parenttype": "Product Master"},
         fields=["parent"],
     )
-    # `parent` is the Product Master name, which equals product_code (autoname field:product_code).
+    # `parent` is the Product Master id (PK) — NOT the editable product_code
+    # (they only coincide for legacy products). Callers must compare against the
+    # resolved product id, not against Gemini's business code.
     return {r["parent"] for r in rows if r.get("parent")}
 
 
-def _build_statement_item_row(item_data, statement_division=None, division_product_codes=None,
+def _build_statement_item_row(item_data, statement_division=None, division_product_map=None,
                               region_excluded_codes=None):
-    """Normalize one Gemini row into a Stockist Statement child row plus bookkeeping metadata."""
+    """Normalize one Gemini row into a Stockist Statement child row plus bookkeeping metadata.
+
+    Gemini returns the editable business Product Code; the stored Link value must
+    be the Product Master id (PK), resolved through division_product_map so a
+    code reused across divisions maps to THIS division's product."""
     raw_name = cstr(item_data.get("raw_product_name")).strip().upper()
     row_type = _normalize_row_type(item_data.get("row_type"), raw_name)
     mapping_basis = cstr(item_data.get("mapping_basis")).strip().lower()
@@ -345,7 +387,7 @@ def _build_statement_item_row(item_data, statement_division=None, division_produ
         product_code = None
         is_unmapped = False
 
-    if product_code and statement_division and division_product_codes and product_code not in division_product_codes:
+    if product_code and statement_division and division_product_map and product_code not in division_product_map:
         return None, {
             "unmapped": False,
             "auto_mapped": False,
@@ -353,8 +395,16 @@ def _build_statement_item_row(item_data, statement_division=None, division_produ
             "skipped_division": True,
         }
 
+    # Resolve the business code to the Product Master id (PK). Without a division
+    # map (no division on the statement) fall back to the raw code, which stays
+    # valid for legacy products where PK == code.
+    product_pk = None
+    if product_code:
+        product_pk = (division_product_map or {}).get(product_code) or product_code
+
     # Region exclusion: product is flagged as not-sold in this statement's region.
-    if product_code and region_excluded_codes and product_code in region_excluded_codes:
+    # The excluded set holds Product Master ids, so compare the resolved id.
+    if product_pk and region_excluded_codes and product_pk in region_excluded_codes:
         return None, {
             "unmapped": False,
             "auto_mapped": False,
@@ -394,8 +444,8 @@ def _build_statement_item_row(item_data, statement_division=None, division_produ
         "row_confidence": round(row_confidence, 1),
         "math_check": "N/A",
     }
-    if product_code:
-        row["product_code"] = product_code
+    if product_pk:
+        row["product_code"] = product_pk
 
     return row, {
         "unmapped": mapping_status == "unmapped",
@@ -444,7 +494,7 @@ def _all_quantities_zero(row):
 def _build_statement_rows(extracted_data, statement_division=None, products_list=None,
                           statement_region=None):
     """Convert Gemini response rows into statement child rows and summary counts."""
-    division_product_codes = _build_division_product_codes(statement_division, products_list)
+    division_product_map = _build_division_product_map(statement_division, products_list)
     region_excluded_codes = _build_region_excluded_codes(statement_region)
     statement_rows = []
     counts = {
@@ -459,7 +509,7 @@ def _build_statement_rows(extracted_data, statement_division=None, products_list
         row, metadata = _build_statement_item_row(
             item_data,
             statement_division=statement_division,
-            division_product_codes=division_product_codes,
+            division_product_map=division_product_map,
             region_excluded_codes=region_excluded_codes,
         )
         if metadata.get("skipped_division"):
@@ -507,8 +557,9 @@ def _do_extract(doc_name, file_url):
     from frappe.utils.file_manager import get_file_path
     file_path = get_file_path(file_url)
 
-    # Build product catalog
-    product_catalog, products_list = build_product_catalog_for_prompt()
+    # Build product catalog scoped to the statement's division so Gemini only
+    # sees (and returns) this division's product codes.
+    product_catalog, products_list = build_product_catalog_for_prompt(doc.division)
 
     # Extract with enhanced prompt
     extracted_data = call_gemini_extraction_with_catalog(
@@ -604,10 +655,17 @@ def save_extracted_statement(doc_name, data):
         if doc.docstatus == 1:
             frappe.throw(_("This statement has already been submitted and cannot be changed."))
 
+        # Rows may carry the business Product Code (display value) or the id;
+        # resolve either to the id within this statement's division.
+        code_to_pk = _build_division_product_map(doc.division)
+        valid_pks = set(code_to_pk.values())
+
         # Replace items in doc
         doc.items = []
         for row in data:
             product_code = row.get("productcode") or row.get("product_code") or None
+            if product_code and product_code not in valid_pks:
+                product_code = code_to_pk.get(product_code) or _resolve_product_pk(product_code, doc.division) or product_code
             mapping_status = row.get("mapping_status") or row.get("mappingstatus") or "matched"
             raw_product_name = row.get("raw_product_name") or row.get("rawproductname") or ""
             row_type = _normalize_row_type(row.get("rowtype") or row.get("row_type"), raw_product_name)
@@ -678,9 +736,16 @@ def save_draft_statement(doc_name, data):
         if doc.docstatus == 1:
             return {"success": False, "message": "Statement already submitted."}
 
+        # Rows may carry the business Product Code (display value) or the id;
+        # resolve either to the id within this statement's division.
+        code_to_pk = _build_division_product_map(doc.division)
+        valid_pks = set(code_to_pk.values())
+
         doc.items = []
         for row in data:
             product_code = row.get("productcode") or row.get("product_code") or None
+            if product_code and product_code not in valid_pks:
+                product_code = code_to_pk.get(product_code) or _resolve_product_pk(product_code, doc.division) or product_code
             mapping_status = row.get("mapping_status") or row.get("mappingstatus") or "matched"
             raw_product_name = row.get("raw_product_name") or row.get("rawproductname") or ""
             row_type = _normalize_row_type(row.get("rowtype") or row.get("row_type"), raw_product_name)
@@ -745,6 +810,43 @@ def get_stockist_code_map(pks):
     return {r.name: (r.stockist_code or r.name) for r in rows}
 
 
+def get_product_code_map(pks):
+    """Map Product Master id (PK, e.g. PRD-0001) -> editable business code.
+
+    Used for DISPLAY only: statement/scheme items link to products by the internal
+    id, but screens, reports, and exports must show the human-facing Product Code.
+    Falls back to the id when a product has no code set (or for legacy rows where
+    the id IS the code) so nothing renders blank."""
+    pks = [p for p in set(pks or []) if p]
+    if not pks:
+        return {}
+    rows = frappe.get_all(
+        "Product Master",
+        filters={"name": ["in", pks]},
+        fields=["name", "product_code"],
+        limit_page_length=0,
+    )
+    return {r.name: (r.product_code or r.name) for r in rows}
+
+
+def _apply_product_display_codes(rows, *keys):
+    """Rewrite Product Master ids in report rows to editable business codes.
+
+    `rows` is a list of dicts fresh from frappe.db.sql(as_dict=True); each key in
+    `keys` (default: "product_code") names a column holding a Product Master id.
+    Grouping/joining stays on the id inside SQL — this is display-layer only."""
+    keys = keys or ("product_code",)
+    ids = {r.get(k) for r in rows for k in keys if r.get(k)}
+    code_map = get_product_code_map(ids)
+    if not code_map:
+        return rows
+    for r in rows:
+        for k in keys:
+            if r.get(k):
+                r[k] = code_map.get(r[k], r[k])
+    return rows
+
+
 @frappe.whitelist()
 def get_statement_for_view(doc_name):
     """
@@ -762,10 +864,12 @@ def get_statement_for_view(doc_name):
             if item.product_code:
                 product = frappe.db.get_value(
                     "Product Master", item.product_code,
-                    ["product_name", "pts", "ptr", "pack"], as_dict=True
+                    ["product_code", "product_name", "pts", "ptr", "pack"], as_dict=True
                 ) or {}
             items.append({
-                "productcode": item.product_code or "",
+                # Human-facing business code for display/round-trip; save paths
+                # resolve it back to the id within the statement's division.
+                "productcode": product.get("product_code") or item.product_code or "",
                 "productname": item.product_name or product.get("product_name", ""),
                 "rawproductname": item.raw_product_name or "",
                 "rowtype": row_type,
@@ -1852,8 +1956,9 @@ def process_bulk_extraction(docname, month, zip_file_url):
             failed_count = 0
             skipped_count = 0
             
-            # Build product catalog once (reuse for all files)
-            product_catalog, products_list = build_product_catalog_for_prompt()
+            # Build product catalog once (reuse for all files), scoped to the
+            # upload's division so codes reused across divisions can't cross-match.
+            product_catalog, products_list = build_product_catalog_for_prompt(doc.division)
 
             # Initialize Gemini client once for the entire batch
             bulk_api_key, model_name, _ = get_gemini_settings()
@@ -2212,7 +2317,7 @@ def bulk_extract_statements(month, zip_file_url):
                         # Extract data using the active Gemini extraction path
                         sync_api_key, sync_model_name, _ = get_gemini_settings()
                         sync_genai_client = genai_sdk.Client(api_key=sync_api_key)
-                        product_catalog, products_list = build_product_catalog_for_prompt()
+                        product_catalog, products_list = build_product_catalog_for_prompt(statement.division)
                         extracted_data = call_gemini_extraction_with_catalog(
                             file_full_path,
                             stockist_code,
@@ -2631,6 +2736,10 @@ def fetch_previous_month_closing(stockist_code, current_month):
             filters={"parent": prev_statement},
             fields=["product_code", "product_name", "pack", "closing_qty", "pts", "closing_value"])
 
+        # Items link by the Product Master id; the statement view matches these
+        # rows against the display business codes, so remap before returning.
+        _apply_product_display_codes(prev_items)
+
         return prev_items or []
 
     except Exception as e:
@@ -2918,7 +3027,11 @@ def get_product_history_for_scheme(product_code, doctor_code=None, hq=None):
     try:
         from frappe.utils import getdate, add_months
         import json
-        
+
+        # The frontend sends the Product Master id; tolerate an editable business
+        # code from older clients by resolving it within the user's division.
+        product_code = _resolve_product_pk(product_code, get_user_division()) or product_code
+
         # Get product details
         product = frappe.get_doc("Product Master", product_code)
         
@@ -3091,7 +3204,7 @@ def get_incentive_calculation_data(filters):
                         "stockist_code": stmt["stockist_code"],
                         "stockist_name": stockist.stockist_name,
                         "hq": stockist.hq,
-                        "product_code": item.product_code,
+                        "product_code": product.product_code or item.product_code,
                         "product_name": product.product_name,
                         "product_type": product_type,
                         "total_qty": 0,
@@ -3294,6 +3407,7 @@ def get_doctor_history_for_scheme(doctor_code, hq=None):
             "doctor_code": doctor_code,
             "twelve_months_ago": twelve_months_ago
         }, as_dict=True)
+        _apply_product_display_codes(product_summary)
         
         # Calculate aggregates
         total_schemes = len(schemes)
@@ -4710,6 +4824,9 @@ def get_column_mapping(doctype):
             "Status": "status"
         },
         "Product Master": {
+            # ID is the internal PK — fill it to UPDATE that exact record (e.g. bulk
+            # code corrections); leave blank to upsert by Product Code + Division.
+            "ID": "name",
             "Product Code": "product_code",
             "Product Name": "product_name",
             "Sequence": "sequence",
@@ -4898,10 +5015,13 @@ def get_scheme_detail(scheme_name):
     """Get full scheme request details for portal view"""
     try:
         doc = frappe.get_doc("Scheme Request", scheme_name)
+        # Items link by the Product Master id; show the business code. Product
+        # history lookups resolve either form, so display-only replacement is safe.
+        item_code_map = get_product_code_map([i.product_code for i in doc.items])
         items = []
         for item in doc.items:
             items.append({
-                "product_code": item.product_code,
+                "product_code": item_code_map.get(item.product_code, item.product_code),
                 "product_name": item.product_name,
                 "pack": item.pack,
                 "quantity": flt(item.quantity),
@@ -5046,11 +5166,14 @@ def fetch_deduction_items_portal(scheme_request, stockist_statement, division=No
         # Build statement product map — keep the item so we can read sales_qty + current pts
         stmt_map = {item.product_code: item for item in statement.items}
 
+        # For skipped-product messages show the business code, not the id.
+        display_code_map = get_product_code_map([si.product_code for si in scheme.items])
+
         items = []
         skipped = []
         for scheme_item in scheme.items:
             if scheme_item.product_code not in stmt_map:
-                skipped.append(scheme_item.product_code)
+                skipped.append(display_code_map.get(scheme_item.product_code, scheme_item.product_code))
                 continue
 
             scheme_free_qty = flt(scheme_item.free_quantity)
@@ -5064,7 +5187,10 @@ def fetch_deduction_items_portal(scheme_request, stockist_statement, division=No
             # Effective current PTS on the statement line (per-line override or master)
             current_pts = flt(stmt_item.pts) or flt(product.pts)
             items.append({
+                # Keep the id in product_code — it round-trips into the deduction
+                # Link field. display_product_code is the human-facing code.
                 "product_code": scheme_item.product_code,
+                "display_product_code": product.product_code or scheme_item.product_code,
                 "product_name": product.product_name,
                 "pack": product.pack,
                 "scheme_free_qty": scheme_free_qty,
@@ -5274,10 +5400,12 @@ def get_scheme_deduction_detail(name):
             ["doctor_name", "stockist_name", "hq", "application_date"], as_dict=True
         ) or {}
         stmt_month = frappe.db.get_value("Stockist Statement", doc.stockist_statement, "statement_month")
+        # Items link by the Product Master id; the popup shows the business code.
+        item_code_map = get_product_code_map([i.product_code for i in doc.items])
         items = []
         for it in doc.items:
             items.append({
-                "product_code": it.product_code,
+                "product_code": item_code_map.get(it.product_code, it.product_code),
                 "product_name": it.product_name,
                 "pack": it.pack,
                 "scheme_free_qty": flt(it.scheme_free_qty),
@@ -5934,6 +6062,29 @@ def _resolve_stockist_pk(code, division=None):
     return None
 
 
+def _resolve_product_pk(code, division=None):
+    """Resolve an editable Product Code (business code) to the Product Master id (PK).
+
+    Division-scoped so the SAME business code reused across two divisions never
+    cross-resolves. Falls back to treating the input as the PK itself, which keeps
+    legacy callers working for data where product_code == name.
+    """
+    if not code:
+        return None
+    filters = {"product_code": code}
+    if division:
+        filters["division"] = ["in", [division, "Both"]]
+    name = frappe.db.get_value("Product Master", filters, "name")
+    if name:
+        return name
+    # Legacy / already-a-PK fallback (data where product_code == name). Still
+    # honour the division so the fallback can't cross-resolve either.
+    pk_division = frappe.db.get_value("Product Master", code, "division")
+    if pk_division is not None and (not division or pk_division in (division, "Both")):
+        return code
+    return None
+
+
 @frappe.whitelist()
 def get_stockist_details(stockist_code, division=None):
 
@@ -6477,6 +6628,9 @@ def get_insights_products_data(division=None, from_date=None, to_date=None, regi
         GROUP BY sri.product_code ORDER BY total_value DESC LIMIT 15
     """, sch_vals, as_dict=1)
 
+    _apply_product_display_codes(top_products_closing)
+    _apply_product_display_codes(top_products_scheme)
+
     return {
         "top_products_closing": top_products_closing,
         "top_products_scheme": top_products_scheme,
@@ -6935,8 +7089,8 @@ _EXPORT_MASTER_CONFIGS = {
     "product": {
         "title": "Product Master",
         "doctype": "Product Master",
-        "columns": ["product_code", "product_name", "product_group", "category", "pack", "pack_conversion", "pts", "ptr", "mrp", "gst_rate", "division", "status"],
-        "headers": ["Product Code", "Product Name", "Product Group", "Category", "Pack", "Pack Conversion", "PTS", "PTR", "MRP", "GST Rate", "Division", "Status"],
+        "columns": ["name", "product_code", "product_name", "product_group", "category", "pack", "pack_conversion", "pts", "ptr", "mrp", "gst_rate", "division", "status"],
+        "headers": ["ID", "Product Code", "Product Name", "Product Group", "Category", "Pack", "Pack Conversion", "PTS", "PTR", "MRP", "GST Rate", "Division", "Status"],
         "resolve": {},
     },
     "doctor": {
@@ -7903,12 +8057,15 @@ def process_primary_sales_upload(upload_month, file_url):
             if s.stockist_name:
                 stockist_name_cache[s.stockist_name.strip().lower()] = s.name
 
+        # code → id map. The same Product Code may exist in several of these
+        # divisions; prefer the uploader's own division on collision.
         product_cache = {}
         for p in frappe.get_all("Product Master",
                                 filters={"division": ["in", [user_division, "Both", "ASPR", "Wellness"]]},
-                                fields=["product_code", "name"],
+                                fields=["product_code", "name", "division"],
                                 limit_page_length=0):
-            product_cache[p.product_code] = p.name
+            if p.product_code not in product_cache or p.division == user_division:
+                product_cache[p.product_code] = p.name
 
         # Process rows
         batch_size = 100
@@ -8730,6 +8887,9 @@ def get_stockist_secondary_sales_report(division=None, region=None,
     for r in rows:
         if r.stockist_code:
             r.stockist_code = code_map.get(r.stockist_code, r.stockist_code)
+    # Same for products: rows link by the Product Master id; the pivot keys,
+    # seq_map lookups and labels all use the business Product Code.
+    _apply_product_display_codes(rows)
 
     # Stockist order (alphabetical by name) and product order (master sequence)
     stockists = {}
@@ -8821,18 +8981,18 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
                     "oct", "nov", "dec", "jan", "feb", "mar"]
 
     pcodes = _normalise_code_list(product_codes)
-    pcode_clause = ""
-    extra_params = {}
-    if pcodes:
-        ph = ", ".join([f"%(_pc{i})s" for i in range(len(pcodes))])
-        pcode_clause = f" AND product_code_filter_col IN ({ph})"
-        for i, c in enumerate(pcodes):
-            extra_params[f"_pc{i}"] = c
-
-    base_params = {"division": division, "stockist": stockist_code, **extra_params}
 
     if sales_type == "primary":
-        pcode_sub = pcode_clause.replace("product_code_filter_col", "pcode")
+        # Primary Sales Data stores the raw business code in `pcode`, so the UI's
+        # business-code filter applies directly.
+        pcode_sub = ""
+        extra_params = {}
+        if pcodes:
+            ph = ", ".join([f"%(_pc{i})s" for i in range(len(pcodes))])
+            pcode_sub = f" AND pcode IN ({ph})"
+            for i, c in enumerate(pcodes):
+                extra_params[f"_pc{i}"] = c
+        base_params = {"division": division, "stockist": stockist_code, **extra_params}
         rows = frappe.db.sql(f"""
             SELECT pcode AS product_code, product AS product_name, pack,
                    MONTH(invoicedate) AS m, YEAR(invoicedate) AS y,
@@ -8846,7 +9006,17 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
         """, base_params, as_dict=True)
     else:
         # Secondary sales = sales + free − scheme free (the canonical "true sales" figure).
-        pcode_sub = pcode_clause.replace("product_code_filter_col", "si.product_code")
+        # Statement items link by the Product Master id, so resolve the UI's
+        # business codes to ids within the division before filtering.
+        pcode_sub = ""
+        extra_params = {}
+        if pcodes:
+            resolved_pks = _resolve_product_filter(division, product_codes=pcodes) or ["__no_match__"]
+            ph = ", ".join([f"%(_pc{i})s" for i in range(len(resolved_pks))])
+            pcode_sub = f" AND si.product_code IN ({ph})"
+            for i, c in enumerate(resolved_pks):
+                extra_params[f"_pc{i}"] = c
+        base_params = {"division": division, "stockist": stockist_code, **extra_params}
         rows = frappe.db.sql(f"""
             SELECT si.product_code, si.product_name, si.pack,
                    MONTH(ss.statement_month) AS m, YEAR(ss.statement_month) AS y,
@@ -8861,6 +9031,8 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
                      MONTH(ss.statement_month), YEAR(ss.statement_month)
             ORDER BY si.product_code, y, m
         """, base_params, as_dict=True)
+        # Show business codes, never internal ids.
+        _apply_product_display_codes(rows)
 
     # Look up stockist metadata (name, HQ name) up front so we always have the
     # HQ even when the result is empty.
@@ -9004,6 +9176,9 @@ def get_stockist_closing_stock_report(division=None, region=None,
             ORDER BY ss.stockist_name, si.product_code
         """, params, as_dict=True)
 
+    # Rows link by the Product Master id; seq_map and the UI use business codes.
+    _apply_product_display_codes(rows)
+
     seq_map = {r[0]: (r[1] if r[1] is not None else 9999) for r in frappe.db.sql(
         "SELECT product_code, COALESCE(sequence, 9999) FROM `tabProduct Master` WHERE division=%s AND status='Active'",
         (division,)
@@ -9108,6 +9283,9 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
             WHERE hm.division = %(division)s AND hm.region = %(region)s AND hm.status = 'Active'
             ORDER BY hm.team, hm.hq_name
         """, params, as_dict=True)
+
+    # Rows link by the Product Master id; pivot keys and labels use business codes.
+    _apply_product_display_codes(rows)
 
     if not rows:
         return {"success": True, "products": [], "team_order": [], "hq_columns": [],
@@ -10466,14 +10644,14 @@ def get_scheme_activity_trend_report(division=None, from_date=None, to_date=None
             conditions.append("pm.category = %(product_category)s")
             params["product_category"] = cat_map[product_type]
 
-    # Selected products filter
+    # Selected products filter — the UI sends editable business codes; the item
+    # Link column stores Product Master ids, so resolve within the division.
     if product_codes:
-        if isinstance(product_codes, str):
-            product_codes = json.loads(product_codes)
-        if product_codes:
-            placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(product_codes))])
+        resolved_pks = _resolve_product_filter(division, product_codes=product_codes)
+        if resolved_pks is not None:
+            placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(resolved_pks))])
             conditions.append("sri.product_code IN (" + placeholders + ")")
-            for i, pc in enumerate(product_codes):
+            for i, pc in enumerate(resolved_pks):
                 params["pc_" + str(i)] = pc
 
     # Hierarchy filters
@@ -10494,13 +10672,13 @@ def get_scheme_activity_trend_report(division=None, from_date=None, to_date=None
 
     rows = frappe.db.sql(f"""
         SELECT dm.region, hm.hq_name, dm.hq, dm.doctor_name, dm.name AS doctor_code,
-               sri.product_code, sri.free_quantity,
+               COALESCE(pm.product_code, sri.product_code) AS product_code, sri.free_quantity,
                MONTH(sr.application_date) AS m, YEAR(sr.application_date) AS y
         FROM `tabScheme Request` sr
         INNER JOIN `tabScheme Request Item` sri ON sri.parent = sr.name
         INNER JOIN `tabDoctor Master` dm ON dm.name = sr.doctor_code
         INNER JOIN `tabHQ Master` hm ON hm.name = dm.hq
-        LEFT JOIN `tabProduct Master` pm ON pm.product_code = sri.product_code AND pm.division = %(division)s
+        LEFT JOIN `tabProduct Master` pm ON pm.name = sri.product_code
         WHERE {where}
         ORDER BY dm.region, hm.hq_name, dm.doctor_name, sr.application_date
     """, params, as_dict=True)
@@ -10568,12 +10746,12 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
             conditions.append("pm.category = %(product_category)s")
             params["product_category"] = cat_map[product_type]
     if product_codes:
-        if isinstance(product_codes, str):
-            product_codes = json.loads(product_codes)
-        if product_codes:
-            placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(product_codes))])
+        # UI sends business codes; resolve to the ids stored in the Link column.
+        resolved_pks = _resolve_product_filter(division, product_codes=product_codes)
+        if resolved_pks is not None:
+            placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(resolved_pks))])
             conditions.append("sri.product_code IN (" + placeholders + ")")
-            for i, pc in enumerate(product_codes):
+            for i, pc in enumerate(resolved_pks):
                 params["pc_" + str(i)] = pc
     if zone:
         conditions.append("dm.zone = %(zone)s")
@@ -10592,7 +10770,7 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
 
     rows = frappe.db.sql(f"""
         SELECT sr.application_date AS date, dm.region, dm.hq,
-               dm.doctor_name, sri.product_code,
+               dm.doctor_name, COALESCE(pm.product_code, sri.product_code) AS product_code,
                COALESCE(pm.product_name, sri.product_name) AS product_name,
                sri.quantity, sri.free_quantity, sri.product_rate AS rate,
                sri.product_value AS value,
@@ -10601,7 +10779,7 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
         FROM `tabScheme Request` sr
         INNER JOIN `tabScheme Request Item` sri ON sri.parent = sr.name
         INNER JOIN `tabDoctor Master` dm ON dm.name = sr.doctor_code
-        LEFT JOIN `tabProduct Master` pm ON pm.product_code = sri.product_code AND pm.division = %(division)s
+        LEFT JOIN `tabProduct Master` pm ON pm.name = sri.product_code
         LEFT JOIN `tabStockist Master` sm ON sm.name = sr.stockist_code
         WHERE {where}
         ORDER BY dm.team, dm.hq, sr.application_date, dm.doctor_name
@@ -11157,7 +11335,8 @@ def _moving_trend_secondary(division, criteria, from_date, to_date, region, zone
         "HQ": "IFNULL(sm.hq, ss.team)",
         "Team": "ss.team",
         "Stockist": "CONCAT(ss.stockist_code, ' – ', ss.stockist_name)",
-        "Product": "CONCAT(si.product_code, ' – ', si.product_name)",
+        # si.product_code stores the Product Master id; show the business code.
+        "Product": "CONCAT(COALESCE(pm.product_code, si.product_code), ' – ', si.product_name)",
         "Doctor": "ss.region",  # doctors have no direct relation to statements; fallback
     }
     criteria_col = criteria_col_map.get(criteria, "ss.region")
@@ -11169,6 +11348,8 @@ def _moving_trend_secondary(division, criteria, from_date, to_date, region, zone
     join_sm = ""
     if criteria == "HQ":
         join_sm = " LEFT JOIN `tabStockist Master` sm ON sm.name = ss.stockist_code AND sm.status = 'Active'"
+    if criteria == "Product":
+        join_sm += " LEFT JOIN `tabProduct Master` pm ON pm.name = si.product_code"
     if region:
         conditions.append("ss.region = %(region)s")
         params["region"] = region
@@ -11249,6 +11430,8 @@ def get_ranking_rupee_wise_report(division=None, sales_type="secondary",
             ORDER BY ss.statement_month, ss.stockist_code
             LIMIT 5000
         """, params, as_dict=True)
+        # Statement items link by the Product Master id; show business codes.
+        _apply_product_display_codes(rows)
 
     # Add serial number
     for i, r in enumerate(rows, 1):
@@ -11306,8 +11489,9 @@ def get_ranking_productwise_topn(division=None, product_codes=None, top_n=5,
             conditions.append("ss.statement_month <= %(to_date)s")
             params["to_date"] = to_date
         if codes:
+            # UI sends business codes; the item Link column stores ids.
             conditions.append("si.product_code IN %(codes)s")
-            params["codes"] = codes
+            params["codes"] = _resolve_product_filter(division, product_codes=codes) or ["__no_match__"]
         where = " AND ".join(conditions)
 
         rows = frappe.db.sql(f"""
@@ -11321,6 +11505,7 @@ def get_ranking_productwise_topn(division=None, product_codes=None, top_n=5,
             GROUP BY si.product_code, si.product_name
             ORDER BY total_value DESC
         """, params, as_dict=True)
+        _apply_product_display_codes(rows)
 
     grand_total = sum(flt(r.total_value) for r in rows)
     data = []
@@ -11378,7 +11563,9 @@ def get_ranking_productwise_all(division=None, product_code=None, region=None,
     else:
         conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)",
                        "si.product_code = %(product_code)s"]
-        params = {"division": division, "product_code": product_code}
+        # UI sends the business code; the item Link column stores the id.
+        params = {"division": division,
+                  "product_code": _resolve_product_pk(product_code, division) or product_code}
         if region:
             conditions.append("ss.region = %(region)s")
             params["region"] = region
@@ -11403,6 +11590,7 @@ def get_ranking_productwise_all(division=None, product_code=None, region=None,
             GROUP BY hq, si.product_code, si.product_name
             ORDER BY total_value DESC
         """, params, as_dict=True)
+        _apply_product_display_codes(rows)
 
     grand_total = sum(flt(r.total_value) for r in rows)
     data = []
@@ -11453,8 +11641,9 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
             conditions.append("ss.statement_month <= %(to_date)s")
             params["to_date"] = to_date
         if codes:
+            # UI sends business codes; the item Link column stores ids.
             conditions.append("si.product_code IN %(codes)s")
-            params["codes"] = codes
+            params["codes"] = _resolve_product_filter(division, product_codes=codes) or ["__no_match__"]
         where = " AND ".join(conditions)
 
         group_col = "ss.hq" if hq_wise else "CONCAT(ss.stockist_code, ' – ', ss.stockist_name)"
@@ -11526,8 +11715,9 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
             conditions.append("ss.statement_month <= %(to_date)s")
             params["to_date"] = to_date
         if codes:
+            # UI sends business codes; the item Link column stores ids.
             conditions.append("si.product_code IN %(codes)s")
-            params["codes"] = codes
+            params["codes"] = _resolve_product_filter(division, product_codes=codes) or ["__no_match__"]
         where = " AND ".join(conditions)
 
         group_col = "ss.hq" if hq_wise else "CONCAT(ss.stockist_code, ' – ', ss.stockist_name)"
@@ -11547,6 +11737,10 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
             ORDER BY value DESC
             LIMIT 5000
         """, dict(**params, qty_filter=qty_filter), as_dict=True)
+
+    if sales_type in ("closing", "secondary"):
+        # Statement items link by the Product Master id; show business codes.
+        _apply_product_display_codes(rows)
 
     data = []
     for rank, r in enumerate(rows, 1):
@@ -11625,8 +11819,9 @@ def get_ranking_pcpm_tracker(division=None, sales_type="secondary",
             conditions.append("ss.region = %(region)s")
             params["region"] = region
         if codes:
+            # UI sends business codes; the item Link column stores ids.
             conditions.append("si.product_code IN %(codes)s")
-            params["codes"] = codes
+            params["codes"] = _resolve_product_filter(division, product_codes=codes) or ["__no_match__"]
         where = " AND ".join(conditions)
 
         rows = frappe.db.sql(f"""
@@ -11639,6 +11834,7 @@ def get_ranking_pcpm_tracker(division=None, sales_type="secondary",
             WHERE {where}
             GROUP BY si.product_code, si.product_name, MONTH(ss.statement_month)
         """, params, as_dict=True)
+        _apply_product_display_codes(rows)
 
     products = {}
     active_months = set()
@@ -11986,16 +12182,17 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
 
     # ── Get all products for this division ──
     products = frappe.db.sql(
-        "SELECT product_code, product_name, pack, category, pts "
+        "SELECT name, product_code, product_name, pack, category, pts "
         "FROM `tabProduct Master` WHERE division=%s AND status='Active' "
         "ORDER BY category, COALESCE(sequence, 9999), product_code",
         (division,), as_dict=True
     )
-    # Optional product / group / category narrowing (intersection)
+    # Optional product / group / category narrowing (intersection).
+    # _resolve_product_filter returns Product Master ids, so match on name.
     _pf = _resolve_product_filter(division, product_codes, product_group, product_category)
     if _pf is not None:
         _allowed = set(_pf)
-        products = [p for p in products if p.product_code in _allowed]
+        products = [p for p in products if p.name in _allowed]
 
     # ── Get secondary sales (Stockist Statement Items) ──
     hq_placeholders = ", ".join(["%s"] * len(hq_list))
@@ -12017,6 +12214,9 @@ def get_secondary_sales_moving_trend(division=None, entity_type="Team",
               AND ss.statement_month BETWEEN %s AND %s
         GROUP BY si.product_code, si.pack, MONTH(ss.statement_month)
     """, [division] + hq_list + [fy_start, fy_end], as_dict=True)
+    # Items link by the Product Master id; the pivot below is keyed by the
+    # business code (matching the master list's product_code).
+    _apply_product_display_codes(sec_rows)
 
     # ── Pivot data: product_code → 12-month array ──
     month_map = {4: 0, 5: 1, 6: 2, 7: 3, 8: 4, 9: 5,
@@ -12454,9 +12654,11 @@ def get_organizational_sales_report(division=None, sales_type="primary",
         if to_date:
             conds.append("ss.statement_month <= %(to_date)s"); params["to_date"] = to_date
         if pcodes:
-            ph = ", ".join([f"%(_pc{i})s" for i in range(len(pcodes))])
+            # UI sends business codes; the item Link column stores ids.
+            resolved_pks = _resolve_product_filter(division, product_codes=pcodes) or ["__no_match__"]
+            ph = ", ".join([f"%(_pc{i})s" for i in range(len(resolved_pks))])
             conds.append(f"si.product_code IN ({ph})")
-            for i, c in enumerate(pcodes):
+            for i, c in enumerate(resolved_pks):
                 params[f"_pc{i}"] = c
         where = " AND ".join(conds)
         sales_rows = frappe.db.sql(f"""
@@ -12468,6 +12670,8 @@ def get_organizational_sales_report(division=None, sales_type="primary",
             WHERE {where}
             GROUP BY ss.region, si.product_code
         """, params, as_dict=True)
+        # Items link by the Product Master id; the pivot is keyed by business code.
+        _apply_product_display_codes(sales_rows)
     else:
         conds = ["psd.division = %(division)s", "psd.iscancelled = 0", "IFNULL(psd.region, '') <> ''"]
         params = {"division": division}
@@ -12616,14 +12820,15 @@ def get_gynae_report(division=None, entity_type="Organization", entity_name=None
 
     # ── Gynae products only ──
     products = frappe.db.sql(
-        "SELECT product_code, product_name, pack FROM `tabProduct Master` "
+        "SELECT name, product_code, product_name, pack FROM `tabProduct Master` "
         "WHERE division=%s AND status='Active' AND LOWER(IFNULL(product_group,''))='gynae' "
         "ORDER BY COALESCE(sequence, 9999), product_code",
         (division,), as_dict=True)
     if not products:
         return _empty()
 
-    pcodes = [p.product_code for p in products]
+    # Statement items link by the Product Master id.
+    pcodes = [p.name for p in products]
     pc_ph = ", ".join(["%s"] * len(pcodes))
     hq_ph = ", ".join(["%s"] * len(hq_list))
 
@@ -12645,6 +12850,8 @@ def get_gynae_report(division=None, entity_type="Organization", entity_name=None
            AND ss.statement_month BETWEEN %s AND %s
       GROUP BY si.product_code, MONTH(ss.statement_month)
     """, [division] + hq_list + pcodes + [fy_start, fy_end], as_dict=True)
+    # Rows come back keyed by id; the brand pivot uses business codes.
+    _apply_product_display_codes(rows)
 
     month_map = {4: 0, 5: 1, 6: 2, 7: 3, 8: 4, 9: 5, 10: 6, 11: 7, 12: 8, 1: 9, 2: 10, 3: 11}
     pdata = {}
@@ -13439,7 +13646,7 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
                COALESCE(hm.hq_name, ss.hq, '') AS hq_name,
                COALESCE(tm.team_name, ss.team, '') AS team,
                COALESCE(rm.region_name, ss.region, '') AS region,
-               si.product_code AS product_code,
+               COALESCE(pm.product_code, si.product_code) AS product_code,
                COALESCE(pm.product_name, si.product_name, si.raw_product_name, '') AS product_name,
                COALESCE(pm.product_group, '') AS product_group,
                COALESCE(pm.category, '') AS category,
@@ -13601,14 +13808,17 @@ def render_spreadsheet_preview(file_url):
 
 @frappe.whitelist()
 def get_products_for_division(division=None):
-    """Return all active products for a division for manual statement entry."""
+    """Return all active products for a division for manual statement entry.
+
+    `name` is the Product Master id (PK) the frontend must submit as the row
+    value; `product_code` is the editable business code shown to the user."""
     if not division:
         division = get_user_division()
 
     products = frappe.get_all(
         "Product Master",
         filters={"status": "Active", "division": division},
-        fields=["product_code", "product_name", "pack", "pts", "ptr", "pack_conversion"],
+        fields=["name", "product_code", "product_name", "pack", "pts", "ptr", "pack_conversion"],
         order_by="sequence asc, product_name asc",
         limit_page_length=0,
     )
@@ -13668,8 +13878,14 @@ def create_manual_statement(stockist_code, statement_month, items, uploaded_file
             product_code = row.get("productcode") or row.get("product_code")
             if not product_code:
                 continue
+            # The row value may be the id (new clients) or the editable business
+            # code (older clients); resolve within THIS division so a code reused
+            # across divisions links to the right product.
+            product_pk = _resolve_product_pk(product_code, division)
+            if not product_pk:
+                return {"success": False, "message": f"Product '{product_code}' not found in division '{division}'."}
             doc.append("items", {
-                "product_code": product_code,
+                "product_code": product_pk,
                 # Per-line PTS override (manual scheme-discount path). Zero/blank
                 # falls back to Master PTS inside calculate_closing_and_totals().
                 "pts": flt(row.get("pts") or 0),
@@ -13717,6 +13933,14 @@ def save_product_correction(stockist_code, raw_product_name, mapped_product_code
             return {"success": False, "message": "stockist_code, raw_product_name, and mapped_product_code are required"}
 
         raw_name = raw_product_name.strip().upper()
+
+        # The correction stores a Link (Product Master id). Accept either the id
+        # or the editable business code, scoped to the stockist's division.
+        stockist_division = frappe.db.get_value("Stockist Master", stockist_code, "division")
+        product_pk = _resolve_product_pk(mapped_product_code, stockist_division)
+        if not product_pk:
+            return {"success": False, "message": f"Product '{mapped_product_code}' not found"}
+        mapped_product_code = product_pk
 
         # Check if correction already exists
         existing = frappe.db.get_value(
@@ -13767,18 +13991,21 @@ def get_product_search_for_mapping(query, division=None):
         if division:
             filters.append(["Product Master", "division", "=", division])
 
-        # Search by product_code or product_name
+        # Search by product_code or product_name (name kept for legacy ids)
         or_filters = [
-            ["Product Master", "name", "like", f"%{query}%"],
+            ["Product Master", "product_code", "like", f"%{query}%"],
             ["Product Master", "product_name", "like", f"%{query}%"],
+            ["Product Master", "name", "like", f"%{query}%"],
         ]
 
+        # `name` is the id the frontend must submit; `product_code` is the
+        # editable business code it must display (they differ for new products).
         results = frappe.get_all(
             "Product Master",
             filters=filters,
             or_filters=or_filters,
-            fields=["name as product_code", "product_name", "pack", "pts", "division"],
-            order_by="name asc",
+            fields=["name", "product_code", "product_name", "pack", "pts", "division"],
+            order_by="product_code asc",
             limit_page_length=20,
         )
 
@@ -13809,12 +14036,14 @@ def apply_mapping_and_save_correction(doc_name, row_idx, mapped_product_code):
         item = doc.items[row_idx]
         raw_name = (item.raw_product_name or "").strip().upper()
 
-        # Verify the product exists
-        if not frappe.db.exists("Product Master", mapped_product_code):
+        # Accept either the id (new clients) or the editable business code
+        # (older clients), scoped to the statement's division.
+        product_pk = _resolve_product_pk(mapped_product_code, doc.division)
+        if not product_pk:
             return {"success": False, "message": f"Product '{mapped_product_code}' not found"}
 
         # Update the item
-        item.product_code = mapped_product_code
+        item.product_code = product_pk
         item.mapping_status = "matched"
 
         # Keep extraction confidence intact; mapping review is reflected via QC status.
@@ -13827,9 +14056,11 @@ def apply_mapping_and_save_correction(doc_name, row_idx, mapped_product_code):
         doc.save(ignore_permissions=True)
         frappe.db.commit()
 
+        # Show the editable business code in the message, never the id.
+        display_code = frappe.db.get_value("Product Master", product_pk, "product_code") or product_pk
         return {
             "success": True,
-            "message": f"Mapped '{raw_name}' → {mapped_product_code}",
+            "message": f"Mapped '{raw_name}' → {display_code}",
             "qc_confidence": doc.qc_confidence,
             "confidence_score": flt(doc.confidence_score),
         }
@@ -14555,14 +14786,16 @@ def process_secondary_sales_upload(upload_month, file_url):
                 stockist_name_cache[s.stockist_name.strip().lower()] = {
                     "id": s.name, "status": s.status}
 
-        # Product: code → name (authoritative mapping by code only)
-        product_code_cache = set()
+        # Product: code → id (authoritative mapping by code only). Statement items
+        # link by the Product Master id, so resolve the business code here; on a
+        # code collision across the allowed divisions, prefer the uploader's own.
+        product_code_cache = {}
         for p in frappe.get_all("Product Master",
                                 filters={"division": ["in", [user_division, "Both", "ASPR", "Wellness"]]},
-                                fields=["product_code"],
+                                fields=["product_code", "name", "division"],
                                 limit_page_length=0):
-            if p.product_code:
-                product_code_cache.add(p.product_code)
+            if p.product_code and (p.product_code not in product_code_cache or p.division == user_division):
+                product_code_cache[p.product_code] = p.name
 
         # ── Group rows by matched stockist code ──
         groups = {}                 # stockist_code -> list[item_dict]
@@ -14626,9 +14859,9 @@ def process_secondary_sales_upload(upload_month, file_url):
                 skipped_zero_sales += 1
                 continue
 
-            # Product mapping is by CODE only
+            # Product mapping is by CODE only; store the resolved id (Link value)
             if pcode and pcode in product_code_cache:
-                product_code = pcode
+                product_code = product_code_cache[pcode]
                 mapping_status = "matched"
             else:
                 product_code = None
@@ -14915,12 +15148,14 @@ def export_secondary_sales_data(month, division=None, zone=None, region=None,
         return zone_names[code]
 
     def _prod(code):
+        # si.product_code is a Link (Product Master id); fetch the business
+        # product_code too so the export shows the human-facing code.
         if not code:
             return {}
         if code not in prod_meta:
             prod_meta[code] = frappe.db.get_value(
                 "Product Master", code,
-                ["mrp", "ptr", "pts", "pack", "product_name", "product_group"],
+                ["product_code", "mrp", "ptr", "pts", "pack", "product_name", "product_group"],
                 as_dict=True) or {}
         return prod_meta[code]
 
@@ -14971,7 +15206,7 @@ def export_secondary_sales_data(month, division=None, zone=None, region=None,
             _region_name(row.get("region")),                     # act_region ≈ region
             _zone_name(row.get("zone")),
             stmt_date,
-            row.get("product_code") or "",
+            prod.get("product_code") or row.get("product_code") or "",   # real product code, not Master PK
             row.get("product_name") or row.get("raw_product_name") or "",
             row.get("pack") or prod.get("pack") or "",
             flt(row.get("sales_qty")),

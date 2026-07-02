@@ -70,7 +70,9 @@ const masterConfigs = {
         title: 'Product Master',
         doctype: 'Product Master',
         fields: [
-            { name: 'product_code', label: 'Product Code', type: 'text', required: true, readonly_on_edit: true },
+            // The code is editable: it is unique per division (not the PK), so it can
+            // be corrected after creation — references link by the internal id.
+            { name: 'product_code', label: 'Product Code', type: 'text', required: true, editable_on_edit: true },
             { name: 'product_name', label: 'Product Name', type: 'text', required: true },
             { name: 'sequence', label: 'Sequence', type: 'number' },
             {
@@ -101,12 +103,14 @@ const masterConfigs = {
         ],
         columns: ['product_code', 'product_name', 'sequence', 'product_group', 'category', 'pack', 'pack_conversion', 'pts', 'ptr', 'excluded_region_names', 'status'],
         searchFields: ['product_code', 'product_name', 'product_group', 'category', 'pack'],
+        // ID is the internal primary key (PRD-####). Fill it to UPDATE that record
+        // (e.g. bulk code changes); leave it blank to upsert by Product Code + Division.
         excelColumns: [
-            'Product Code', 'Product Name', 'Sequence', 'Product Group', 'Category',
+            'ID', 'Product Code', 'Product Name', 'Sequence', 'Product Group', 'Category',
             'Pack', 'Pack Conversion', 'PTS', 'PTR', 'MRP', 'GST Rate (%)', 'Division', 'Status'
         ],
         excelSample: [
-            'PROD001', 'Paracetamol 500mg', 1, 'Others', 'Main Product',
+            '', 'PROD001', 'Paracetamol 500mg', 1, 'Others', 'Main Product',
             '10x10', "10's", '10.00', '55.00', '60.00', '5', 'Prima', 'Active'
         ]
     },

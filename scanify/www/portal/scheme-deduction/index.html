@@ -327,7 +327,7 @@
         items.forEach(function (item, idx) {
             const max = Number(item.scheme_free_qty || 0);
             html += `<tr>
-                <td><strong>${item.product_name || '-'}</strong><br><small class="text-muted">${item.product_code || ''}</small></td>
+                <td><strong>${item.product_name || '-'}</strong><br><small class="text-muted">${item.display_product_code || item.product_code || ''}</small></td>
                 <td>${item.pack || '-'}</td>
                 <td>${item.scheme_free_qty || 0}</td>
                 <td>${item.current_sales_qty || 0}</td>

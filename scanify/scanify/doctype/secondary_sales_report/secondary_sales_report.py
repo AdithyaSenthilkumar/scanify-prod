@@ -177,13 +177,14 @@ class SecondarySalesReport(Document):
             closing_value = 0
             
             for item in stmt_doc.items:
-                # Get product details for pricing
+                # item.product_code is a Link — it holds the Product Master id
+                # (NOT the editable business code), so fetch by docname.
                 product_code = item.product_code
-                
+
                 # Fetch PTS rate from Product Master
                 product = frappe.db.get_value(
                     "Product Master",
-                    {"product_code": product_code},
+                    product_code,
                     ["pts", "ptr", "mrp"],
                     as_dict=True
                 )
