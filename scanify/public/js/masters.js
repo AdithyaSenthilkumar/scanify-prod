@@ -1131,12 +1131,37 @@ function fillHQRelatedFields(hqData) {
                 body: JSON.stringify({ doctype: 'Region Master', name: hqData.region })
             }).then(r => r.json()).then(d => {
                 if (d.message && d.message.region_name) regionInput.val(d.message.region_name);
+                // AUTO-FILL: state — resolved from the HQ's region (region → state).
+                // Only the Doctor form carries a state select; guard keeps this a no-op elsewhere.
+                const stateSelect = $('select.state-select-field[name="state"]');
+                if (stateSelect.length) setStateSelectValue(stateSelect, (d.message && d.message.state) || '');
             }).catch(() => { });
+        } else {
+            // HQ has no region → clear any dependent state select
+            const stateSelect = $('select.state-select-field[name="state"]');
+            if (stateSelect.length) setStateSelectValue(stateSelect, '');
         }
     }
 
     // AUTO-FILL: zone
     if ($('[name="zone"]').length) $('[name="zone"]').val(hqData.zone || '');
+}
+
+// Set a state <select> to the given State Master code (e.g. ST0001), resilient to
+// the state options not being loaded yet: stores data-value so a later
+// populateStateDropdown can re-apply it, and inserts the option if it's missing
+// so the value sticks immediately.
+function setStateSelectValue(stateSelect, stateCode) {
+    stateSelect.attr('data-value', stateCode || '');
+    const el = stateSelect.get(0);
+    if (el && stateCode && !Array.from(el.options).some(o => o.value === stateCode)) {
+        const cached = stateCache.find(s => s.name === stateCode);
+        const opt = document.createElement('option');
+        opt.value = stateCode;
+        opt.textContent = cached ? cached.state_name : stateCode;
+        el.appendChild(opt);
+    }
+    stateSelect.val(stateCode || '');
 }
 
 // Team select change handler — auto-fills Region and Zone
@@ -1176,6 +1201,8 @@ $(document).on('change', '.hq-select-field', function () {
         $('[name="team"]').val('');
         $('[name="region"]').val('');
         $('[name="zone"]').val('');
+        const stateSelect = $('select.state-select-field[name="state"]');
+        if (stateSelect.length) setStateSelectValue(stateSelect, '');
         return;
     }
     // Find in cache first

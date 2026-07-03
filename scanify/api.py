@@ -12879,7 +12879,8 @@ def get_gynae_report(division=None, entity_type="Organization", entity_name=None
     strength = flt(sanctioned_strength)
     values_lakh = [round(v / LAKH, 2) for v in months_val]
     pcpm_lakh = [round((v / LAKH) / strength, 2) if strength else 0.0 for v in months_val]
-    avg_per_dr = [int(round(v / strength)) if strength else 0 for v in months_val]
+    # Avg per Dr. (Rs.) = respective PCPM in lakh × 2000
+    avg_per_dr = [int(round(p * 2000)) for p in pcpm_lakh]
 
     return {
         "success": True,
