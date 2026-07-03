@@ -186,9 +186,13 @@
                                 <th style="min-width:220px;">Product <span class="text-danger">*</span></th>
                                 <th style="min-width:80px;">Pack</th>
                                 <th style="min-width:90px;">Order Qty <span class="text-danger">*</span></th>
-                                <th style="min-width:80px;">Free Qty</th>
+                                <th style="min-width:80px;">Free Qty
+                                    <i class="fa fa-info-circle text-muted" title="Free Qty and Special Price are mutually exclusive — set one or the other."></i>
+                                </th>
                                 <th style="min-width:100px;">Rate (PTS)</th>
-                                <th style="min-width:100px;">Special Rate</th>
+                                <th style="min-width:100px;">Special Rate
+                                    <i class="fa fa-info-circle text-muted" title="Free Qty and Special Price are mutually exclusive — set one or the other."></i>
+                                </th>
                                 <th style="min-width:90px;">Scheme %</th>
                                 <th style="min-width:120px;">Value (&#8377;)</th>
                                 <th style="min-width:50px;"></th>
@@ -277,5 +281,5 @@
 {% block scripts %}
 {% include "templates/includes/scheme_history_modal.html" %}
 <script src="/assets/scanify/js/scheme-history.js?v=20260701b"></script>
-<script src="/assets/scanify/js/scheme-new.js?v=20260701"></script>
+<script src="/assets/scanify/js/scheme-new.js?v=20260703"></script>
 {% endblock %}

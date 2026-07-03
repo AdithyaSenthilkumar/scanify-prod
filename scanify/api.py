@@ -5021,7 +5021,10 @@ def get_scheme_detail(scheme_name):
         items = []
         for item in doc.items:
             items.append({
+                # product_code = business/display code; product_pk = Product Master id
+                # (the Link value the edit modal needs to round-trip and match).
                 "product_code": item_code_map.get(item.product_code, item.product_code),
+                "product_pk": item.product_code,
                 "product_name": item.product_name,
                 "pack": item.pack,
                 "quantity": flt(item.quantity),
@@ -5059,6 +5062,7 @@ def get_scheme_detail(scheme_name):
             "stockist_display_code": get_stockist_code_map([doc.stockist_code]).get(doc.stockist_code, doc.stockist_code),
             "stockist_name": doc.stockist_name,
             "approval_status": doc.approval_status,
+            "repeated_request": int(doc.repeated_request or 0),
             "total_scheme_value": flt(doc.total_scheme_value),
             "scheme_notes": doc.scheme_notes,
             "division": doc.division,
@@ -5073,6 +5077,93 @@ def get_scheme_detail(scheme_name):
         }
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Get Scheme Detail Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def update_scheme_request_items(scheme_request, items):
+    """Replace the product rows of a Pending scheme request from the portal edit
+    modal.
+
+    Guardrails:
+      - Only the original requester or a manager may edit.
+      - Editable only while Pending (docstatus 0). Approved/submitted schemes are
+        locked.
+      - Repeat schemes stay restricted to the doctor's approved products.
+      - Free Qty and Special Price remain mutually exclusive per line.
+    The doctype's before_save/validate recomputes scheme %, product value,
+    total_scheme_value and re-checks the monthly per-product limit.
+    """
+    try:
+        if isinstance(items, str):
+            items = json.loads(items)
+
+        doc = frappe.get_doc("Scheme Request", scheme_request)
+
+        # Permission — requester or manager
+        roles = frappe.get_roles(frappe.session.user)
+        is_manager = ("System Manager" in roles) or ("Sales Manager" in roles)
+        if not is_manager and doc.requested_by != frappe.session.user:
+            return {"success": False, "message": "You are not allowed to edit this scheme request."}
+
+        # Only Pending drafts are editable
+        if doc.approval_status != "Pending" or doc.docstatus == 1:
+            return {"success": False, "message": "Only Pending (unsubmitted) scheme requests can be edited."}
+
+        if not items:
+            return {"success": False, "message": "At least one product row is required."}
+
+        # Repeat schemes: only the doctor's approved products are allowed
+        if int(doc.repeated_request or 0):
+            approved_pks = {p["name"] for p in get_approved_products_for_doctor(doc.doctor_code, doc.division)}
+            offenders = [
+                (it.get("product_name") or it.get("product_code"))
+                for it in items if it.get("product_code") not in approved_pks
+            ]
+            if offenders:
+                return {"success": False,
+                        "message": "Repeat schemes may only use approved products. Not approved: " + ", ".join(offenders)}
+
+        # Free Qty vs Special Price exclusivity (doctype re-validates on save)
+        conflicts = [
+            (it.get("product_name") or it.get("product_code"))
+            for it in items
+            if flt(it.get("free_quantity")) > 0 and flt(it.get("special_rate")) > 0
+        ]
+        if conflicts:
+            return {"success": False,
+                    "message": "Free Quantity and Special Price cannot both be set for: " + ", ".join(conflicts)}
+
+        # Validate each row has a product and a positive order qty
+        for it in items:
+            if not it.get("product_code"):
+                return {"success": False, "message": "Every row must have a product selected."}
+            if flt(it.get("quantity")) <= 0:
+                return {"success": False, "message": "Order quantity must be greater than 0 for all products."}
+
+        # Replace the child rows; the controller recomputes derived fields on save
+        doc.set("items", [])
+        for it in items:
+            doc.append("items", {
+                "product_code": it.get("product_code"),
+                "product_name": it.get("product_name"),
+                "pack": it.get("pack"),
+                "quantity": flt(it.get("quantity")),
+                "free_quantity": flt(it.get("free_quantity")),
+                "product_rate": flt(it.get("product_rate")),
+                "special_rate": flt(it.get("special_rate")),
+            })
+        doc.save()
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "name": doc.name,
+            "total_scheme_value": flt(doc.total_scheme_value),
+            "message": "Scheme products updated successfully",
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Update Scheme Request Items Error")
         return {"success": False, "message": str(e)}
 
 
@@ -10571,24 +10662,42 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
 # ═══════════════════════════════════════════════════════════════
 
 def get_scheme_report_filter_options(division=None):
-    """Return dropdown options for the Scheme Reports portal page (active masters only)."""
+    """Return dropdown options for the Scheme Reports portal page (active masters
+    only). Mirrors get_stockist_report_filter_options so the page can offer the
+    same Reporting-Criteria + cascading Zone→Region→Team→HQ filters, plus Doctor,
+    Products / Product Group / Product Category multi-selects. Codes are carried as
+    option values; only names are shown."""
     if not division:
         division = get_user_division()
 
     zones = frappe.db.sql(
-        "SELECT name FROM `tabZone Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
-        (division,), as_list=1,
+        "SELECT name, zone_name FROM `tabZone Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        (division,), as_dict=True,
     )
     regions = frappe.db.sql(
-        "SELECT name, region_name, zone FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        "SELECT name, region_name, IFNULL(zone,'') AS zone FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_dict=True,
     )
     teams = frappe.db.sql(
-        "SELECT name, team_name, region FROM `tabTeam Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
+        """SELECT t.name, t.team_name, IFNULL(t.region,'') AS region, IFNULL(r.zone,'') AS zone
+             FROM `tabTeam Master` t
+             LEFT JOIN `tabRegion Master` r ON r.name = t.region
+            WHERE t.status='Active' AND t.division IN (%s, 'Both') ORDER BY t.name""",
         (division,), as_dict=True,
     )
     hqs = frappe.db.sql(
-        "SELECT name, hq_name, team FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
+        "SELECT name, hq_name, IFNULL(team,'') AS team, IFNULL(region,'') AS region, IFNULL(zone,'') AS zone "
+        "FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
+        (division,), as_dict=True,
+    )
+    stockists = frappe.db.sql(
+        "SELECT name, stockist_name FROM `tabStockist Master` WHERE division=%s AND status='Active' ORDER BY stockist_name",
+        (division,), as_dict=True,
+    )
+    doctors = frappe.db.sql(
+        "SELECT name, doctor_code, doctor_name, IFNULL(hq,'') AS hq, IFNULL(team,'') AS team, "
+        "IFNULL(region,'') AS region, IFNULL(zone,'') AS zone "
+        "FROM `tabDoctor Master` WHERE division=%s AND status='Active' ORDER BY doctor_name",
         (division,), as_dict=True,
     )
     products = frappe.db.sql(
@@ -10596,28 +10705,50 @@ def get_scheme_report_filter_options(division=None):
         "FROM `tabProduct Master` WHERE division=%s AND status='Active' ORDER BY COALESCE(sequence, 9999), product_name",
         (division,), as_dict=True,
     )
-
     product_groups = sorted(set(p.product_group for p in products if p.product_group))
+    product_categories = sorted(set(p.category for p in products if p.category))
 
     return {
-        "zones": [z[0] for z in zones],
-        "regions": [{"name": r.name, "region_name": r.region_name or r.name, "zone": r.zone or ""} for r in regions],
-        "teams": [{"name": t.name, "team_name": t.team_name or t.name, "region": t.region or ""} for t in teams],
-        "hqs": [{"name": h.name, "hq_name": h.hq_name or "", "team": h.team or ""} for h in hqs],
+        "zones": [{"code": z.name, "name": z.zone_name or z.name} for z in zones],
+        "regions": [{"code": r.name, "name": r.region_name or r.name, "zone": r.zone} for r in regions],
+        "teams": [{"code": t.name, "name": t.team_name or t.name, "region": t.region, "zone": t.zone} for t in teams],
+        "hqs": [{"code": h.name, "name": h.hq_name or h.name, "team": h.team, "region": h.region, "zone": h.zone} for h in hqs],
+        "stockists": [{"code": s.name, "name": s.stockist_name or s.name} for s in stockists],
+        "doctors": [{"code": d.name, "name": d.doctor_name or d.name, "hq": d.hq,
+                      "team": d.team, "region": d.region, "zone": d.zone} for d in doctors],
         "products": [{"code": p.product_code, "name": p.product_name,
                        "category": p.category or "", "group": p.product_group or "",
                        "pack": p.pack or ""} for p in products],
         "product_groups": product_groups,
+        "product_categories": product_categories,
     }
+
+
+def _scheme_geo_conditions(alias, params, zone=None, region=None, team=None, hq=None, doctor=None):
+    """Build WHERE fragments for the shared cascade filters against a Doctor Master
+    alias (dm). Each dimension is optional; the cascade sends only what is selected.
+    Returns a list of SQL condition strings and mutates `params` in place."""
+    conds = []
+    if zone:
+        conds.append(f"{alias}.zone = %(g_zone)s"); params["g_zone"] = zone
+    if region:
+        conds.append(f"{alias}.region = %(g_region)s"); params["g_region"] = region
+    if team:
+        conds.append(f"{alias}.team = %(g_team)s"); params["g_team"] = team
+    if hq:
+        conds.append(f"{alias}.hq = %(g_hq)s"); params["g_hq"] = hq
+    if doctor:
+        conds.append(f"{alias}.name = %(g_doctor)s"); params["g_doctor"] = doctor
+    return conds
 
 
 @frappe.whitelist()
 def get_scheme_activity_trend_report(division=None, from_date=None, to_date=None,
-                                      doctor_status="Active", product_type="All",
-                                      product_codes=None, zone=None, region=None,
-                                      criteria="Region", team_or_hq=None):
+                                      doctor_status="Active", reporting_criteria="Organization",
+                                      zone=None, region=None, team=None, hq=None, doctor=None,
+                                      product_codes=None, product_group=None, product_category=None):
     """Report 1 – Activity Trend Report.
-    Monthly pivot (Apr–Mar) showing product-qty pairs per doctor.
+    Monthly pivot (Apr–Mar) showing product-freeqty pairs per doctor.
     """
     if not division:
         division = get_user_division()
@@ -10637,36 +10768,17 @@ def get_scheme_activity_trend_report(division=None, from_date=None, to_date=None
         conditions.append("dm.status = %(doctor_status)s")
         params["doctor_status"] = doctor_status
 
-    # Product type filter (category)
-    if product_type and product_type != "All":
-        cat_map = {"Hospital Products": "Hospital Product", "Other Products": "Main Product"}
-        if product_type in cat_map:
-            conditions.append("pm.category = %(product_category)s")
-            params["product_category"] = cat_map[product_type]
+    # Product filter (codes / group / category) — resolves to Product Master ids.
+    resolved_pks = _resolve_product_filter(division, product_codes=product_codes,
+                                           product_group=product_group, product_category=product_category)
+    if resolved_pks is not None:
+        placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(resolved_pks))])
+        conditions.append("sri.product_code IN (" + placeholders + ")")
+        for i, pc in enumerate(resolved_pks):
+            params["pc_" + str(i)] = pc
 
-    # Selected products filter — the UI sends editable business codes; the item
-    # Link column stores Product Master ids, so resolve within the division.
-    if product_codes:
-        resolved_pks = _resolve_product_filter(division, product_codes=product_codes)
-        if resolved_pks is not None:
-            placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(resolved_pks))])
-            conditions.append("sri.product_code IN (" + placeholders + ")")
-            for i, pc in enumerate(resolved_pks):
-                params["pc_" + str(i)] = pc
-
-    # Hierarchy filters
-    if zone:
-        conditions.append("dm.zone = %(zone)s")
-        params["zone"] = zone
-    if region:
-        conditions.append("dm.region = %(region)s")
-        params["region"] = region
-    if team_or_hq and criteria in ("Team", "HQ"):
-        if criteria == "Team":
-            conditions.append("dm.team = %(team_or_hq)s")
-        else:
-            conditions.append("dm.hq = %(team_or_hq)s")
-        params["team_or_hq"] = team_or_hq
+    # Shared cascade scope (Zone→Region→Team→HQ→Doctor)
+    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor)
 
     where = " AND ".join(conditions)
 
@@ -10713,16 +10825,17 @@ def get_scheme_activity_trend_report(division=None, from_date=None, to_date=None
     # Sort by region, hq, doctor
     data.sort(key=lambda x: (x["region"], x["hq"], x["doctor_name"]))
 
-    return {"success": True, "data": data, "fy_label": fy_label, "criteria": criteria}
+    return {"success": True, "data": data, "fy_label": fy_label, "criteria": reporting_criteria}
 
 
 @frappe.whitelist()
 def get_scheme_activity_track_report(division=None, from_date=None, to_date=None,
-                                      doctor_status="Active", product_type="All",
-                                      product_codes=None, zone=None, region=None,
-                                      criteria="Region", team_or_hq=None):
+                                      doctor_status="Active", reporting_criteria="Organization",
+                                      zone=None, region=None, team=None, hq=None, doctor=None,
+                                      product_codes=None, product_group=None, product_category=None):
     """Report 2 – Activity Track Report.
-    Transaction‐level rows: one per Scheme Request Item with full details.
+    Transaction‐level rows: one per Scheme Request Item with full details incl.
+    special price and discount value.
     """
     if not division:
         division = get_user_division()
@@ -10740,31 +10853,16 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
     if doctor_status and doctor_status != "All":
         conditions.append("dm.status = %(doctor_status)s")
         params["doctor_status"] = doctor_status
-    if product_type and product_type != "All":
-        cat_map = {"Hospital Products": "Hospital Product", "Other Products": "Main Product"}
-        if product_type in cat_map:
-            conditions.append("pm.category = %(product_category)s")
-            params["product_category"] = cat_map[product_type]
-    if product_codes:
-        # UI sends business codes; resolve to the ids stored in the Link column.
-        resolved_pks = _resolve_product_filter(division, product_codes=product_codes)
-        if resolved_pks is not None:
-            placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(resolved_pks))])
-            conditions.append("sri.product_code IN (" + placeholders + ")")
-            for i, pc in enumerate(resolved_pks):
-                params["pc_" + str(i)] = pc
-    if zone:
-        conditions.append("dm.zone = %(zone)s")
-        params["zone"] = zone
-    if region:
-        conditions.append("dm.region = %(region)s")
-        params["region"] = region
-    if team_or_hq and criteria in ("Team", "HQ"):
-        if criteria == "Team":
-            conditions.append("dm.team = %(team_or_hq)s")
-        else:
-            conditions.append("dm.hq = %(team_or_hq)s")
-        params["team_or_hq"] = team_or_hq
+
+    resolved_pks = _resolve_product_filter(division, product_codes=product_codes,
+                                           product_group=product_group, product_category=product_category)
+    if resolved_pks is not None:
+        placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(resolved_pks))])
+        conditions.append("sri.product_code IN (" + placeholders + ")")
+        for i, pc in enumerate(resolved_pks):
+            params["pc_" + str(i)] = pc
+
+    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor)
 
     where = " AND ".join(conditions)
 
@@ -10773,7 +10871,7 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
                dm.doctor_name, COALESCE(pm.product_code, sri.product_code) AS product_code,
                COALESCE(pm.product_name, sri.product_name) AS product_name,
                sri.quantity, sri.free_quantity, sri.product_rate AS rate,
-               sri.product_value AS value,
+               sri.special_rate, sri.product_value AS value,
                sr.stockist_code, COALESCE(sm.stockist_name, '') AS stockist_name,
                dm.team
         FROM `tabScheme Request` sr
@@ -10785,10 +10883,13 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
         ORDER BY dm.team, dm.hq, sr.application_date, dm.doctor_name
     """, params, as_dict=True)
 
-    # Add serial numbers and compute totals
+    # Add serial numbers and compute totals (incl. discount value)
     data = []
-    total_qty = total_free = total_value = 0
+    total_qty = total_free = total_value = total_discount = 0
     for i, r in enumerate(rows, 1):
+        special_rate = flt(r.special_rate)
+        # Discount value = order qty * (PTS − special price), only when a special price is set
+        discount_value = flt(r.quantity) * (flt(r.rate) - special_rate) if special_rate > 0 else 0
         data.append({
             "sno": i,
             "date": str(r.date) if r.date else "",
@@ -10800,6 +10901,8 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
             "qty": flt(r.quantity),
             "free_qty": flt(r.free_quantity),
             "rate": flt(r.rate),
+            "special_rate": special_rate,
+            "discount_value": discount_value,
             "value": flt(r.value),
             "stockist_name": r.stockist_name or "",
             "team": r.team or "",
@@ -10807,18 +10910,21 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
         total_qty += flt(r.quantity)
         total_free += flt(r.free_quantity)
         total_value += flt(r.value)
+        total_discount += discount_value
 
     return {
         "success": True, "data": data,
-        "totals": {"qty": total_qty, "free_qty": total_free, "value": total_value},
-        "criteria": criteria,
+        "totals": {"qty": total_qty, "free_qty": total_free,
+                   "discount_value": total_discount, "value": total_value},
+        "criteria": reporting_criteria,
     }
 
 
 @frappe.whitelist()
 def get_new_approval_doctors_report(division=None, from_date=None, to_date=None,
-                                     product_codes=None, zone=None, region=None,
-                                     criteria="Region", team_or_hq=None):
+                                     reporting_criteria="Organization",
+                                     zone=None, region=None, team=None, hq=None, doctor=None,
+                                     product_codes=None, product_group=None, product_category=None):
     """Report 3 – New Approval Doctors.
     Doctors whose first-ever approved scheme falls within the given date range.
     """
@@ -10832,31 +10938,19 @@ def get_new_approval_doctors_report(division=None, from_date=None, to_date=None,
     # Subquery: first ever approved date per doctor in this division
     # Then filter doctors whose first date falls in the range
     hierarchy_conds = ["dm.status = 'Active'"]
-    if zone:
-        hierarchy_conds.append("dm.zone = %(zone)s")
-        params["zone"] = zone
-    if region:
-        hierarchy_conds.append("dm.region = %(region)s")
-        params["region"] = region
-    if team_or_hq and criteria in ("Team", "HQ"):
-        if criteria == "Team":
-            hierarchy_conds.append("dm.team = %(team_or_hq)s")
-        else:
-            hierarchy_conds.append("dm.hq = %(team_or_hq)s")
-        params["team_or_hq"] = team_or_hq
+    hierarchy_conds += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor)
 
-    # Product filter on scheme items (optional)
+    # Product filter on scheme items (optional) — resolve codes/group/category to ids
     product_join = ""
     product_cond = ""
-    if product_codes:
-        if isinstance(product_codes, str):
-            product_codes = json.loads(product_codes)
-        if product_codes:
-            placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(product_codes))])
-            product_join = "INNER JOIN `tabScheme Request Item` sri ON sri.parent = sr.name"
-            product_cond = "AND sri.product_code IN (" + placeholders + ")"
-            for i, pc in enumerate(product_codes):
-                params["pc_" + str(i)] = pc
+    resolved_pks = _resolve_product_filter(division, product_codes=product_codes,
+                                           product_group=product_group, product_category=product_category)
+    if resolved_pks is not None:
+        placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(resolved_pks))])
+        product_join = "INNER JOIN `tabScheme Request Item` sri ON sri.parent = sr.name"
+        product_cond = "AND sri.product_code IN (" + placeholders + ")"
+        for i, pc in enumerate(resolved_pks):
+            params["pc_" + str(i)] = pc
 
     hierarchy_where = " AND ".join(hierarchy_conds)
 
@@ -10902,10 +10996,13 @@ def get_new_approval_doctors_report(division=None, from_date=None, to_date=None,
 
 @frappe.whitelist()
 def get_scheme_periodic_report(division=None, from_date=None, to_date=None,
-                                group_by="HQ", zone=None, region=None,
-                                product_codes=None):
+                                reporting_criteria="HQ", zone=None, region=None,
+                                team=None, hq=None, doctor=None,
+                                product_codes=None, product_group=None, product_category=None):
     """Report 4 – Periodic Report.
-    Scheme summary aggregated by HQ / Team / Region / Doctor / Stockist / Month / Value.
+    Scheme summary aggregated by the Reporting Criteria dimension
+    (Organization / Zone / Region / Team / HQ / Doctor / Stockist / Month / Value),
+    including free qty and discount value.
     """
     if not division:
         division = get_user_division()
@@ -10920,44 +11017,46 @@ def get_scheme_periodic_report(division=None, from_date=None, to_date=None,
     ]
     params = {"division": division, "from_date": from_date, "to_date": to_date}
 
-    if zone:
-        conditions.append("dm.zone = %(zone)s")
-        params["zone"] = zone
-    if region:
-        conditions.append("dm.region = %(region)s")
-        params["region"] = region
-    if product_codes:
-        if isinstance(product_codes, str):
-            product_codes = json.loads(product_codes)
-        if product_codes:
-            placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(product_codes))])
-            conditions.append("sri.product_code IN (" + placeholders + ")")
-            for i, pc in enumerate(product_codes):
-                params["pc_" + str(i)] = pc
+    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor)
+
+    resolved_pks = _resolve_product_filter(division, product_codes=product_codes,
+                                           product_group=product_group, product_category=product_category)
+    if resolved_pks is not None:
+        placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(resolved_pks))])
+        conditions.append("sri.product_code IN (" + placeholders + ")")
+        for i, pc in enumerate(resolved_pks):
+            params["pc_" + str(i)] = pc
 
     where = " AND ".join(conditions)
 
-    # Dynamic GROUP BY mapping
+    # Discount value aggregate: order qty * (PTS − special price) where a special price is set
+    disc_expr = ("SUM(CASE WHEN sri.special_rate > 0 "
+                 "THEN sri.quantity * (sri.product_rate - sri.special_rate) ELSE 0 END) AS discount_value")
+
+    # Reporting Criteria → GROUP BY mapping
     group_map = {
-        "HQ":       {"select": "dm.hq AS group_key, hm.hq_name AS group_label", "group": "dm.hq"},
-        "Team":     {"select": "dm.team AS group_key, dm.team AS group_label", "group": "dm.team"},
+        "Organization": {"select": "'Organization' AS group_key, 'Whole Organization' AS group_label", "group": "1"},
+        "Zone":     {"select": "IFNULL(dm.zone,'') AS group_key, IFNULL(dm.zone,'(No Zone)') AS group_label", "group": "dm.zone"},
         "Region":   {"select": "dm.region AS group_key, dm.region AS group_label", "group": "dm.region"},
+        "Team":     {"select": "dm.team AS group_key, dm.team AS group_label", "group": "dm.team"},
+        "HQ":       {"select": "dm.hq AS group_key, hm.hq_name AS group_label", "group": "dm.hq"},
         "Doctor":   {"select": "dm.name AS group_key, dm.doctor_name AS group_label, dm.hq, dm.region", "group": "dm.name"},
         "Stockist": {"select": "sr.stockist_code AS group_key, COALESCE(sm.stockist_name,'') AS group_label", "group": "sr.stockist_code"},
         "Month":    {"select": "DATE_FORMAT(sr.application_date, '%%Y-%%m') AS group_key, DATE_FORMAT(sr.application_date, '%%b %%Y') AS group_label", "group": "DATE_FORMAT(sr.application_date, '%%Y-%%m')"},
     }
 
-    gb = group_map.get(group_by, group_map["HQ"])
+    gb = group_map.get(reporting_criteria, group_map["HQ"])
     extra_select = gb["select"]
     group_clause = gb["group"]
 
-    # Value mode: no grouping, just sorted by value desc
-    if group_by == "Value":
+    # Value mode: per-scheme, sorted by value desc
+    if reporting_criteria == "Value":
         rows = frappe.db.sql(f"""
             SELECT sr.name AS group_key, CONCAT(sr.name, ' - ', dm.doctor_name) AS group_label,
                    dm.hq, dm.region,
                    SUM(sri.quantity) AS total_qty,
                    SUM(sri.free_quantity) AS free_qty,
+                   {disc_expr},
                    SUM(sri.product_value) AS total_value
             FROM `tabScheme Request` sr
             INNER JOIN `tabScheme Request Item` sri ON sri.parent = sr.name
@@ -10969,13 +11068,15 @@ def get_scheme_periodic_report(division=None, from_date=None, to_date=None,
         """, params, as_dict=True)
     else:
         stockist_join = ""
-        if group_by == "Stockist":
+        if reporting_criteria == "Stockist":
             stockist_join = "LEFT JOIN `tabStockist Master` sm ON sm.name = sr.stockist_code"
 
+        order_clause = "total_value DESC" if reporting_criteria == "Organization" else group_clause
         rows = frappe.db.sql(f"""
             SELECT {extra_select},
                    SUM(sri.quantity) AS total_qty,
                    SUM(sri.free_quantity) AS free_qty,
+                   {disc_expr},
                    SUM(sri.product_value) AS total_value
             FROM `tabScheme Request` sr
             INNER JOIN `tabScheme Request Item` sri ON sri.parent = sr.name
@@ -10984,7 +11085,7 @@ def get_scheme_periodic_report(division=None, from_date=None, to_date=None,
             {stockist_join}
             WHERE {where}
             GROUP BY {group_clause}
-            ORDER BY {group_clause}
+            ORDER BY {order_clause}
         """, params, as_dict=True)
 
     data = []
@@ -10994,6 +11095,7 @@ def get_scheme_periodic_report(division=None, from_date=None, to_date=None,
             "group_label": r.group_label or "",
             "total_qty": flt(r.total_qty),
             "free_qty": flt(r.free_qty),
+            "discount_value": flt(r.discount_value),
             "total_value": flt(r.total_value),
         }
         if hasattr(r, "hq"):
@@ -11002,7 +11104,157 @@ def get_scheme_periodic_report(division=None, from_date=None, to_date=None,
             entry["region"] = r.region or ""
         data.append(entry)
 
-    return {"success": True, "data": data, "group_by": group_by}
+    return {"success": True, "data": data, "group_by": reporting_criteria}
+
+
+@frappe.whitelist()
+def get_pending_scheme_deduction_report(division=None, month=None,
+                                        reporting_criteria="Organization",
+                                        zone=None, region=None, team=None, hq=None, doctor=None,
+                                        product_codes=None, product_group=None, product_category=None,
+                                        scheme_type="All"):
+    """Monthly Pending Scheme Deduction Report.
+
+    Lists Approved scheme lines (by scheme application month) that are NOT yet
+    deducted — i.e. no non-cancelled Scheme Deduction exists for the scheme — and
+    that carry free goods and/or a special price. This is what still needs to be
+    deducted from the stockist statements; at month-end it surfaces what will spill
+    into next month.
+
+    A scheme is only 'deducted' via a Scheme Deduction document — manually editing a
+    statement does NOT clear a scheme from this report.
+    """
+    if not division:
+        division = get_user_division()
+
+    from datetime import date as _date
+    if not month:
+        month = _date.today().strftime("%Y-%m")
+    from_date, to_date = _month_bounds(month)
+    if not from_date:
+        return {"success": False, "message": "Invalid month (expected YYYY-MM)."}
+
+    conditions = [
+        "sr.division = %(division)s",
+        "sr.docstatus = 1",
+        "sr.approval_status = 'Approved'",
+        "sr.application_date BETWEEN %(from_date)s AND %(to_date)s",
+        "NOT EXISTS (SELECT 1 FROM `tabScheme Deduction` sd "
+        "WHERE sd.scheme_request = sr.name AND sd.docstatus != 2)",
+    ]
+    params = {"division": division, "from_date": from_date, "to_date": to_date}
+
+    # A pending line must carry free goods and/or a discount
+    if scheme_type == "Free":
+        conditions.append("sri.free_quantity > 0")
+    elif scheme_type == "Discount":
+        conditions.append("sri.special_rate > 0")
+    else:
+        conditions.append("(sri.free_quantity > 0 OR sri.special_rate > 0)")
+
+    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor)
+
+    resolved_pks = _resolve_product_filter(division, product_codes=product_codes,
+                                           product_group=product_group, product_category=product_category)
+    if resolved_pks is not None:
+        placeholders = ", ".join(["%(pc_" + str(i) + ")s" for i in range(len(resolved_pks))])
+        conditions.append("sri.product_code IN (" + placeholders + ")")
+        for i, pc in enumerate(resolved_pks):
+            params["pc_" + str(i)] = pc
+
+    where = " AND ".join(conditions)
+
+    # Reporting Criteria drives the subtotal ordering/grouping
+    order_map = {
+        "Organization": "dm.region, hm.hq_name",
+        "Zone":         "dm.zone, dm.region",
+        "Region":       "dm.region, hm.hq_name",
+        "Team":         "dm.team, hm.hq_name",
+        "HQ":           "hm.hq_name, dm.doctor_name",
+        "Doctor":       "dm.doctor_name",
+        "Stockist":     "stockist_name, dm.doctor_name",
+    }
+    order_by = order_map.get(reporting_criteria, "dm.region, hm.hq_name")
+
+    rows = frappe.db.sql(f"""
+        SELECT sr.name AS scheme_name, sr.application_date AS date,
+               IFNULL(dm.zone,'') AS zone, dm.region, dm.team, dm.hq,
+               COALESCE(hm.hq_name, dm.hq) AS hq_name,
+               dm.doctor_name, dm.name AS doctor_code,
+               sr.stockist_code, COALESCE(sm.stockist_name, sr.stockist_name, '') AS stockist_name,
+               COALESCE(pm.product_code, sri.product_code) AS product_code,
+               COALESCE(pm.product_name, sri.product_name) AS product_name,
+               sri.pack, sri.quantity, sri.free_quantity, sri.product_rate,
+               sri.special_rate, sri.product_value, sri.idx
+        FROM `tabScheme Request` sr
+        INNER JOIN `tabScheme Request Item` sri ON sri.parent = sr.name
+        INNER JOIN `tabDoctor Master` dm ON dm.name = sr.doctor_code
+        LEFT JOIN `tabHQ Master` hm ON hm.name = dm.hq
+        LEFT JOIN `tabProduct Master` pm ON pm.name = sri.product_code
+        LEFT JOIN `tabStockist Master` sm ON sm.name = sr.stockist_code
+        WHERE {where}
+        ORDER BY {order_by}, sr.application_date, sri.idx
+    """, params, as_dict=True)
+
+    def group_label_for(r):
+        if reporting_criteria == "Zone":
+            return r.zone or "(No Zone)"
+        if reporting_criteria == "Region":
+            return r.region or "(No Region)"
+        if reporting_criteria == "Team":
+            return r.team or "(No Team)"
+        if reporting_criteria == "HQ":
+            return r.hq_name or "(No HQ)"
+        if reporting_criteria == "Doctor":
+            return r.doctor_name or "(No Doctor)"
+        if reporting_criteria == "Stockist":
+            return r.stockist_name or "(No Stockist)"
+        return "Whole Organization"
+
+    data = []
+    schemes_seen = set()
+    tot_free = tot_disc = tot_value = 0
+    for i, r in enumerate(rows, 1):
+        special_rate = flt(r.special_rate)
+        discount_value = flt(r.quantity) * (flt(r.product_rate) - special_rate) if special_rate > 0 else 0
+        schemes_seen.add(r.scheme_name)
+        data.append({
+            "sno": i,
+            "scheme_name": r.scheme_name,
+            "group_label": group_label_for(r),
+            "date": str(r.date) if r.date else "",
+            "region": r.region or "",
+            "hq": r.hq or "",
+            "hq_name": r.hq_name or "",
+            "team": r.team or "",
+            "doctor_name": r.doctor_name or "",
+            "stockist_name": r.stockist_name or "",
+            "product_code": r.product_code or "",
+            "product_name": r.product_name or "",
+            "pack": r.pack or "",
+            "qty": flt(r.quantity),
+            "free_qty": flt(r.free_quantity),
+            "rate": flt(r.product_rate),
+            "special_rate": special_rate,
+            "discount_value": discount_value,
+            "value": flt(r.product_value),
+        })
+        tot_free += flt(r.free_quantity)
+        tot_disc += discount_value
+        tot_value += flt(r.product_value)
+
+    return {
+        "success": True,
+        "data": data,
+        "group_by": reporting_criteria,
+        "month": month,
+        "totals": {
+            "scheme_count": len(schemes_seen),
+            "free_qty": tot_free,
+            "discount_value": tot_disc,
+            "value": tot_value,
+        },
+    }
 
 
 @frappe.whitelist()
@@ -11056,29 +11308,32 @@ def export_scheme_report_excel(report_type, division=None, **kwargs):
 
     from_date = kwargs.get("from_date", "")
     to_date = kwargs.get("to_date", "")
+    month = kwargs.get("month", "")
     region_val = kwargs.get("region", "")
     zone_val = kwargs.get("zone", "")
+    team_val = kwargs.get("team", "")
+    hq_val = kwargs.get("hq", "")
+    doctor_val = kwargs.get("doctor", "")
     doctor_status = kwargs.get("doctor_status", "Active")
-    product_type = kwargs.get("product_type", "All")
     product_codes = kwargs.get("product_codes", None)
-    criteria = kwargs.get("criteria", "Region")
-    team_or_hq = kwargs.get("team_or_hq", "")
-    group_by = kwargs.get("group_by", "HQ")
+    product_group = kwargs.get("product_group", None)
+    product_category = kwargs.get("product_category", None)
+    reporting_criteria = kwargs.get("reporting_criteria", "Organization")
+    scheme_type = kwargs.get("scheme_type", "All")
     period_label = f"{from_date} to {to_date}" if from_date and to_date else ""
-    region_label = region_val or "All Regions"
 
     ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
 
     if report_type == "activity_trend":
         ws.title = "Activity Trend"
         result = get_scheme_activity_trend_report(
-            division, from_date, to_date, doctor_status, product_type,
-            product_codes, zone_val, region_val, criteria, team_or_hq
+            division, from_date, to_date, doctor_status, reporting_criteria,
+            zone_val, region_val, team_val, hq_val, doctor_val,
+            product_codes, product_group, product_category
         )
         data = result.get("data", [])
         fy_label = result.get("fy_label", "")
-        row = write_title_rows(ws, f"Activity Trend Report – {division}",
-                               f"Region: {region_label}  |  {fy_label}")
+        row = write_title_rows(ws, f"Activity Trend Report – {division}", f"{fy_label}")
         headers = ["Region", "HQ", "Doctor Name"] + ml
         write_header_row(ws, row, headers)
         row += 1
@@ -11095,34 +11350,39 @@ def export_scheme_report_excel(report_type, division=None, **kwargs):
     elif report_type == "activity_track":
         ws.title = "Activity Track"
         result = get_scheme_activity_track_report(
-            division, from_date, to_date, doctor_status, product_type,
-            product_codes, zone_val, region_val, criteria, team_or_hq
+            division, from_date, to_date, doctor_status, reporting_criteria,
+            zone_val, region_val, team_val, hq_val, doctor_val,
+            product_codes, product_group, product_category
         )
         data = result.get("data", [])
         totals = result.get("totals", {})
         row = write_title_rows(ws, f"Activity Track Report – {division}",
-                               f"Region: {region_label}  |  Period: {period_label}")
+                               f"Period: {period_label}")
         headers = ["S.No", "Date", "Region", "HQ", "Doctor Name", "Product",
-                    "Qty", "Free Qty", "Rate", "Value", "Stockist"]
+                    "Qty", "Free Qty", "Rate", "Special Price", "Discount Value",
+                    "Value", "Stockist"]
         write_header_row(ws, row, headers)
         row += 1
         for d in data:
             write_data_row(ws, row, [d["sno"], d["date"], d["region"], d["hq"],
-                                     d["doctor_name"], d["product_code"],
-                                     d["qty"], d["free_qty"], d["rate"], d["value"],
-                                     d["stockist_name"]])
+                                     d["doctor_name"], d.get("product_name") or d["product_code"],
+                                     d["qty"], d["free_qty"], d["rate"],
+                                     d.get("special_rate", 0), d.get("discount_value", 0),
+                                     d["value"], d["stockist_name"]])
             row += 1
         # Totals row
         write_group_row(ws, row, "Total", len(headers))
         ws.cell(row=row, column=7, value=totals.get("qty", 0)).font = group_font
         ws.cell(row=row, column=8, value=totals.get("free_qty", 0)).font = group_font
-        ws.cell(row=row, column=10, value=totals.get("value", 0)).font = group_font
+        ws.cell(row=row, column=11, value=totals.get("discount_value", 0)).font = group_font
+        ws.cell(row=row, column=12, value=totals.get("value", 0)).font = group_font
 
     elif report_type == "new_approval_doctors":
         ws.title = "New Approval Doctors"
         result = get_new_approval_doctors_report(
-            division, from_date, to_date, product_codes, zone_val, region_val,
-            criteria, team_or_hq
+            division, from_date, to_date, reporting_criteria,
+            zone_val, region_val, team_val, hq_val, doctor_val,
+            product_codes, product_group, product_category
         )
         data = result.get("data", [])
         row = write_title_rows(ws, f"New Approval Doctors – {division}",
@@ -11140,20 +11400,55 @@ def export_scheme_report_excel(report_type, division=None, **kwargs):
     elif report_type == "periodic":
         ws.title = "Periodic Report"
         result = get_scheme_periodic_report(
-            division, from_date, to_date, group_by, zone_val, region_val,
-            product_codes
+            division, from_date, to_date, reporting_criteria,
+            zone_val, region_val, team_val, hq_val, doctor_val,
+            product_codes, product_group, product_category
         )
         data = result.get("data", [])
         gb = result.get("group_by", "HQ")
         row = write_title_rows(ws, f"Periodic Report ({gb} Wise) – {division}",
                                f"Period: {period_label}")
-        headers = [gb, "Total Qty", "Free Qty", "Total Value"]
+        headers = [gb, "Total Qty", "Free Qty", "Discount Value", "Total Value"]
         write_header_row(ws, row, headers)
         row += 1
         for d in data:
             write_data_row(ws, row, [d["group_label"], d["total_qty"],
-                                     d["free_qty"], d["total_value"]])
+                                     d["free_qty"], d.get("discount_value", 0), d["total_value"]])
             row += 1
+
+    elif report_type == "pending_deduction":
+        ws.title = "Pending Deduction"
+        result = get_pending_scheme_deduction_report(
+            division, month, reporting_criteria,
+            zone_val, region_val, team_val, hq_val, doctor_val,
+            product_codes, product_group, product_category, scheme_type
+        )
+        data = result.get("data", [])
+        totals = result.get("totals", {})
+        row = write_title_rows(ws, f"Monthly Pending Scheme Deduction – {division}",
+                               f"Month: {month}  |  Criteria: {reporting_criteria}")
+        headers = ["S.No", "Date", "Region", "HQ", "Doctor Name", "Stockist",
+                    "Product", "Order Qty", "Free Qty", "PTS", "Special Price",
+                    "Discount Value", "Scheme Value"]
+        write_header_row(ws, row, headers)
+        row += 1
+        current_group = None
+        for d in data:
+            if d["group_label"] != current_group:
+                current_group = d["group_label"]
+                write_group_row(ws, row, current_group, len(headers))
+                row += 1
+            write_data_row(ws, row, [d["sno"], d["date"], d["region"], d.get("hq_name") or d["hq"],
+                                     d["doctor_name"], d["stockist_name"],
+                                     d.get("product_name") or d["product_code"],
+                                     d["qty"], d["free_qty"], d["rate"],
+                                     d["special_rate"], d["discount_value"], d["value"]])
+            row += 1
+        write_group_row(ws, row, "Grand Total", len(headers))
+        ws.cell(row=row, column=9, value=totals.get("free_qty", 0)).font = group_font
+        ws.cell(row=row, column=12, value=totals.get("discount_value", 0)).font = group_font
+        ws.cell(row=row, column=13, value=totals.get("value", 0)).font = group_font
+
     else:
         frappe.throw("Invalid report type")
 

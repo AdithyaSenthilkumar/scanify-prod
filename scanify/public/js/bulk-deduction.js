@@ -37,8 +37,8 @@ function cascadeFromZone() {
     ALL_REGIONS.forEach(function (r) {
         if (!zone || r.zone === zone) {
             const opt = document.createElement('option');
-            opt.value = r.name;
-            opt.textContent = r.region_name || r.name;
+            opt.value = r.code;
+            opt.textContent = r.name || r.code;
             regionSelect.appendChild(opt);
         }
     });
@@ -54,8 +54,8 @@ function cascadeFromRegion() {
     ALL_TEAMS.forEach(function (t) {
         if (!region || t.region === region) {
             const opt = document.createElement('option');
-            opt.value = t.name;
-            opt.textContent = t.team_name || t.name;
+            opt.value = t.code;
+            opt.textContent = t.name || t.code;
             teamSelect.appendChild(opt);
         }
     });
@@ -70,7 +70,7 @@ function cascadeFromTeam() {
     const current = hqSelect.value;
     // Teams that belong to the chosen region (when no explicit team picked)
     const regionTeams = new Set();
-    if (region) ALL_TEAMS.forEach(function (t) { if (t.region === region) regionTeams.add(t.name); });
+    if (region) ALL_TEAMS.forEach(function (t) { if (t.region === region) regionTeams.add(t.code); });
     hqSelect.innerHTML = '<option value="">All HQs</option>';
     ALL_HQS.forEach(function (h) {
         let show = true;
@@ -78,8 +78,8 @@ function cascadeFromTeam() {
         else if (region) show = regionTeams.has(h.team);
         if (show) {
             const opt = document.createElement('option');
-            opt.value = h.name;
-            opt.textContent = h.hq_name || h.name;
+            opt.value = h.code;
+            opt.textContent = h.name || h.code;
             hqSelect.appendChild(opt);
         }
     });

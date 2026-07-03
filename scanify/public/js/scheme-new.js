@@ -3,6 +3,8 @@
  */
 
 let itemCounter = 0;
+// Free Qty and Special Price are mutually exclusive per line item — set one or the other.
+const SCHEME_EXCLUSIVE_HINT = 'Free Qty and Special Price are mutually exclusive — set one or the other.';
 let allProducts = [];
 let selectedDoctor = null;
 let doctorProductLimits = {}; // product_code -> count_this_month
@@ -348,9 +350,9 @@ function addItemRow() {
         </td>
         <td><input type="text" class="form-control" id="pack-${rowId}" readonly></td>
         <td><input type="number" class="form-control" id="qty-${rowId}" min="1" value="1" oninput="calculateRow(${rowId})"></td>
-        <td><input type="number" class="form-control" id="freeqty-${rowId}" min="0" value="0" oninput="calculateRow(${rowId})"></td>
+        <td><input type="number" class="form-control" id="freeqty-${rowId}" min="0" value="0" title="${SCHEME_EXCLUSIVE_HINT}" oninput="onFreeQtyInput(${rowId})"></td>
         <td><input type="number" class="form-control" id="rate-${rowId}" step="0.01" readonly></td>
-        <td><input type="number" class="form-control" id="specialrate-${rowId}" step="0.01" placeholder="Optional" oninput="calculateRow(${rowId})"></td>
+        <td><input type="number" class="form-control" id="specialrate-${rowId}" step="0.01" placeholder="Optional" title="${SCHEME_EXCLUSIVE_HINT}" oninput="onSpecialRateInput(${rowId})"></td>
         <td><input type="text" class="form-control bg-light" id="schemepct-${rowId}" readonly></td>
         <td><input type="text" class="form-control bg-light text-right" id="value-${rowId}" readonly></td>
         <td class="text-center">
@@ -433,6 +435,32 @@ function getConversionFactor(packStr) {
     if (match) return parseFloat(match[1]) || 1;
     if (/UNIT|BOX|ML|GM|MG|'S/.test(packStr)) return 1;
     return 1;
+}
+
+// ── Mutual exclusion: Free Qty vs Special Price ──
+// A line item is either a free-goods scheme OR a special-price (discount) scheme, never both.
+function onFreeQtyInput(rowId) {
+    const freeVal = parseFloat($(`#freeqty-${rowId}`).val()) || 0;
+    const $special = $(`#specialrate-${rowId}`);
+    if (freeVal > 0) {
+        $special.val('').prop('disabled', true).addClass('bg-light')
+            .attr('title', 'Disabled because Free Qty is set. ' + SCHEME_EXCLUSIVE_HINT);
+    } else {
+        $special.prop('disabled', false).removeClass('bg-light').attr('title', SCHEME_EXCLUSIVE_HINT);
+    }
+    calculateRow(rowId);
+}
+
+function onSpecialRateInput(rowId) {
+    const specialVal = parseFloat($(`#specialrate-${rowId}`).val()) || 0;
+    const $free = $(`#freeqty-${rowId}`);
+    if (specialVal > 0) {
+        $free.val('').prop('disabled', true).addClass('bg-light')
+            .attr('title', 'Disabled because Special Price is set. ' + SCHEME_EXCLUSIVE_HINT);
+    } else {
+        $free.prop('disabled', false).removeClass('bg-light').attr('title', SCHEME_EXCLUSIVE_HINT);
+    }
+    calculateRow(rowId);
 }
 
 function calculateRow(rowId) {

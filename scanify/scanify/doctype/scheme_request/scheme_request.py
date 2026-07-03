@@ -10,8 +10,25 @@ class SchemeRequest(Document):
     def validate(self):
         self.calculate_total_scheme_value()
         # REMOVED: self.validate_attachments() - No longer mandatory
+        self.validate_scheme_exclusivity()    # NEW: Free Qty vs Special Price
         self.validate_monthly_doctor_limit()  # NEW
         self.set_division()
+
+    def validate_scheme_exclusivity(self):
+        """A scheme line item is either a free-goods scheme OR a special-price
+        (discount) scheme — never both. Enforced here so the rule holds for every
+        entry surface (portal forms, edit modal, Desk)."""
+        conflicts = []
+        for item in (self.items or []):
+            if flt(item.free_quantity) > 0 and flt(item.special_rate) > 0:
+                label = item.product_name or item.product_code or "Item"
+                conflicts.append(f"• <b>{label}</b>")
+        if conflicts:
+            frappe.throw(
+                "Free Quantity and Special Price cannot both be set on the same line "
+                "item. Please clear one of them for:<br><br>" + "<br>".join(conflicts),
+                title="Free Qty / Special Price Conflict"
+            )
 
     def set_division(self):
         division = None

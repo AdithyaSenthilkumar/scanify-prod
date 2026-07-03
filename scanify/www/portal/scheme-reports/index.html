@@ -15,6 +15,14 @@
         </div>
     </div>
 
+    <!-- Info note: manual deductions do not reflect -->
+    <div class="sr-info-note d-print-none">
+        <i class="fa fa-info-circle"></i>
+        <span>These reports are built from <strong>Scheme Requests</strong>. Manual scheme deductions made by
+        editing stockist statements directly are <strong>not reflected</strong> here &mdash; only deductions done
+        through the Scheme Deduction flow change a scheme's status.</span>
+    </div>
+
     <!-- Report Type Selector -->
     <div class="sr-selector-card d-print-none">
         <div class="row align-items-end">
@@ -26,6 +34,7 @@
                     <option value="activity_track">2. Activity Track Report</option>
                     <option value="new_approval_doctors">3. New Approval Doctors</option>
                     <option value="periodic">4. Periodic Report</option>
+                    <option value="pending_deduction">5. Monthly Pending Scheme Deduction</option>
                 </select>
             </div>
             <div class="col-md-5 col-lg-6 mt-3 mt-md-0 d-flex align-items-end" style="gap:8px;">
@@ -45,6 +54,51 @@
     <!-- Dynamic Filters Panel -->
     <div id="dynamic-filters" class="sr-filters-panel d-print-none" style="display:none;">
         <div class="sr-filters-grid">
+            <!-- Reporting Criteria (always first) -->
+            <div class="sr-filter-item">
+                <label class="sr-filter-label"><i class="fa fa-sitemap mr-1"></i> Reporting Criteria</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-criteria" onchange="onCriteriaChange()">
+                    <option value="Organization">Whole Organization</option>
+                </select>
+            </div>
+            <!-- Cascade: Zone -->
+            <div class="sr-filter-item" id="wrap-zone" style="display:none;">
+                <label class="sr-filter-label">Zone</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-zone" onchange="critCascadeFromZone()">
+                    <option value="">All Zones</option>
+                    {% for z in zones %}<option value="{{ z.code }}">{{ z.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <!-- Cascade: Region -->
+            <div class="sr-filter-item" id="wrap-region" style="display:none;">
+                <label class="sr-filter-label">Region</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-region" onchange="critCascadeFromRegion()">
+                    <option value="">All Regions</option>
+                    {% for r in regions %}<option value="{{ r.code }}">{{ r.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <!-- Cascade: Team -->
+            <div class="sr-filter-item" id="wrap-team" style="display:none;">
+                <label class="sr-filter-label">Team</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-team" onchange="critCascadeFromTeam()">
+                    <option value="">All Teams</option>
+                </select>
+            </div>
+            <!-- Cascade: HQ -->
+            <div class="sr-filter-item" id="wrap-hq" style="display:none;">
+                <label class="sr-filter-label">HQ</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-hq" onchange="critCascadeFromHQ()">
+                    <option value="">All HQs</option>
+                </select>
+            </div>
+            <!-- Cascade: Doctor -->
+            <div class="sr-filter-item" id="wrap-doctor" style="display:none;min-width:220px;">
+                <label class="sr-filter-label">Doctor</label>
+                <select class="form-control form-control-sm sr-filter-select sr-select2" id="f-doctor">
+                    <option value="">All Doctors</option>
+                </select>
+            </div>
+
             <!-- From Date -->
             <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
                 <label class="sr-filter-label">From Date</label>
@@ -55,6 +109,20 @@
                 <label class="sr-filter-label">To Date</label>
                 <input type="date" class="form-control form-control-sm sr-filter-select" id="f-to-date">
             </div>
+            <!-- Month (Pending Deduction) -->
+            <div class="sr-filter-item filter-field" data-reports="pending_deduction">
+                <label class="sr-filter-label">Month</label>
+                <input type="month" class="form-control form-control-sm sr-filter-select" id="f-month">
+            </div>
+            <!-- Scheme Type (Pending Deduction) -->
+            <div class="sr-filter-item filter-field" data-reports="pending_deduction">
+                <label class="sr-filter-label">Scheme Type</label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-scheme-type">
+                    <option value="All">Free &amp; Discount</option>
+                    <option value="Free">Free Quantity only</option>
+                    <option value="Discount">Special Price only</option>
+                </select>
+            </div>
             <!-- Activity Status -->
             <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track">
                 <label class="sr-filter-label">Activity Status</label>
@@ -64,89 +132,29 @@
                     <option value="All">All</option>
                 </select>
             </div>
-            <!-- Product Type -->
-            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track">
-                <label class="sr-filter-label">Product Filter</label>
-                <select class="form-control form-control-sm sr-filter-select" id="f-product-type" onchange="filterProductsByType()">
-                    <option value="All">All Products</option>
-                    <option value="Other Products">Other Products</option>
-                    <option value="Hospital Products">Hospital Products</option>
-                </select>
-            </div>
-            <!-- Zone -->
-            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
-                <label class="sr-filter-label">Zone</label>
-                <select class="form-control form-control-sm sr-filter-select" id="f-zone" onchange="cascadeFromZone()">
-                    <option value="">All Zones</option>
-                    {% for z in zones %}
-                    <option value="{{ z }}">{{ z }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <!-- Region -->
-            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track,new_approval_doctors,periodic">
-                <label class="sr-filter-label">Region</label>
-                <select class="form-control form-control-sm sr-filter-select" id="f-region" onchange="cascadeFromRegion()">
-                    <option value="">All Regions</option>
-                    {% for r in regions %}
-                    <option value="{{ r.name }}" data-zone="{{ r.zone }}">{{ r.name }} – {{ r.region_name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <!-- Criteria -->
-            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track,new_approval_doctors">
-                <label class="sr-filter-label">Criteria</label>
-                <select class="form-control form-control-sm sr-filter-select" id="f-criteria" onchange="onCriteriaChange()">
-                    <option value="Region">Region</option>
-                    <option value="Team">Team</option>
-                    <option value="HQ">HQ</option>
-                    <option value="Doctor">Doctor</option>
-                </select>
-            </div>
-            <!-- Team / HQ (dynamic) -->
-            <div class="sr-filter-item filter-field" data-reports="activity_trend,activity_track,new_approval_doctors" id="team-hq-wrapper" style="display:none;">
-                <label class="sr-filter-label" id="team-hq-label">Team / HQ</label>
-                <select class="form-control form-control-sm sr-filter-select" id="f-team-or-hq">
-                    <option value="">-- Select --</option>
-                </select>
-            </div>
-            <!-- Group By (Periodic) -->
-            <div class="sr-filter-item filter-field" data-reports="periodic">
-                <label class="sr-filter-label">Group By</label>
-                <select class="form-control form-control-sm sr-filter-select" id="f-group-by">
-                    <option value="HQ">HQ</option>
-                    <option value="Team">Team</option>
-                    <option value="Region">Region</option>
-                    <option value="Doctor">Doctor</option>
-                    <option value="Stockist">Stockist</option>
-                    <option value="Month">Month</option>
-                    <option value="Value">Value</option>
-                </select>
-            </div>
         </div>
 
-        <!-- Product Multi-Select Checkbox List -->
-        <div class="filter-field mt-3" data-reports="activity_trend,activity_track,new_approval_doctors,periodic" id="product-list-wrapper">
-            <label class="sr-filter-label">Product List</label>
-            <div class="product-list-container">
-                <div class="product-search-bar">
-                    <input type="text" class="form-control form-control-sm" id="product-search"
-                           placeholder="Search products..." oninput="filterProductSearch()">
-                </div>
-                <div class="product-select-all-row">
-                    <label class="product-check-label">
-                        <input type="checkbox" id="product-select-all" onchange="toggleSelectAll()" checked>
-                        <span>Select All</span>
-                    </label>
-                </div>
-                <div class="product-checkbox-list" id="product-checkbox-list">
+        <!-- Product filters (all reports) -->
+        <div class="sr-filters-grid mt-3">
+            <div class="sr-filter-item" style="min-width:280px;flex:1 1 280px;max-width:460px;">
+                <label class="sr-filter-label">Products <span class="text-muted" style="font-weight:400;text-transform:none;">(optional — all if blank)</span></label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-products" multiple>
                     {% for p in products %}
-                    <label class="product-check-label" data-category="{{ p.category }}" data-group="{{ p.group }}">
-                        <input type="checkbox" value="{{ p.code }}" class="product-cb" checked>
-                        <span>{{ p.code }} – {{ p.name }}</span>
-                    </label>
+                    <option value="{{ p.code }}">{{ p.name }}{% if p.pack %} ({{ p.pack }}){% endif %}</option>
                     {% endfor %}
-                </div>
+                </select>
+            </div>
+            <div class="sr-filter-item" style="min-width:220px;flex:1 1 220px;max-width:360px;">
+                <label class="sr-filter-label">Product Group <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-prodgroup" multiple>
+                    {% for g in product_groups %}<option value="{{ g }}">{{ g }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="sr-filter-item" style="min-width:220px;flex:1 1 220px;max-width:360px;">
+                <label class="sr-filter-label">Product Category <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
+                <select class="form-control form-control-sm sr-filter-select" id="f-prodcat" multiple>
+                    {% for c in product_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+                </select>
             </div>
         </div>
     </div>
@@ -200,25 +208,28 @@
     /* ─── Page Header ─── */
     .sr-page-header {
         background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-        border-radius: 12px;
-        padding: 24px 28px;
-        margin-bottom: 20px;
-        color: #fff;
+        border-radius: 12px; padding: 24px 28px; margin-bottom: 14px; color: #fff;
     }
     .sr-header-content { display: flex; align-items: center; gap: 16px; }
     .sr-header-icon {
-        width: 48px; height: 48px; border-radius: 12px;
-        background: rgba(255,255,255,0.15);
+        width: 48px; height: 48px; border-radius: 12px; background: rgba(255,255,255,0.15);
         display: flex; align-items: center; justify-content: center; font-size: 22px;
     }
     .sr-title { font-size: 22px; font-weight: 700; margin: 0; color: #fff; }
     .sr-subtitle { font-size: 13px; color: rgba(255,255,255,0.65); margin: 2px 0 0; }
 
+    /* ─── Info note ─── */
+    .sr-info-note {
+        display: flex; gap: 10px; align-items: flex-start;
+        background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+        border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12.5px;
+    }
+    .sr-info-note i { margin-top: 2px; }
+
     /* ─── Selector Card ─── */
     .sr-selector-card {
         background: #fff; border: 1px solid var(--color-border, #e2e8f0);
-        border-radius: 10px; padding: 18px 22px; margin-bottom: 14px;
-        box-shadow: var(--shadow-sm);
+        border-radius: 10px; padding: 18px 22px; margin-bottom: 14px; box-shadow: var(--shadow-sm);
     }
     .sr-select-main {
         font-size: 14px; font-weight: 600; border-radius: 8px;
@@ -245,33 +256,17 @@
         font-size: 11px; font-weight: 600; text-transform: uppercase;
         color: var(--color-text-muted, #64748b); letter-spacing: 0.5px; margin-bottom: 4px; display: block;
     }
-    .sr-filter-select {
-        border-radius: 6px; border: 1px solid var(--color-border, #e2e8f0); font-size: 13px;
-    }
+    .sr-filter-select { border-radius: 6px; border: 1px solid var(--color-border, #e2e8f0); font-size: 13px; }
     .sr-filter-select:focus { border-color: var(--color-accent, #4f46e5); box-shadow: 0 0 0 2px rgba(79,70,229,0.08); }
 
     /* ─── Report Card ─── */
-    .sr-report-card {
-        background: #fff; border: 1px solid var(--color-border, #e2e8f0);
-        border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-sm);
-    }
-    .sr-report-header {
-        padding: 12px 18px; background: #f8fafc;
-        border-bottom: 1px solid var(--color-border, #e2e8f0);
-        display: flex; align-items: center; justify-content: space-between;
-    }
+    .sr-report-card { background: #fff; border: 1px solid var(--color-border, #e2e8f0); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-sm); }
+    .sr-report-header { padding: 12px 18px; background: #f8fafc; border-bottom: 1px solid var(--color-border, #e2e8f0); display: flex; align-items: center; justify-content: space-between; }
     .sr-report-header-left { display: flex; align-items: center; gap: 10px; }
-    .sr-report-icon {
-        width: 32px; height: 32px; border-radius: 8px;
-        background: var(--color-accent, #4f46e5); color: #fff;
-        display: flex; align-items: center; justify-content: center; font-size: 14px;
-    }
+    .sr-report-icon { width: 32px; height: 32px; border-radius: 8px; background: var(--color-accent, #4f46e5); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; }
     .sr-report-title-text { font-size: 14px; font-weight: 600; color: var(--color-text, #0f172a); }
     .sr-report-subtitle-text { font-size: 12px; color: var(--color-text-muted, #64748b); display: block; }
-    .sr-badge {
-        background: var(--color-accent, #4f46e5); color: #fff;
-        font-size: 11px; font-weight: 600; padding: 4px 12px; border-radius: 9999px;
-    }
+    .sr-badge { background: var(--color-accent, #4f46e5); color: #fff; font-size: 11px; font-weight: 600; padding: 4px 12px; border-radius: 9999px; }
     .sr-report-body { padding: 0; }
 
     /* ─── Table ─── */
@@ -291,23 +286,23 @@
 
     /* ─── Empty / Loading ─── */
     .sr-empty-state { text-align: center; padding: 60px 20px; }
-    .sr-empty-icon {
-        width: 64px; height: 64px; border-radius: 50%; background: #f1f5f9; color: #94a3b8;
-        display: inline-flex; align-items: center; justify-content: center; font-size: 26px;
-    }
+    .sr-empty-icon { width: 64px; height: 64px; border-radius: 50%; background: #f1f5f9; color: #94a3b8; display: inline-flex; align-items: center; justify-content: center; font-size: 26px; }
     .sr-loading-spinner { padding: 20px 0; }
 
-    /* ─── Product checkbox list ─── */
-    .product-list-container { border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; background: #fff; overflow: hidden; }
-    .product-search-bar { padding: 8px 10px; border-bottom: 1px solid var(--color-border, #e2e8f0); background: #f8fafc; }
-    .product-select-all-row { padding: 6px 12px; border-bottom: 1px solid var(--color-border, #e2e8f0); background: #f1f5f9; }
-    .product-checkbox-list { max-height: 180px; overflow-y: auto; padding: 4px 0; }
-    .product-check-label {
-        display: flex; align-items: center; gap: 8px; padding: 4px 12px; margin: 0;
-        cursor: pointer; font-size: 12px; color: var(--color-text, #0f172a); transition: background 0.15s;
+    /* ─── Select2 theme ─── */
+    .select2-container--default .select2-selection--single,
+    .select2-container--default .select2-selection--multiple {
+        border-radius: 6px; border-color: #e2e8f0; min-height: 31px; font-size: 13px;
     }
-    .product-check-label:hover { background: #f1f5f9; }
-    .product-check-label input[type="checkbox"] { accent-color: var(--color-accent, #4f46e5); width: 14px; height: 14px; flex-shrink: 0; }
+    .select2-container--default.select2-container--focus .select2-selection--multiple,
+    .select2-container--default.select2-container--focus .select2-selection--single { border-color: var(--color-accent, #4f46e5); }
+    .select2-dropdown { border-radius: 6px; border-color: #e2e8f0; font-size: 13px; z-index: 9999; }
+    .select2-search__field { font-size: 13px !important; }
+    .select2-results__option--highlighted { background: var(--color-accent, #4f46e5) !important; }
+    .select2-container--default .select2-selection--multiple .select2-selection__choice {
+        background: var(--color-accent, #4f46e5); color: #fff; border: none; border-radius: 4px; font-size: 11px;
+    }
+    .select2-container--default .select2-selection--multiple .select2-selection__choice__remove { color: #e0e7ff; margin-right: 4px; }
 
     /* ─── Print ─── */
     @media print {
@@ -335,6 +330,9 @@
 {% endblock %}
 
 {% block scripts %}
+<!-- Select2 for searchable dropdowns -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <!-- jsPDF + Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
@@ -346,14 +344,41 @@ let currentReportType = "";
 let currentReportData = null;
 let currentReportMeta = {};
 
+const ALL_ZONES   = {{ zones | tojson }};
 const ALL_REGIONS = {{ regions | tojson }};
 const ALL_TEAMS   = {{ teams | tojson }};
 const ALL_HQS     = {{ hqs | tojson }};
+const ALL_DOCTORS = {{ doctors | tojson }};
 
-// ─────────────────────────────────────────────────────────────
-// Default dates (current FY)
-// ─────────────────────────────────────────────────────────────
-(function setDefaultDates() {
+const CRITERIA_BASE     = ["Organization", "Zone", "Region", "Team", "HQ", "Doctor"];
+const CRITERIA_PERIODIC = ["Organization", "Zone", "Region", "Team", "HQ", "Doctor", "Stockist", "Month", "Value"];
+
+// ─── small DOM helpers ───
+function getVal(id) { const el = document.getElementById(id); return el ? el.value : ""; }
+function getMulti(id) {
+    const el = document.getElementById(id);
+    if (!el) return [];
+    return Array.from(el.selectedOptions).map(function (o) { return o.value; }).filter(Boolean);
+}
+function toggleWrap(id, show) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.display = show ? "" : "none";
+    if (!show) { const sel = el.querySelector("select"); if (sel) { sel.value = ""; if ($(sel).data("select2")) $(sel).val("").trigger("change.select2"); } }
+}
+function rebuildGeoSelect(id, items, placeholder) {
+    const $el = $("#" + id);
+    if (!$el.length) return;
+    const prev = $el.val();
+    let html = '<option value="">' + placeholder + '</option>';
+    items.forEach(function (it) { html += '<option value="' + it.code + '">' + esc(it.name) + '</option>'; });
+    $el.html(html);
+    if (prev && items.some(function (it) { return it.code === prev; })) $el.val(prev);
+    if ($el.data("select2")) $el.trigger("change.select2");
+}
+
+// ─── Defaults (current FY + current month) ───
+(function setDefaults() {
     const today = new Date();
     let fyStart, fyEnd;
     if (today.getMonth() >= 3) {
@@ -364,14 +389,27 @@ const ALL_HQS     = {{ hqs | tojson }};
         fyEnd   = new Date(today.getFullYear(), 2, 31);
     }
     const fmt = d => d.toISOString().slice(0, 10);
-    document.addEventListener("DOMContentLoaded", function() {
+    document.addEventListener("DOMContentLoaded", function () {
         document.getElementById("f-from-date").value = fmt(fyStart);
         document.getElementById("f-to-date").value = fmt(fyEnd);
+        document.getElementById("f-month").value = today.toISOString().slice(0, 7);
     });
 })();
 
+// ─── Select2 init + initial cascade population ───
+$(document).ready(function () {
+    $("#f-products").select2({ width: "100%", placeholder: "All products (or pick specific ones)", allowClear: true, dropdownParent: $(".sr-filters-panel"), closeOnSelect: false });
+    $("#f-prodgroup").select2({ width: "100%", placeholder: "All groups", allowClear: true, dropdownParent: $(".sr-filters-panel"), closeOnSelect: false });
+    $("#f-prodcat").select2({ width: "100%", placeholder: "All categories", allowClear: true, dropdownParent: $(".sr-filters-panel"), closeOnSelect: false });
+    $("#f-doctor").select2({ width: "100%", placeholder: "All Doctors", allowClear: true, dropdownParent: $(".sr-filters-panel") });
+    // Seed cascade children with the full lists
+    rebuildGeoSelect("f-team", ALL_TEAMS, "All Teams");
+    rebuildGeoSelect("f-hq", ALL_HQS, "All HQs");
+    rebuildGeoSelect("f-doctor", ALL_DOCTORS, "All Doctors");
+});
+
 // ─────────────────────────────────────────────────────────────
-// Filter visibility
+// Report + criteria visibility
 // ─────────────────────────────────────────────────────────────
 function onReportTypeChange() {
     currentReportType = document.getElementById("report-type").value;
@@ -392,6 +430,7 @@ function onReportTypeChange() {
         el.style.display = reports.includes(currentReportType) ? "" : "none";
     });
 
+    rebuildCriteriaOptions(currentReportType);
     onCriteriaChange();
 
     document.getElementById("report-output").style.display = "none";
@@ -400,117 +439,70 @@ function onReportTypeChange() {
     document.getElementById("btn-pdf").style.display = "none";
 }
 
-// ─────────────────────────────────────────────────────────────
-// Cascade Filters
-// ─────────────────────────────────────────────────────────────
-function cascadeFromZone() {
-    const zone = document.getElementById("f-zone").value;
-    const regionSelect = document.getElementById("f-region");
-    const currentRegion = regionSelect.value;
-    regionSelect.innerHTML = '<option value="">All Regions</option>';
-    ALL_REGIONS.forEach(r => {
-        if (!zone || r.zone === zone) {
-            const opt = document.createElement("option");
-            opt.value = r.name;
-            opt.textContent = r.name + " \u2013 " + (r.region_name || r.name);
-            opt.setAttribute("data-zone", r.zone || "");
-            regionSelect.appendChild(opt);
-        }
-    });
-    if (currentRegion) regionSelect.value = currentRegion;
-    cascadeFromRegion();
-}
-
-function cascadeFromRegion() {
-    populateTeamHQ();
+function rebuildCriteriaOptions(reportType) {
+    const sel = document.getElementById("f-criteria");
+    const prev = sel.value;
+    const opts = (reportType === "periodic") ? CRITERIA_PERIODIC : CRITERIA_BASE;
+    const defaultVal = (reportType === "periodic") ? "HQ" : "Organization";
+    const labelFor = o => (o === "Organization") ? "Whole Organization" : (o + " Wise");
+    sel.innerHTML = opts.map(o => '<option value="' + o + '">' + labelFor(o) + '</option>').join("");
+    sel.value = opts.includes(prev) ? prev : defaultVal;
 }
 
 function onCriteriaChange() {
-    const criteria = document.getElementById("f-criteria").value;
-    const wrapper = document.getElementById("team-hq-wrapper");
-    const label = document.getElementById("team-hq-label");
-    if (criteria === "Team" || criteria === "HQ") {
-        wrapper.style.display = "";
-        label.textContent = criteria === "Team" ? "Select Team" : "Select HQ";
-        populateTeamHQ();
-    } else {
-        wrapper.style.display = "none";
-    }
+    const crit = document.getElementById("f-criteria").value;
+    const withRegion = ["Region", "Team", "HQ", "Doctor", "Stockist", "Month", "Value"];
+    const withTeam   = ["Team", "HQ", "Doctor", "Stockist", "Month", "Value"];
+    const withHQ     = ["HQ", "Doctor", "Stockist", "Month", "Value"];
+    toggleWrap("wrap-zone", crit !== "Organization");
+    toggleWrap("wrap-region", withRegion.includes(crit));
+    toggleWrap("wrap-team", withTeam.includes(crit));
+    toggleWrap("wrap-hq", withHQ.includes(crit));
+    toggleWrap("wrap-doctor", crit === "Doctor");
 }
 
-function populateTeamHQ() {
-    const criteria = document.getElementById("f-criteria").value;
-    const region = document.getElementById("f-region").value;
-    const sel = document.getElementById("f-team-or-hq");
-    sel.innerHTML = '<option value="">-- All --</option>';
-    if (criteria === "Team") {
-        ALL_TEAMS.forEach(t => {
-            if (!region || t.region === region) {
-                const opt = document.createElement("option");
-                opt.value = t.name; opt.textContent = t.name;
-                sel.appendChild(opt);
-            }
-        });
-    } else if (criteria === "HQ") {
-        const regionTeams = new Set();
-        if (region) ALL_TEAMS.forEach(t => { if (t.region === region) regionTeams.add(t.name); });
-        ALL_HQS.forEach(h => {
-            if (!region || regionTeams.has(h.team)) {
-                const opt = document.createElement("option");
-                opt.value = h.name;
-                opt.textContent = h.hq_name ? (h.name + " \u2013 " + h.hq_name) : h.name;
-                sel.appendChild(opt);
-            }
-        });
-    }
+// ─── Cascade ───
+function critCascadeFromZone() {
+    const zone = getVal("f-zone");
+    rebuildGeoSelect("f-region", ALL_REGIONS.filter(r => !zone || r.zone === zone), "All Regions");
+    critCascadeFromRegion();
+}
+function critCascadeFromRegion() {
+    const region = getVal("f-region");
+    rebuildGeoSelect("f-team", ALL_TEAMS.filter(t => !region || t.region === region), "All Teams");
+    critCascadeFromTeam();
+}
+function critCascadeFromTeam() {
+    const team = getVal("f-team");
+    rebuildGeoSelect("f-hq", ALL_HQS.filter(h => !team || h.team === team), "All HQs");
+    critCascadeFromHQ();
+}
+function critCascadeFromHQ() {
+    const hq = getVal("f-hq");
+    const region = getVal("f-region");
+    let docs = ALL_DOCTORS;
+    if (hq) docs = docs.filter(d => d.hq === hq);
+    else if (region) docs = docs.filter(d => d.region === region);
+    rebuildGeoSelect("f-doctor", docs, "All Doctors");
 }
 
 // ─────────────────────────────────────────────────────────────
-// Product List Controls
-// ─────────────────────────────────────────────────────────────
-function filterProductsByType() {
-    const type = document.getElementById("f-product-type").value;
-    const catMap = {"Hospital Products": "Hospital Product", "Other Products": "Main Product"};
-    document.querySelectorAll("#product-checkbox-list .product-check-label").forEach(el => {
-        el.style.display = (type === "All" || el.getAttribute("data-category") === catMap[type]) ? "" : "none";
-    });
-    updateSelectAllState();
-}
-function filterProductSearch() {
-    const term = document.getElementById("product-search").value.toLowerCase();
-    document.querySelectorAll("#product-checkbox-list .product-check-label").forEach(el => {
-        if (el.style.display === "none") return;
-        el.style.display = el.textContent.toLowerCase().includes(term) ? "" : "none";
-    });
-}
-function toggleSelectAll() {
-    const checked = document.getElementById("product-select-all").checked;
-    document.querySelectorAll("#product-checkbox-list .product-check-label").forEach(el => {
-        if (el.style.display !== "none") el.querySelector("input").checked = checked;
-    });
-}
-function updateSelectAllState() {
-    const visible = document.querySelectorAll("#product-checkbox-list .product-check-label:not([style*='display: none']) input");
-    document.getElementById("product-select-all").checked = Array.from(visible).every(cb => cb.checked);
-}
-function getSelectedProducts() {
-    const cbs = document.querySelectorAll("#product-checkbox-list input.product-cb:checked");
-    const allCbs = document.querySelectorAll("#product-checkbox-list input.product-cb");
-    if (cbs.length === allCbs.length) return [];
-    return Array.from(cbs).map(cb => cb.value);
-}
-
-// ─────────────────────────────────────────────────────────────
-// Generate Report
+// Generate
 // ─────────────────────────────────────────────────────────────
 function generateReport() {
     if (!currentReportType) return showAlert("Please select a report type", "warning");
+    if (currentReportType === "pending_deduction") {
+        if (!getVal("f-month")) return showAlert("Please choose a month", "warning");
+    } else {
+        if (!getVal("f-from-date") || !getVal("f-to-date")) return showAlert("Please choose From and To dates", "warning");
+    }
     const params = buildParams();
     const endpointMap = {
         activity_trend: "scanify.api.get_scheme_activity_trend_report",
         activity_track: "scanify.api.get_scheme_activity_track_report",
         new_approval_doctors: "scanify.api.get_new_approval_doctors_report",
         periodic: "scanify.api.get_scheme_periodic_report",
+        pending_deduction: "scanify.api.get_pending_scheme_deduction_report",
     };
     document.getElementById("report-loading").style.display = "block";
     document.getElementById("report-output").style.display = "none";
@@ -522,7 +514,7 @@ function generateReport() {
         contentType: "application/json",
         headers: { "X-Frappe-CSRF-Token": frappe.csrf_token },
         data: JSON.stringify(params),
-        success: function(r) {
+        success: function (r) {
             document.getElementById("report-loading").style.display = "none";
             if (r && r.message && r.message.success !== false) {
                 currentReportData = r.message;
@@ -531,10 +523,10 @@ function generateReport() {
                 showAlert((r && r.message && r.message.message) || "Failed to fetch report data", "danger");
             }
         },
-        error: function(xhr) {
+        error: function (xhr) {
             document.getElementById("report-loading").style.display = "none";
             let msg = "Network error. Please try again.";
-            try { msg = JSON.parse(xhr.responseText).exc || msg; } catch(e) {}
+            try { msg = JSON.parse(xhr.responseText).exc || msg; } catch (e) {}
             showAlert(msg, "danger");
         }
     });
@@ -542,38 +534,33 @@ function generateReport() {
 
 function buildParams() {
     const p = { division: DIVISION };
-    const fromDate = document.getElementById("f-from-date").value;
-    const toDate = document.getElementById("f-to-date").value;
-    const zone = document.getElementById("f-zone").value;
-    const region = document.getElementById("f-region").value;
-    const selectedProducts = getSelectedProducts();
+    p.reporting_criteria = getVal("f-criteria");
+    ["zone", "region", "team", "hq", "doctor"].forEach(function (k) {
+        const v = getVal("f-" + k);
+        if (v) p[k] = v;
+    });
+    const prods = getMulti("f-products");
+    const groups = getMulti("f-prodgroup");
+    const cats = getMulti("f-prodcat");
+    if (prods.length) p.product_codes = JSON.stringify(prods);
+    if (groups.length) p.product_group = JSON.stringify(groups);
+    if (cats.length) p.product_category = JSON.stringify(cats);
 
-    if (fromDate) p.from_date = fromDate;
-    if (toDate) p.to_date = toDate;
-    if (zone) p.zone = zone;
-    if (region) p.region = region;
-    if (selectedProducts.length > 0) p.product_codes = JSON.stringify(selectedProducts);
-
+    if (currentReportType === "pending_deduction") {
+        p.month = getVal("f-month");
+        p.scheme_type = getVal("f-scheme-type");
+    } else {
+        p.from_date = getVal("f-from-date");
+        p.to_date = getVal("f-to-date");
+    }
     if (currentReportType === "activity_trend" || currentReportType === "activity_track") {
-        p.doctor_status = document.getElementById("f-doctor-status").value;
-        p.product_type = document.getElementById("f-product-type").value;
-        p.criteria = document.getElementById("f-criteria").value;
-        const teamOrHq = document.getElementById("f-team-or-hq").value;
-        if (teamOrHq) p.team_or_hq = teamOrHq;
-    }
-    if (currentReportType === "new_approval_doctors") {
-        p.criteria = document.getElementById("f-criteria").value;
-        const teamOrHq = document.getElementById("f-team-or-hq").value;
-        if (teamOrHq) p.team_or_hq = teamOrHq;
-    }
-    if (currentReportType === "periodic") {
-        p.group_by = document.getElementById("f-group-by").value;
+        p.doctor_status = getVal("f-doctor-status");
     }
     return p;
 }
 
 // ─────────────────────────────────────────────────────────────
-// Render Report
+// Render
 // ─────────────────────────────────────────────────────────────
 function renderReport(result) {
     const thead = document.getElementById("report-thead");
@@ -586,6 +573,7 @@ function renderReport(result) {
         activity_track: renderActivityTrack,
         new_approval_doctors: renderNewApprovalDoctors,
         periodic: renderPeriodicReport,
+        pending_deduction: renderPendingDeduction,
     };
     const renderer = renderers[currentReportType];
     if (renderer) renderer(result, thead, tbody);
@@ -610,17 +598,23 @@ function renderReport(result) {
         activity_track: "Activity Track Report",
         new_approval_doctors: "New Approval Doctors",
         periodic: "Periodic Report",
+        pending_deduction: "Monthly Pending Scheme Deduction",
     };
-    const fromDate = document.getElementById("f-from-date").value;
-    const toDate = document.getElementById("f-to-date").value;
-    const regionSel = document.getElementById("f-region");
-    const regionVal = regionSel.value ? regionSel.options[regionSel.selectedIndex].text : "All Regions";
-    let subtitle = "Region: " + regionVal;
-    if (fromDate && toDate) subtitle += " | Period: " + fromDate + " to " + toDate;
-    if (currentReportType === "activity_trend" && result.fy_label) subtitle = regionVal + " | " + result.fy_label;
-    if (currentReportType === "periodic") subtitle += " | Group By: " + (result.group_by || "HQ");
+    const critSel = document.getElementById("f-criteria");
+    const critText = critSel.options[critSel.selectedIndex] ? critSel.options[critSel.selectedIndex].text : "";
+    let subtitle;
+    if (currentReportType === "pending_deduction") {
+        subtitle = "Month: " + getVal("f-month") + " | Criteria: " + critText;
+        if (result.totals) subtitle += " | Pending Schemes: " + result.totals.scheme_count;
+    } else {
+        subtitle = "Criteria: " + critText;
+        const fromDate = getVal("f-from-date"), toDate = getVal("f-to-date");
+        if (currentReportType === "activity_trend" && result.fy_label) subtitle = critText + " | " + result.fy_label;
+        else if (fromDate && toDate) subtitle += " | Period: " + fromDate + " to " + toDate;
+        if (currentReportType === "periodic") subtitle = "Group By: " + (result.group_by || "HQ") + " | Period: " + fromDate + " to " + toDate;
+    }
 
-    currentReportMeta = { title: titles[currentReportType] + " \u2013 " + DIVISION, subtitle: subtitle };
+    currentReportMeta = { title: titles[currentReportType] + " – " + DIVISION, subtitle: subtitle };
     document.getElementById("report-title").textContent = currentReportMeta.title;
     document.getElementById("report-subtitle").textContent = subtitle;
     document.getElementById("print-title").textContent = currentReportMeta.title;
@@ -632,94 +626,72 @@ function td(text, cls) { return '<td class="' + (cls || '') + '">' + (text != nu
 function fmt(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : "0.00"; }
 function fmtQty(n) { return n != null ? Number(n).toLocaleString("en-IN", {minimumFractionDigits: 0, maximumFractionDigits: 2}) : "0"; }
 function fmtLakhs(n) { return (n != null ? (Number(n) / 100000) : 0).toFixed(2); }
+function esc(s) { if (s == null) return ""; var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 
-function esc(s) {
-    if (s == null) return "";
-    var d = document.createElement("div");
-    d.textContent = s;
-    return d.innerHTML;
-}
-
-// ─────────────────────────────────────────────────────────────
-// Report 1: Activity Trend (Monthly Pivot)
-// ─────────────────────────────────────────────────────────────
+// ─── Report 1: Activity Trend (Monthly Pivot) ───
 function renderActivityTrend(result, thead, tbody) {
     const ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
     thead.innerHTML = '<tr>' + th("Region") + th("HQ") + th("Doctor Name") +
-        ml.map(function(m) { return th(m); }).join("") + '</tr>';
+        ml.map(function (m) { return th(m); }).join("") + '</tr>';
 
     var currentRegion = null;
-    (result.data || []).forEach(function(r) {
+    (result.data || []).forEach(function (r) {
         if (r.region !== currentRegion) {
             currentRegion = r.region;
             tbody.innerHTML += '<tr class="group-row"><td colspan="' + (3 + ml.length) + '">' +
                 esc(currentRegion) + ' Region</td></tr>';
         }
         var row = td(esc(r.region)) + td(esc(r.hq_name || r.hq)) + td(esc(r.doctor_name));
-        r.months.forEach(function(cell) {
-            row += '<td class="trend-cell">' + esc(cell) + '</td>';
-        });
+        r.months.forEach(function (cell) { row += '<td class="trend-cell">' + esc(cell) + '</td>'; });
         tbody.innerHTML += '<tr>' + row + '</tr>';
     });
 }
 
-// ─────────────────────────────────────────────────────────────
-// Report 2: Activity Track (Transaction Level)
-// ─────────────────────────────────────────────────────────────
+// ─── Report 2: Activity Track (Transaction Level, incl. discount) ───
 function renderActivityTrack(result, thead, tbody) {
     thead.innerHTML = '<tr>' + th("S.No") + th("Date") + th("Region") + th("HQ") +
-        th("Doctor Name") + th("Product") + th("Qty") + th("Free Qty") +
-        th("Rate") + th("Value") + th("Value (\u20b9 Lakhs)") + th("Stockist") + '</tr>';
+        th("Doctor Name") + th("Product") + th("Qty") + th("Free Qty") + th("Rate") +
+        th("Special Price") + th("Discount Value") + th("Value") + th("Value (₹ Lakhs)") +
+        th("Stockist") + '</tr>';
 
-    var currentTeam = null;
-    var teamQty = 0, teamFree = 0, teamVal = 0;
-
-    function flushTeamSubtotal() {
+    var currentTeam = null, tQty = 0, tFree = 0, tDisc = 0, tVal = 0;
+    function flush() {
         if (currentTeam !== null) {
             tbody.innerHTML += '<tr class="total-row"><td colspan="6" class="text-right"><strong>Team Total</strong></td>' +
-                td(fmtQty(teamQty), "text-right") + td(fmtQty(teamFree), "text-right") +
-                '<td></td>' + td(fmt(teamVal), "text-right") + td(fmtLakhs(teamVal), "text-right") + '<td></td></tr>';
+                td(fmtQty(tQty), "text-right") + td(fmtQty(tFree), "text-right") + '<td></td><td></td>' +
+                td(fmt(tDisc), "text-right") + td(fmt(tVal), "text-right") + td(fmtLakhs(tVal), "text-right") + '<td></td></tr>';
         }
     }
-
-    (result.data || []).forEach(function(r) {
+    (result.data || []).forEach(function (r) {
         if (r.team !== currentTeam) {
-            flushTeamSubtotal();
-            currentTeam = r.team;
-            teamQty = 0; teamFree = 0; teamVal = 0;
-            tbody.innerHTML += '<tr class="group-row"><td colspan="12">' +
-                esc(currentTeam) + ' Team</td></tr>';
+            flush();
+            currentTeam = r.team; tQty = 0; tFree = 0; tDisc = 0; tVal = 0;
+            tbody.innerHTML += '<tr class="group-row"><td colspan="14">' + esc(currentTeam) + ' Team</td></tr>';
         }
-        teamQty += Number(r.qty) || 0;
-        teamFree += Number(r.free_qty) || 0;
-        teamVal += Number(r.value) || 0;
+        tQty += Number(r.qty) || 0; tFree += Number(r.free_qty) || 0;
+        tDisc += Number(r.discount_value) || 0; tVal += Number(r.value) || 0;
         tbody.innerHTML += '<tr>' +
             td(r.sno) + td(r.date) + td(esc(r.region)) + td(esc(r.hq)) +
-            td(esc(r.doctor_name)) + td(esc(r.product_code)) +
+            td(esc(r.doctor_name)) + td(esc(r.product_name || r.product_code)) +
             td(fmtQty(r.qty), "text-right") + td(fmtQty(r.free_qty), "text-right") +
-            td(fmt(r.rate), "text-right") + td(fmt(r.value), "text-right") +
-            td(fmtLakhs(r.value), "text-right") +
+            td(fmt(r.rate), "text-right") + td(r.special_rate > 0 ? fmt(r.special_rate) : "-", "text-right") +
+            td(r.discount_value > 0 ? fmt(r.discount_value) : "-", "text-right") +
+            td(fmt(r.value), "text-right") + td(fmtLakhs(r.value), "text-right") +
             td(esc(r.stockist_name)) + '</tr>';
     });
-    flushTeamSubtotal();
-
-    // Grand Totals
+    flush();
     var totals = result.totals || {};
-    tbody.innerHTML += '<tr class="grand-total-row">' +
-        '<td colspan="6" class="text-right"><strong>Grand Total</strong></td>' +
-        td(fmtQty(totals.qty), "text-right") + td(fmtQty(totals.free_qty), "text-right") +
-        '<td></td>' + td(fmt(totals.value), "text-right") +
+    tbody.innerHTML += '<tr class="grand-total-row"><td colspan="6" class="text-right"><strong>Grand Total</strong></td>' +
+        td(fmtQty(totals.qty), "text-right") + td(fmtQty(totals.free_qty), "text-right") + '<td></td><td></td>' +
+        td(fmt(totals.discount_value), "text-right") + td(fmt(totals.value), "text-right") +
         td(fmtLakhs(totals.value), "text-right") + '<td></td></tr>';
 }
 
-// ─────────────────────────────────────────────────────────────
-// Report 3: New Approval Doctors
-// ─────────────────────────────────────────────────────────────
+// ─── Report 3: New Approval Doctors ───
 function renderNewApprovalDoctors(result, thead, tbody) {
     thead.innerHTML = '<tr>' + th("S.No") + th("Approval Date") + th("Region") +
         th("HQ") + th("Doctor Name") + th("Hospital") + th("City") + th("Approved By") + '</tr>';
-
-    (result.data || []).forEach(function(r) {
+    (result.data || []).forEach(function (r) {
         tbody.innerHTML += '<tr>' +
             td(r.sno) + td(r.approval_date) + td(esc(r.region)) + td(esc(r.hq)) +
             td(esc(r.doctor_name)) + td(esc(r.hospital)) + td(esc(r.city)) +
@@ -727,60 +699,83 @@ function renderNewApprovalDoctors(result, thead, tbody) {
     });
 }
 
-// ─────────────────────────────────────────────────────────────
-// Report 4: Periodic Report (Dynamic Group By)
-// ─────────────────────────────────────────────────────────────
+// ─── Report 4: Periodic (Dynamic Criteria, incl. discount) ───
 function renderPeriodicReport(result, thead, tbody) {
     var gb = result.group_by || "HQ";
-    thead.innerHTML = '<tr>' + th(gb) + th("Total Qty") + th("Free Qty") +
-        th("Total Value") + th("Value (\u20b9 Lakhs)") + '</tr>';
-
-    var grandQty = 0, grandFree = 0, grandVal = 0;
-    (result.data || []).forEach(function(r) {
-        tbody.innerHTML += '<tr>' +
-            td(esc(r.group_label)) +
-            td(fmtQty(r.total_qty), "text-right") +
-            td(fmtQty(r.free_qty), "text-right") +
-            td(fmt(r.total_value), "text-right") +
+    thead.innerHTML = '<tr>' + th(gb) + th("Total Qty") + th("Free Qty") + th("Discount Value") +
+        th("Total Value") + th("Value (₹ Lakhs)") + '</tr>';
+    var gQ = 0, gF = 0, gD = 0, gV = 0;
+    (result.data || []).forEach(function (r) {
+        tbody.innerHTML += '<tr>' + td(esc(r.group_label)) +
+            td(fmtQty(r.total_qty), "text-right") + td(fmtQty(r.free_qty), "text-right") +
+            td(fmt(r.discount_value), "text-right") + td(fmt(r.total_value), "text-right") +
             td(fmtLakhs(r.total_value), "text-right") + '</tr>';
-        grandQty += r.total_qty || 0;
-        grandFree += r.free_qty || 0;
-        grandVal += r.total_value || 0;
+        gQ += r.total_qty || 0; gF += r.free_qty || 0; gD += r.discount_value || 0; gV += r.total_value || 0;
     });
+    tbody.innerHTML += '<tr class="grand-total-row"><td class="text-right"><strong>Grand Total</strong></td>' +
+        td(fmtQty(gQ), "text-right") + td(fmtQty(gF), "text-right") + td(fmt(gD), "text-right") +
+        td(fmt(gV), "text-right") + td(fmtLakhs(gV), "text-right") + '</tr>';
+}
 
-    tbody.innerHTML += '<tr class="grand-total-row">' +
-        '<td class="text-right"><strong>Grand Total</strong></td>' +
-        td(fmtQty(grandQty), "text-right") +
-        td(fmtQty(grandFree), "text-right") +
-        td(fmt(grandVal), "text-right") +
-        td(fmtLakhs(grandVal), "text-right") + '</tr>';
+// ─── Report 5: Monthly Pending Scheme Deduction ───
+function renderPendingDeduction(result, thead, tbody) {
+    thead.innerHTML = '<tr>' + th("S.No") + th("Date") + th("HQ") + th("Doctor Name") +
+        th("Stockist") + th("Product") + th("Order Qty") + th("Free Qty") + th("PTS") +
+        th("Special Price") + th("Discount Value") + th("Scheme Value") + '</tr>';
+    var curGroup = null, gFree = 0, gDisc = 0, gVal = 0;
+    function flush() {
+        if (curGroup !== null) {
+            tbody.innerHTML += '<tr class="total-row"><td colspan="7" class="text-right"><strong>Subtotal</strong></td>' +
+                td(fmtQty(gFree), "text-right") + '<td></td><td></td>' +
+                td(fmt(gDisc), "text-right") + td(fmt(gVal), "text-right") + '</tr>';
+        }
+    }
+    (result.data || []).forEach(function (r) {
+        if (r.group_label !== curGroup) {
+            flush();
+            curGroup = r.group_label; gFree = 0; gDisc = 0; gVal = 0;
+            tbody.innerHTML += '<tr class="group-row"><td colspan="12">' + esc(curGroup) + '</td></tr>';
+        }
+        gFree += Number(r.free_qty) || 0; gDisc += Number(r.discount_value) || 0; gVal += Number(r.value) || 0;
+        tbody.innerHTML += '<tr>' + td(r.sno) + td(r.date) + td(esc(r.hq_name || r.hq)) +
+            td(esc(r.doctor_name)) + td(esc(r.stockist_name)) + td(esc(r.product_name || r.product_code)) +
+            td(fmtQty(r.qty), "text-right") + td(fmtQty(r.free_qty), "text-right") + td(fmt(r.rate), "text-right") +
+            td(r.special_rate > 0 ? fmt(r.special_rate) : "-", "text-right") +
+            td(r.discount_value > 0 ? fmt(r.discount_value) : "-", "text-right") +
+            td(fmt(r.value), "text-right") + '</tr>';
+    });
+    flush();
+    var totals = result.totals || {};
+    tbody.innerHTML += '<tr class="grand-total-row"><td colspan="7" class="text-right"><strong>Grand Total</strong></td>' +
+        td(fmtQty(totals.free_qty), "text-right") + '<td></td><td></td>' +
+        td(fmt(totals.discount_value), "text-right") + td(fmt(totals.value), "text-right") + '</tr>';
 }
 
 // ─────────────────────────────────────────────────────────────
-// Download Excel
+// Excel
 // ─────────────────────────────────────────────────────────────
 function downloadExcel() {
     if (!currentReportType) return;
     var params = buildParams();
     params.report_type = currentReportType;
-    var qs = Object.entries(params).map(function(e) {
+    var qs = Object.entries(params).map(function (e) {
         return encodeURIComponent(e[0]) + "=" + encodeURIComponent(e[1]);
     }).join("&");
     window.open("/api/method/scanify.api.export_scheme_report_excel?" + qs, "_blank");
 }
 
 // ─────────────────────────────────────────────────────────────
-// Download PDF – Consolidated with Summary & Charts
+// PDF – Summary + Detail (detail table auto-mirrors the on-screen table)
 // ─────────────────────────────────────────────────────────────
 function renderChartToImage(chartConfig, width, height) {
-    return new Promise(function(resolve) {
+    return new Promise(function (resolve) {
         var cvs = document.createElement("canvas");
         cvs.width = width || 800; cvs.height = height || 400;
         cvs.style.position = "fixed"; cvs.style.left = "-9999px";
         document.body.appendChild(cvs);
         var ctx = cvs.getContext("2d");
         var chart = new Chart(ctx, chartConfig);
-        setTimeout(function() {
+        setTimeout(function () {
             var img = cvs.toDataURL("image/png", 1.0);
             chart.destroy();
             document.body.removeChild(cvs);
@@ -810,83 +805,80 @@ function addPageFooter(doc) {
     for (var i = 1; i <= pageCount; i++) {
         doc.setPage(i);
         doc.setFontSize(7); doc.setTextColor(150);
-        doc.text("Stedman Pharmaceuticals \u2013 Scanify Portal  |  Page " + i + " of " + pageCount, 148.5, 205, { align: "center" });
+        doc.text("Stedman Pharmaceuticals – Scanify Portal  |  Page " + i + " of " + pageCount, 148.5, 205, { align: "center" });
     }
 }
 
-// ─── Summary builders ───
 function buildActivityTrackSummary(data) {
     var teams = {};
-    (data || []).forEach(function(r) {
+    (data || []).forEach(function (r) {
         var key = r.team || "Unknown";
-        if (!teams[key]) teams[key] = { team: key, region: r.region || "", qty: 0, freeQty: 0, value: 0, txns: 0 };
+        if (!teams[key]) teams[key] = { team: key, region: r.region || "", qty: 0, freeQty: 0, discount: 0, value: 0, txns: 0 };
         teams[key].qty += Number(r.qty) || 0;
         teams[key].freeQty += Number(r.free_qty) || 0;
+        teams[key].discount += Number(r.discount_value) || 0;
         teams[key].value += Number(r.value) || 0;
         teams[key].txns += 1;
     });
     var arr = Object.values(teams);
-    arr.sort(function(a, b) { return b.value - a.value; });
+    arr.sort(function (a, b) { return b.value - a.value; });
     return arr;
 }
 
 function buildPeriodicSummary(data) {
-    return (data || []).map(function(r) {
-        return { label: r.group_label, qty: r.total_qty || 0, freeQty: r.free_qty || 0, value: r.total_value || 0 };
+    return (data || []).map(function (r) {
+        return { label: r.group_label, qty: r.total_qty || 0, freeQty: r.free_qty || 0, discount: r.discount_value || 0, value: r.total_value || 0 };
     });
 }
 
 function buildNewApprovalSummary(data) {
     var regions = {};
-    (data || []).forEach(function(r) {
+    (data || []).forEach(function (r) {
         var key = r.region || "Unknown";
         if (!regions[key]) regions[key] = { region: key, count: 0 };
         regions[key].count += 1;
     });
     var arr = Object.values(regions);
-    arr.sort(function(a, b) { return b.count - a.count; });
+    arr.sort(function (a, b) { return b.count - a.count; });
     return arr;
 }
 
 function buildActivityTrendSummary(data) {
     var ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
-    var regions = {};
-    var hqs = {};
-    var monthActivity = [0,0,0,0,0,0,0,0,0,0,0,0];
+    var regions = {}, hqs = {}, monthActivity = [0,0,0,0,0,0,0,0,0,0,0,0];
     var totalDoctors = (data || []).length;
-
-    (data || []).forEach(function(r) {
+    (data || []).forEach(function (r) {
         var regKey = r.region || "Unknown";
         if (!regions[regKey]) regions[regKey] = { region: regKey, doctors: 0, activeMonths: 0 };
         regions[regKey].doctors += 1;
-
         var hqKey = r.hq || "Unknown";
         if (!hqs[hqKey]) hqs[hqKey] = { hq: hqKey, hq_name: r.hq_name || hqKey, region: r.region || "", doctors: 0, activeMonths: 0 };
         hqs[hqKey].doctors += 1;
-
         var docActive = 0;
-        (r.months || []).forEach(function(cell, idx) {
-            if (cell && cell.trim() !== "") {
-                monthActivity[idx] += 1;
-                docActive += 1;
-            }
+        (r.months || []).forEach(function (cell, idx) {
+            if (cell && cell.trim() !== "") { monthActivity[idx] += 1; docActive += 1; }
         });
         regions[regKey].activeMonths += docActive;
         hqs[hqKey].activeMonths += docActive;
     });
+    var regionArr = Object.values(regions); regionArr.sort(function (a, b) { return b.doctors - a.doctors; });
+    var hqArr = Object.values(hqs); hqArr.sort(function (a, b) { return b.doctors - a.doctors; });
+    return { regions: regionArr, hqs: hqArr, monthActivity: monthActivity, monthLabels: ml, totalDoctors: totalDoctors };
+}
 
-    var regionArr = Object.values(regions);
-    regionArr.sort(function(a, b) { return b.doctors - a.doctors; });
-    var hqArr = Object.values(hqs);
-    hqArr.sort(function(a, b) { return b.doctors - a.doctors; });
-
-    return {
-        regions: regionArr,
-        hqs: hqArr,
-        monthActivity: monthActivity,
-        monthLabels: ml,
-        totalDoctors: totalDoctors
-    };
+function buildPendingSummary(data) {
+    var grp = {};
+    (data || []).forEach(function (r) {
+        var k = r.group_label || "—";
+        if (!grp[k]) grp[k] = { label: k, schemes: {}, free: 0, disc: 0, val: 0 };
+        grp[k].schemes[r.scheme_name] = 1;
+        grp[k].free += Number(r.free_qty) || 0;
+        grp[k].disc += Number(r.discount_value) || 0;
+        grp[k].val += Number(r.value) || 0;
+    });
+    return Object.values(grp).map(function (g) {
+        return { label: g.label, schemes: Object.keys(g.schemes).length, free: g.free, disc: g.disc, val: g.val };
+    });
 }
 
 async function downloadPDF() {
@@ -896,153 +888,80 @@ async function downloadPDF() {
     var data = currentReportData;
     var startY;
 
-    // ═══════════════════════════════════════════════
-    // PAGE 1: Consolidated Summary
-    // ═══════════════════════════════════════════════
+    // ── Page 1: Consolidated Summary ──
     startY = addPDFHeader(doc, currentReportMeta.title, currentReportMeta.subtitle);
 
     if (currentReportType === "activity_track") {
         var summary = buildActivityTrackSummary(data.data);
-        var grandQty = 0, grandVal = 0;
-        summary.forEach(function(s) { grandQty += s.qty; grandVal += s.value; });
-
-        // Stat boxes
+        var grandQty = 0, grandVal = 0, grandDisc = 0;
+        summary.forEach(function (s) { grandQty += s.qty; grandVal += s.value; grandDisc += s.discount; });
         doc.setFillColor(241, 245, 249);
         doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
         doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
         doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
         doc.setFontSize(8); doc.setTextColor(100);
         doc.text("Total Teams", 18, startY + 6);
-        doc.text("Total Value (\u20b9 Lakhs)", 86, startY + 6);
-        doc.text("Total Qty", 154, startY + 6);
+        doc.text("Total Value (₹ Lakhs)", 86, startY + 6);
+        doc.text("Discount Value (₹)", 154, startY + 6);
         doc.setFontSize(16); doc.setTextColor(30, 41, 59);
         doc.text(String(summary.length), 18, startY + 14);
         doc.text(fmtLakhs(grandVal), 86, startY + 14);
-        doc.text(fmtQty(grandQty), 154, startY + 14);
+        doc.text(fmt(grandDisc), 154, startY + 14);
         doc.setTextColor(0);
-
         doc.setFontSize(10);
         doc.text("Consolidated Team-wise Summary", 14, startY + 26);
-        var sHead = [["#", "Team", "Region", "Transactions", "Qty", "Free Qty", "Value", "Value (\u20b9 Lakhs)", "% Share"]];
-        var sBody = summary.map(function(s, i) {
-            return [i + 1, s.team, s.region, s.txns, fmtQty(s.qty), fmtQty(s.freeQty), fmt(s.value), fmtLakhs(s.value),
+        var sHead = [["#", "Team", "Region", "Txns", "Qty", "Free Qty", "Discount", "Value", "₹ Lakhs", "% Share"]];
+        var sBody = summary.map(function (s, i) {
+            return [i + 1, s.team, s.region, s.txns, fmtQty(s.qty), fmtQty(s.freeQty), fmt(s.discount), fmt(s.value), fmtLakhs(s.value),
                     grandVal > 0 ? ((s.value / grandVal) * 100).toFixed(1) + "%" : "0%"];
         });
-        sBody.push(["", "", "GRAND TOTAL", "", fmtQty(grandQty), "", fmt(grandVal), fmtLakhs(grandVal), "100%"]);
+        sBody.push(["", "", "GRAND TOTAL", "", fmtQty(grandQty), "", fmt(grandDisc), fmt(grandVal), fmtLakhs(grandVal), "100%"]);
         doc.autoTable({
             head: sHead, body: sBody, startY: startY + 30,
             styles: { fontSize: 7, cellPadding: 1.5 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
-            didParseCell: function(d) {
-                if (d.section === "body" && d.row === sBody.length - 1) {
-                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
-                }
-            },
+            didParseCell: function (d) { if (d.section === "body" && d.row === sBody.length - 1) { d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold"; } },
             margin: { left: 14, right: 14 },
         });
 
-        // Charts page
-        doc.addPage();
-        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
-        var top10 = summary.slice(0, 10);
-        var barImg = await renderChartToImage({
-            type: "bar",
-            data: {
-                labels: top10.map(function(s) { return s.team.length > 18 ? s.team.substring(0, 18) + "\u2026" : s.team; }),
-                datasets: [{ label: "Value (\u20b9 Lakhs)", data: top10.map(function(s) { return fmtLakhs(s.value); }),
-                    backgroundColor: ["#4f46e5", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"] }]
-            },
-            options: { indexAxis: "y", responsive: false, animation: false,
-                plugins: { legend: { display: false }, title: { display: true, text: "Top Teams by Value (\u20b9 Lakhs)", font: { size: 16 } } },
-                scales: { x: { beginAtZero: true, title: { display: true, text: "\u20b9 Lakhs" } } } }
-        }, 900, 450);
-        doc.addImage(barImg, "PNG", 14, startY, 170, 85);
-
-        var pieLabels = top10.slice(0, 5).map(function(s) { return s.team; });
-        var pieData = top10.slice(0, 5).map(function(s) { return fmtLakhs(s.value); });
-        var othersVal = summary.slice(5).reduce(function(sum, s) { return sum + s.value; }, 0);
-        if (othersVal > 0) { pieLabels.push("Others"); pieData.push(fmtLakhs(othersVal)); }
-        var pieImg = await renderChartToImage({
-            type: "doughnut",
-            data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: ["#4f46e5", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#94a3b8"] }] },
-            options: { responsive: false, animation: false,
-                plugins: { title: { display: true, text: "Value Distribution \u2013 Top Teams", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
-        }, 600, 400);
-        doc.addImage(pieImg, "PNG", 190, startY, 95, 63);
-
     } else if (currentReportType === "periodic") {
         var pSummary = buildPeriodicSummary(data.data);
-        var pGrandVal = pSummary.reduce(function(s, r) { return s + r.value; }, 0);
-        var pGrandQty = pSummary.reduce(function(s, r) { return s + r.qty; }, 0);
-
+        var pGrandVal = pSummary.reduce(function (s, r) { return s + r.value; }, 0);
+        var pGrandQty = pSummary.reduce(function (s, r) { return s + r.qty; }, 0);
+        var pGrandDisc = pSummary.reduce(function (s, r) { return s + r.disc; }, 0);
         doc.setFillColor(241, 245, 249);
         doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
         doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
         doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
         doc.setFontSize(8); doc.setTextColor(100);
         doc.text("Groups", 18, startY + 6);
-        doc.text("Total Value (\u20b9 Lakhs)", 86, startY + 6);
-        doc.text("Total Qty", 154, startY + 6);
+        doc.text("Total Value (₹ Lakhs)", 86, startY + 6);
+        doc.text("Discount Value (₹)", 154, startY + 6);
         doc.setFontSize(16); doc.setTextColor(30, 41, 59);
         doc.text(String(pSummary.length), 18, startY + 14);
         doc.text(fmtLakhs(pGrandVal), 86, startY + 14);
-        doc.text(fmtQty(pGrandQty), 154, startY + 14);
+        doc.text(fmt(pGrandDisc), 154, startY + 14);
         doc.setTextColor(0);
-
         var gb = data.group_by || "HQ";
         doc.setFontSize(10);
         doc.text("Periodic Summary (Group By: " + gb + ")", 14, startY + 26);
-        var pHead = [["#", gb, "Total Qty", "Free Qty", "Total Value", "Value (\u20b9 Lakhs)", "% Share"]];
-        var pBody = pSummary.map(function(r, i) {
-            return [i + 1, r.label, fmtQty(r.qty), fmtQty(r.freeQty), fmt(r.value), fmtLakhs(r.value),
+        var pHead = [["#", gb, "Total Qty", "Free Qty", "Discount", "Total Value", "₹ Lakhs", "% Share"]];
+        var pBody = pSummary.map(function (r, i) {
+            return [i + 1, r.label, fmtQty(r.qty), fmtQty(r.freeQty), fmt(r.disc), fmt(r.value), fmtLakhs(r.value),
                     pGrandVal > 0 ? ((r.value / pGrandVal) * 100).toFixed(1) + "%" : "0%"];
         });
-        pBody.push(["", "GRAND TOTAL", fmtQty(pGrandQty), "", fmt(pGrandVal), fmtLakhs(pGrandVal), "100%"]);
+        pBody.push(["", "GRAND TOTAL", fmtQty(pGrandQty), "", fmt(pGrandDisc), fmt(pGrandVal), fmtLakhs(pGrandVal), "100%"]);
         doc.autoTable({
             head: pHead, body: pBody, startY: startY + 30,
             styles: { fontSize: 7, cellPadding: 1.5 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
-            didParseCell: function(d) {
-                if (d.section === "body" && d.row === pBody.length - 1) {
-                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
-                }
-            },
+            didParseCell: function (d) { if (d.section === "body" && d.row === pBody.length - 1) { d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold"; } },
             margin: { left: 14, right: 14 },
         });
 
-        // Charts page
-        doc.addPage();
-        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
-        var topItems = pSummary.slice(0, 10);
-        var pBarImg = await renderChartToImage({
-            type: "bar",
-            data: {
-                labels: topItems.map(function(r) { return r.label && r.label.length > 18 ? r.label.substring(0, 18) + "\u2026" : r.label; }),
-                datasets: [{ label: "Value (\u20b9 Lakhs)", data: topItems.map(function(r) { return fmtLakhs(r.value); }),
-                    backgroundColor: ["#4f46e5", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"] }]
-            },
-            options: { indexAxis: "y", responsive: false, animation: false,
-                plugins: { legend: { display: false }, title: { display: true, text: "Top 10 " + gb + " by Value (\u20b9 Lakhs)", font: { size: 16 } } },
-                scales: { x: { beginAtZero: true, title: { display: true, text: "\u20b9 Lakhs" } } } }
-        }, 900, 450);
-        doc.addImage(pBarImg, "PNG", 14, startY, 170, 85);
-
-        var dpLabels = pSummary.slice(0, 5).map(function(r) { return r.label; });
-        var dpData = pSummary.slice(0, 5).map(function(r) { return fmtLakhs(r.value); });
-        var dpOthers = pSummary.slice(5).reduce(function(s, r) { return s + r.value; }, 0);
-        if (dpOthers > 0) { dpLabels.push("Others"); dpData.push(fmtLakhs(dpOthers)); }
-        var dpPieImg = await renderChartToImage({
-            type: "doughnut",
-            data: { labels: dpLabels, datasets: [{ data: dpData, backgroundColor: ["#4f46e5", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#94a3b8"] }] },
-            options: { responsive: false, animation: false,
-                plugins: { title: { display: true, text: "Value Distribution by " + gb, font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
-        }, 600, 400);
-        doc.addImage(dpPieImg, "PNG", 190, startY, 95, 63);
-
     } else if (currentReportType === "new_approval_doctors") {
         var naSummary = buildNewApprovalSummary(data.data);
-        var totalDoctors = naSummary.reduce(function(s, r) { return s + r.count; }, 0);
-
+        var totalDoctors = naSummary.reduce(function (s, r) { return s + r.count; }, 0);
         doc.setFillColor(241, 245, 249);
         doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
         doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
@@ -1053,11 +972,10 @@ async function downloadPDF() {
         doc.text(String(totalDoctors), 18, startY + 14);
         doc.text(String(naSummary.length), 86, startY + 14);
         doc.setTextColor(0);
-
         doc.setFontSize(10);
         doc.text("Region-wise New Approval Summary", 14, startY + 26);
         var naHead = [["#", "Region", "New Approvals", "% Share"]];
-        var naBody = naSummary.map(function(r, i) {
+        var naBody = naSummary.map(function (r, i) {
             return [i + 1, r.region, r.count, totalDoctors > 0 ? ((r.count / totalDoctors) * 100).toFixed(1) + "%" : "0%"];
         });
         naBody.push(["", "TOTAL", totalDoctors, "100%"]);
@@ -1065,36 +983,49 @@ async function downloadPDF() {
             head: naHead, body: naBody, startY: startY + 30,
             styles: { fontSize: 8, cellPadding: 2 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
-            didParseCell: function(d) {
-                if (d.section === "body" && d.row === naBody.length - 1) {
-                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
-                }
-            },
+            didParseCell: function (d) { if (d.section === "body" && d.row === naBody.length - 1) { d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold"; } },
             margin: { left: 14, right: 14 },
         });
 
-        // Chart page
-        doc.addPage();
-        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
-        var naBarImg = await renderChartToImage({
-            type: "bar",
-            data: {
-                labels: naSummary.map(function(r) { return r.region; }),
-                datasets: [{ label: "New Approvals", data: naSummary.map(function(r) { return r.count; }),
-                    backgroundColor: "#4f46e5" }]
-            },
-            options: { responsive: false, animation: false,
-                plugins: { title: { display: true, text: "New Approval Doctors by Region", font: { size: 16 } }, legend: { display: false } },
-                scales: { y: { beginAtZero: true } } }
-        }, 900, 400);
-        doc.addImage(naBarImg, "PNG", 14, startY, 268, 120);
+    } else if (currentReportType === "pending_deduction") {
+        var pt = data.totals || {};
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(150, startY, 62, 18, 3, 3, "F");
+        doc.roundedRect(218, startY, 65, 18, 3, 3, "F");
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.text("Pending Schemes", 18, startY + 6);
+        doc.text("Total Free Qty", 86, startY + 6);
+        doc.text("Discount Value (₹)", 154, startY + 6);
+        doc.text("Scheme Value (₹ Lakhs)", 222, startY + 6);
+        doc.setFontSize(15); doc.setTextColor(30, 41, 59);
+        doc.text(String(pt.scheme_count || 0), 18, startY + 14);
+        doc.text(fmtQty(pt.free_qty), 86, startY + 14);
+        doc.text(fmt(pt.discount_value), 154, startY + 14);
+        doc.text(fmtLakhs(pt.value), 222, startY + 14);
+        doc.setTextColor(0);
+        var pdSummary = buildPendingSummary(data.data);
+        var pdTot = pdSummary.reduce(function (s, g) { return s + g.val; }, 0);
+        doc.setFontSize(10);
+        doc.text("Pending Deduction Summary (" + (data.group_by || "") + ")", 14, startY + 26);
+        var pdHead = [["#", data.group_by || "Group", "Schemes", "Free Qty", "Discount Value", "Scheme Value", "% Share"]];
+        var pdBody = pdSummary.map(function (g, i) {
+            return [i + 1, g.label, g.schemes, fmtQty(g.free), fmt(g.disc), fmt(g.val),
+                    pdTot > 0 ? ((g.val / pdTot) * 100).toFixed(1) + "%" : "0%"];
+        });
+        pdBody.push(["", "GRAND TOTAL", pt.scheme_count || 0, fmtQty(pt.free_qty), fmt(pt.discount_value), fmt(pt.value), "100%"]);
+        doc.autoTable({
+            head: pdHead, body: pdBody, startY: startY + 30,
+            styles: { fontSize: 7, cellPadding: 1.5 },
+            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+            didParseCell: function (d) { if (d.section === "body" && d.row === pdBody.length - 1) { d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold"; } },
+            margin: { left: 14, right: 14 },
+        });
 
     } else if (currentReportType === "activity_trend") {
-        // ── Report 1: Activity Trend – Consolidated Summary ──
         var atSummary = buildActivityTrendSummary(data.data);
-        var totalActiveEntries = atSummary.monthActivity.reduce(function(s, v) { return s + v; }, 0);
-
-        // Stat boxes
+        var totalActiveEntries = atSummary.monthActivity.reduce(function (s, v) { return s + v; }, 0);
         doc.setFillColor(241, 245, 249);
         doc.roundedRect(14, startY, 62, 18, 3, 3, "F");
         doc.roundedRect(82, startY, 62, 18, 3, 3, "F");
@@ -1111,12 +1042,10 @@ async function downloadPDF() {
         doc.text(String(atSummary.hqs.length), 154, startY + 14);
         doc.text(String(totalActiveEntries), 222, startY + 14);
         doc.setTextColor(0);
-
-        // Region-wise summary table
         doc.setFontSize(10);
         doc.text("Consolidated Region-wise Activity Summary", 14, startY + 26);
         var atHead = [["#", "Region", "Doctors", "Active Doctor-Months", "Avg Months/Doctor", "% Share"]];
-        var atBody = atSummary.regions.map(function(r, i) {
+        var atBody = atSummary.regions.map(function (r, i) {
             var avgMonths = r.doctors > 0 ? (r.activeMonths / r.doctors).toFixed(1) : "0";
             return [i + 1, r.region, r.doctors, r.activeMonths, avgMonths,
                     atSummary.totalDoctors > 0 ? ((r.doctors / atSummary.totalDoctors) * 100).toFixed(1) + "%" : "0%"];
@@ -1126,73 +1055,10 @@ async function downloadPDF() {
             head: atHead, body: atBody, startY: startY + 30,
             styles: { fontSize: 7, cellPadding: 1.5 },
             headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
-            didParseCell: function(d) {
-                if (d.section === "body" && d.row === atBody.length - 1) {
-                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
-                }
-            },
+            didParseCell: function (d) { if (d.section === "body" && d.row === atBody.length - 1) { d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold"; } },
             margin: { left: 14, right: 14 },
         });
-
-        // HQ-wise summary table on same or next area
-        var hqStartY = doc.lastAutoTable.finalY + 8;
-        if (hqStartY > 160) {
-            doc.addPage();
-            hqStartY = addPDFHeader(doc, currentReportMeta.title, "HQ-wise Summary");
-        }
-        doc.setFontSize(10);
-        doc.text("HQ-wise Activity Summary", 14, hqStartY);
-        var hqHead = [["#", "HQ Code", "HQ Name", "Region", "Doctors", "Active Doctor-Months"]];
-        var hqBody = atSummary.hqs.map(function(h, i) {
-            return [i + 1, h.hq, h.hq_name, h.region, h.doctors, h.activeMonths];
-        });
-        hqBody.push(["", "", "TOTAL", "", atSummary.totalDoctors, totalActiveEntries]);
-        doc.autoTable({
-            head: hqHead, body: hqBody, startY: hqStartY + 4,
-            styles: { fontSize: 7, cellPadding: 1.5 },
-            headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
-            didParseCell: function(d) {
-                if (d.section === "body" && d.row === hqBody.length - 1) {
-                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
-                }
-            },
-            margin: { left: 14, right: 14 },
-        });
-
-        // Charts page
-        doc.addPage();
-        startY = addPDFHeader(doc, currentReportMeta.title, "Charts & Visual Analysis");
-
-        // Monthly activity bar chart
-        var atBarImg = await renderChartToImage({
-            type: "bar",
-            data: {
-                labels: atSummary.monthLabels,
-                datasets: [{ label: "Active Doctors", data: atSummary.monthActivity, backgroundColor: "#4f46e5" }]
-            },
-            options: { responsive: false, animation: false,
-                plugins: { title: { display: true, text: "Monthly Doctor Activity Count", font: { size: 16 } }, legend: { display: false } },
-                scales: { y: { beginAtZero: true, title: { display: true, text: "Doctors with Activity" } } } }
-        }, 900, 400);
-        doc.addImage(atBarImg, "PNG", 14, startY, 170, 85);
-
-        // Region-wise doctors doughnut
-        var topRegions = atSummary.regions.slice(0, 8);
-        var othersDoctors = atSummary.regions.slice(8).reduce(function(s, r) { return s + r.doctors; }, 0);
-        var regPieLabels = topRegions.map(function(r) { return r.region.length > 18 ? r.region.substring(0, 18) + "\u2026" : r.region; });
-        var regPieData = topRegions.map(function(r) { return r.doctors; });
-        if (othersDoctors > 0) { regPieLabels.push("Others"); regPieData.push(othersDoctors); }
-        var atPieImg = await renderChartToImage({
-            type: "doughnut",
-            data: { labels: regPieLabels, datasets: [{ data: regPieData,
-                backgroundColor: ["#4f46e5", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#94a3b8"] }] },
-            options: { responsive: false, animation: false,
-                plugins: { title: { display: true, text: "Doctor Distribution by Region", font: { size: 16 } }, legend: { position: "right", labels: { font: { size: 11 } } } } }
-        }, 600, 400);
-        doc.addImage(atPieImg, "PNG", 190, startY, 95, 63);
-
     } else {
-        // Generic fallback
         doc.setFontSize(10);
         doc.text("Consolidated Report Summary", 14, startY + 4);
         var rowCount = (data.data || []).length;
@@ -1201,56 +1067,47 @@ async function downloadPDF() {
         doc.setTextColor(0);
     }
 
-    // ═══════════════════════════════════════════════
-    // DETAIL PAGE: Full table from rendered HTML
-    // ═══════════════════════════════════════════════
+    // ── Detail Page: full table mirrored from the rendered HTML ──
     doc.addPage();
     startY = addPDFHeader(doc, currentReportMeta.title, "Detailed Report Data");
 
     var table = document.getElementById("report-table");
-    var head = [];
-    var body = [];
-
-    table.querySelectorAll("thead tr").forEach(function(tr) {
+    var head = [], body = [];
+    table.querySelectorAll("thead tr").forEach(function (tr) {
         var row = [];
-        tr.querySelectorAll("th").forEach(function(c) { row.push(c.textContent.trim()); });
+        tr.querySelectorAll("th").forEach(function (c) { row.push(c.textContent.trim()); });
         head.push(row);
     });
-
-    table.querySelectorAll("tbody tr").forEach(function(tr) {
+    table.querySelectorAll("tbody tr").forEach(function (tr) {
         var row = [];
         var isGroup = tr.classList.contains("group-row");
         var isTotal = tr.classList.contains("total-row");
         var isGrandTotal = tr.classList.contains("grand-total-row");
-        tr.querySelectorAll("td").forEach(function(c) { row.push(c.textContent.trim()); });
+        tr.querySelectorAll("td").forEach(function (c) { row.push(c.textContent.trim()); });
         body.push({ cells: row, isGroup: isGroup, isTotal: isTotal, isGrandTotal: isGrandTotal });
     });
 
     doc.autoTable({
         head: head,
-        body: body.map(function(r) { return r.cells; }),
+        body: body.map(function (r) { return r.cells; }),
         startY: startY,
         styles: { fontSize: 7, cellPadding: 1.2 },
         headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold", fontSize: 7 },
-        didParseCell: function(d) {
+        didParseCell: function (d) {
             if (d.section === "body" && body[d.row]) {
                 var r = body[d.row];
-                if (r.isGrandTotal) {
-                    d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold";
-                } else if (r.isGroup) {
-                    d.cell.styles.fillColor = [232, 237, 243]; d.cell.styles.fontStyle = "bold";
-                } else if (r.isTotal) {
-                    d.cell.styles.fillColor = [209, 219, 232]; d.cell.styles.fontStyle = "bold";
-                }
+                if (r.isGrandTotal) { d.cell.styles.fillColor = [30, 41, 59]; d.cell.styles.textColor = [255, 255, 255]; d.cell.styles.fontStyle = "bold"; }
+                else if (r.isGroup) { d.cell.styles.fillColor = [232, 237, 243]; d.cell.styles.fontStyle = "bold"; }
+                else if (r.isTotal) { d.cell.styles.fillColor = [209, 219, 232]; d.cell.styles.fontStyle = "bold"; }
             }
         },
         margin: { left: 10, right: 10 },
-        didDrawPage: function(d) {
+        didDrawPage: function (d) {
             if (d.pageNumber > 1) {
                 doc.setFillColor(30, 41, 59);
                 doc.rect(0, 0, 297, 12, "F");
                 doc.setTextColor(255); doc.setFontSize(9);
-                doc.text(currentReportMeta.title + " \u2013 Detail (contd.)", 14, 8);
+                doc.text(currentReportMeta.title + " – Detail (contd.)", 14, 8);
                 doc.setTextColor(0);
             }
         }

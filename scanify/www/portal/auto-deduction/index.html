@@ -24,7 +24,7 @@
                         <label>Zone</label>
                         <select id="f-zone" class="form-control" onchange="cascadeFromZone()">
                             <option value="">All Zones</option>
-                            {% for z in zones %}<option value="{{ z }}">{{ z }}</option>{% endfor %}
+                            {% for z in zones %}<option value="{{ z.code }}">{{ z.name }}</option>{% endfor %}
                         </select>
                     </div>
                 </div>
@@ -159,5 +159,5 @@
     const ALL_TEAMS = {{ teams | tojson }};
     const ALL_HQS = {{ hqs | tojson }};
 </script>
-<script src="/assets/scanify/js/bulk-deduction.js?v=20260701c"></script>
+<script src="/assets/scanify/js/bulk-deduction.js?v=20260703"></script>
 {% endblock %}
