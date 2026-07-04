@@ -19,6 +19,24 @@ from frappe.utils.background_jobs import enqueue
 import re
 from difflib import SequenceMatcher
 
+# Retired / superseded Gemini model IDs mapped to their current replacements.
+# A value saved in Scanify Settings before a model was shut down would otherwise
+# cause "model not found" errors (e.g. gemini-3-pro-preview was shut down
+# 2026-03-09, gemini-3-flash-preview is being deprecated). This keeps extraction
+# working and transparently upgrades stale selections.
+GEMINI_MODEL_ALIASES = {
+    "gemini-3-pro-preview": "gemini-3.1-pro-preview",
+    "gemini-3-flash-preview": "gemini-3.5-flash",
+    "gemini-3-flash-lite-preview": "gemini-3.1-flash-lite",
+}
+
+
+def resolve_gemini_model(model_name):
+    """Map a possibly-retired model ID to a currently-supported one."""
+    model_name = (model_name or "").strip() or "gemini-2.5-flash"
+    return GEMINI_MODEL_ALIASES.get(model_name, model_name)
+
+
 def get_gemini_settings():
     """
     Fetch Gemini API settings from Scanify Settings DocType
@@ -57,9 +75,9 @@ def get_gemini_settings():
         if not api_key:
             frappe.throw(_("Gemini API key not configured in Scanify Settings"))
         
-        # Get model name with fallback
-        model_name = settings_data.get("gemini_model_name") or "gemini-2.5-flash"
-        
+        # Get model name with fallback, upgrading any retired model IDs
+        model_name = resolve_gemini_model(settings_data.get("gemini_model_name"))
+
         frappe.logger().info(f"✅ Gemini settings loaded: Model={model_name}")
         
         return api_key, model_name, True
@@ -268,13 +286,31 @@ def _parse_numeric_value(value):
     return flt(text)
 
 
+def _thinking_config(model_name, gemini3_level="low", gemini25_budget=0):
+    """Build a ThinkingConfig with the right knob for the model family.
+
+    Gemini 3 models use thinking_level ("low"/"high"); Gemini 2.5 models use
+    thinking_budget (token cap, 0 disables). Passing the wrong knob to a family
+    errors or is silently ignored, so route by model id. Used by the lighter
+    helper calls (sales-total, filename matching); the main item-extraction path
+    uses _build_gemini_generation_config below.
+    """
+    if "gemini-3" in cstr(model_name).strip().lower():
+        return genai_types.ThinkingConfig(thinking_level=gemini3_level)
+    return genai_types.ThinkingConfig(thinking_budget=gemini25_budget)
+
+
 def _build_gemini_generation_config(model_name):
     """Tune Gemini thinking per model family for extraction requests."""
     model_key = cstr(model_name).strip().lower()
     thinking_config = None
 
     if "gemini-3" in model_key:
-        thinking_config = genai_types.ThinkingConfig(thinking_level="high")
+        # Gemini 3 family uses thinking_level. Keep Flash-Lite (the cost tier)
+        # on low reasoning so we don't pay for heavy thinking tokens and lose the
+        # cost advantage; Pro/Flash get high reasoning for accuracy.
+        level = "low" if "flash-lite" in model_key else "high"
+        thinking_config = genai_types.ThinkingConfig(thinking_level=level)
     else:
         # Gemini 2.5 models use thinkingBudget. Bump it modestly above the previous fixed 1024 cap.
         thinking_config = genai_types.ThinkingConfig(thinking_budget=2048)
@@ -997,8 +1033,9 @@ def _extract_statement_sales_total(file_path, genai_client, model_name):
         "- Return ONLY valid JSON. No markdown, no explanation."
     )
 
+    # Keep this sub-call light: minimal reasoning, model-family aware.
     generation_config = genai_types.GenerateContentConfig(
-        thinking_config=genai_types.ThinkingConfig(thinking_budget=256)
+        thinking_config=_thinking_config(model_name, gemini3_level="low", gemini25_budget=256)
     )
 
     try:
@@ -1244,8 +1281,10 @@ IMPORTANT:
         base_delay = 2
         response = None
         current_model = model_name
-        # Fallback model when primary is overloaded (503)
-        fallback_model = "gemini-3-flash-preview"
+        # Fallback model when primary is overloaded (503). Use a stable, widely
+        # available GA model that differs from the primary so the retry actually
+        # lands on different capacity.
+        fallback_model = "gemini-2.5-flash" if model_name != "gemini-2.5-flash" else "gemini-3.5-flash"
         attempt = 0
         used_fallback = False
 
@@ -1500,7 +1539,7 @@ IMPORTANT:
             model=model_name,
             contents=prompt,
             config=genai_types.GenerateContentConfig(
-                thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
+                thinking_config=_thinking_config(model_name)
             )
         )
 
@@ -1995,7 +2034,7 @@ def process_bulk_extraction(docname, month, zip_file_url):
                     model=model_name,
                     contents=map_prompt,
                     config=genai_types.GenerateContentConfig(
-                        thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
+                        thinking_config=_thinking_config(model_name)
                     )
                 )
                 resp_text = map_resp.text.strip()

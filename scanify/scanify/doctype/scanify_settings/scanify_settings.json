@@ -53,9 +53,9 @@
       "fieldname": "gemini_model_name",
       "fieldtype": "Select",
       "label": "Gemini Model",
-      "options": "gemini-2.5-flash\ngemini-2.5-flash-lite\ngemini-2.5-pro\ngemini-3-flash-preview\ngemini-3-pro-preview",
+      "options": "gemini-3.1-flash-lite\ngemini-3.5-flash\ngemini-3.1-pro-preview\ngemini-2.5-flash\ngemini-2.5-flash-lite\ngemini-2.5-pro",
       "default": "gemini-2.5-flash",
-      "description": "Select the Gemini model to use for OCR extraction"
+      "description": "Model used for OCR extraction. gemini-3.1-flash-lite is the cheapest (best cost/accuracy for statements); gemini-3.5-flash / gemini-2.5-flash are the balanced defaults; the pro models are the most accurate but most expensive."
     },
     {
       "fieldname": "features_section",
