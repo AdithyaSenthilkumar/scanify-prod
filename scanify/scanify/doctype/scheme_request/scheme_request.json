@@ -1,6 +1,6 @@
 {
  "actions": [],
- "autoname": "format:SCH-{YYYY}-{#####}",
+ "autoname": "SCH-.YYYY.-.#####",
  "creation": "2025-11-29 08:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -36,8 +36,11 @@
     "approval_status",
     "repeated_request",
     "scheme_notes",
+    "email_sent",
+    "email_sent_on",
+    "email_sent_to",
 
-    "attachments_section",   
+    "attachments_section",
     "proof_attachment_1",
     "proof_attachment_2",
     "column_break_vbnm",
@@ -181,6 +184,28 @@
       "fieldname": "scheme_notes",
       "fieldtype": "Small Text",
       "label": "Scheme Reason"
+    },
+    {
+      "default": "0",
+      "fieldname": "email_sent",
+      "fieldtype": "Check",
+      "label": "Scheme Email Sent",
+      "read_only": 1,
+      "no_copy": 1
+    },
+    {
+      "fieldname": "email_sent_on",
+      "fieldtype": "Datetime",
+      "label": "Scheme Email Sent On",
+      "read_only": 1,
+      "no_copy": 1
+    },
+    {
+      "fieldname": "email_sent_to",
+      "fieldtype": "Small Text",
+      "label": "Scheme Email Recipients",
+      "read_only": 1,
+      "no_copy": 1
     },
     {
       "fieldname": "proof_attachment_1",

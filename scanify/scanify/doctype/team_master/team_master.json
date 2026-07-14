@@ -12,7 +12,9 @@
         "division",
         "region",
         "sanctioned_strength",
-        "status"
+        "status",
+        "to_email",
+        "cc_emails"
     ],
     "fields": [
         {
@@ -58,6 +60,19 @@
             "fieldtype": "Select",
             "label": "Status",
             "options": "Active\nInactive"
+        },
+        {
+            "fieldname": "to_email",
+            "fieldtype": "Data",
+            "label": "Scheme Email - To",
+            "options": "Email",
+            "description": "Primary recipient (CFA) for approved-scheme emails. One email only."
+        },
+        {
+            "fieldname": "cc_emails",
+            "fieldtype": "Small Text",
+            "label": "Scheme Email - CC",
+            "description": "CC recipients for approved-scheme emails. Separate multiple with comma or new line."
         }
     ],
     "index_web_pages_for_search": 1,

@@ -1,0 +1,335 @@
+{% extends "templates/portal_base.html" %}
+
+{% block title %}Send Scheme Emails{% endblock %}
+
+{% block portal_content %}
+<div class="portal-page scheme-email-page">
+    <div class="page-header d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="page-title"><i class="fa fa-paper-plane"></i> Send Scheme Emails</h1>
+            <p class="page-subtitle">Email approved schemes to CFA/RSM for <strong>{{ division }}</strong> division</p>
+        </div>
+        <a href="/portal/scheme-list" class="btn btn-secondary">
+            <i class="fa fa-arrow-left"></i> Back to List
+        </a>
+    </div>
+
+    <input type="hidden" id="division" value="{{ division }}">
+
+    {% if not is_manager %}
+    <div class="alert alert-warning">
+        <i class="fa fa-lock"></i> This page is available to HO managers only.
+    </div>
+    {% else %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row align-items-end">
+                <div class="col-md-3">
+                    <label><strong>Month <span class="text-danger">*</span></strong></label>
+                    <input type="month" id="filterMonth" class="form-control">
+                </div>
+                <div class="col-md-4">
+                    <label><strong>Region</strong></label>
+                    <select id="filterRegion" class="form-control">
+                        <option value="">All regions</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary btn-block" onclick="loadPending()">
+                        <i class="fa fa-search"></i> Load
+                    </button>
+                </div>
+                <div class="col-md-3 text-right">
+                    <span class="text-muted small" id="pendingCount"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="fa fa-list"></i> Approved schemes pending email</span>
+            <div>
+                <button class="btn btn-sm btn-outline-secondary" onclick="previewEmails()" id="previewBtn" disabled>
+                    <i class="fa fa-eye"></i> Preview (<span id="selCount">0</span>)
+                </button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" id="pendingTable">
+                    <thead class="bg-light">
+                        <tr>
+                            <th style="width:36px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)"></th>
+                            <th>Sch. No</th>
+                            <th>Date</th>
+                            <th>Region</th>
+                            <th>Team</th>
+                            <th>HQ</th>
+                            <th>Doctor</th>
+                            <th>Stockist</th>
+                            <th class="text-center">Items</th>
+                            <th>Recipients (To)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pendingBody">
+                        <tr><td colspan="10" class="text-center text-muted py-4">Select a month and click Load.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fa fa-eye"></i> Email Preview</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body" id="previewBody">
+                <div class="text-center py-4"><i class="fa fa-spinner fa-spin fa-2x text-muted"></i></div>
+            </div>
+            <div class="modal-footer">
+                <span class="text-muted small mr-auto" id="previewSummary"></span>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="sendBtn" onclick="sendEmails()" disabled>
+                    <i class="fa fa-paper-plane"></i> Send
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .scheme-email-page .no-recipient { color: #dc3545; }
+    .scheme-email-page tr.row-unroutable { background: #fff5f5; }
+    .preview-group { border: 1px solid #dee2e6; border-radius: 6px; margin-bottom: 16px; }
+    .preview-group .pg-head { background: #f8f9fa; padding: 10px 14px; border-bottom: 1px solid #dee2e6; }
+    .preview-group .pg-body { padding: 14px; overflow-x: auto; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function getActiveDivision() {
+        const h = document.getElementById('division');
+        if (h && h.value) return h.value;
+        const btn = document.querySelector('.division-name');
+        if (btn && btn.textContent.trim()) return btn.textContent.trim();
+        return 'Prima';
+    }
+
+    let pendingSchemes = [];
+    let lastPreviewGroups = [];
+
+    $(document).ready(function () {
+        // Default month = current month (YYYY-MM)
+        const now = new Date();
+        const ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+        $('#filterMonth').val(ym);
+        loadRegions();
+        loadPending();
+    });
+
+    function loadRegions() {
+        $.ajax({
+            url: '/api/method/scanify.api.get_region_list',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ division: getActiveDivision() }),
+            success: function (r) {
+                const data = (r.message && r.message.data) || [];
+                let html = '<option value="">All regions</option>';
+                data.forEach(function (rg) {
+                    html += `<option value="${rg.name}">${rg.region_name || rg.name}</option>`;
+                });
+                $('#filterRegion').html(html);
+            }
+        });
+    }
+
+    function loadPending() {
+        const month = $('#filterMonth').val();
+        if (!month) { showAlert('Please pick a month', 'warning'); return; }
+        $('#pendingBody').html('<tr><td colspan="10" class="text-center text-muted py-4"><i class="fa fa-spinner fa-spin"></i> Loading...</td></tr>');
+        $.ajax({
+            url: '/api/method/scanify.api.get_pending_scheme_emails',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ division: getActiveDivision(), month: month, region: $('#filterRegion').val() || null }),
+            success: function (r) {
+                if (r.message && r.message.success) {
+                    pendingSchemes = r.message.schemes || [];
+                    renderPending();
+                } else {
+                    showAlert((r.message && r.message.message) || 'Failed to load', 'danger');
+                }
+            },
+            error: function (xhr) { console.error(xhr.responseText); showAlert('Error loading schemes', 'danger'); }
+        });
+    }
+
+    function renderPending() {
+        $('#pendingCount').text(pendingSchemes.length + ' scheme(s) pending email');
+        $('#selectAll').prop('checked', false);
+        if (!pendingSchemes.length) {
+            $('#pendingBody').html('<tr><td colspan="10" class="text-center text-muted py-4">No approved schemes pending email for this month/region.</td></tr>');
+            updateSelCount();
+            return;
+        }
+        let html = '';
+        pendingSchemes.forEach(function (s) {
+            const routable = s.has_recipient;
+            const recipients = routable
+                ? (s.to_emails || []).join(', ')
+                : '<span class="no-recipient"><i class="fa fa-exclamation-triangle"></i> No To email on Team/User</span>';
+            html += `<tr class="${routable ? '' : 'row-unroutable'}">
+                <td><input type="checkbox" class="scheme-check" value="${s.name}" ${routable ? '' : 'disabled'} onclick="updateSelCount()"></td>
+                <td><a href="/portal/scheme-detail?name=${s.name}" target="_blank">${s.name}</a></td>
+                <td>${s.application_date || '-'}</td>
+                <td>${s.region_name || s.region || '-'}</td>
+                <td>${s.team_name || s.team || '-'}</td>
+                <td>${s.hq_name || s.hq || '-'}</td>
+                <td>${s.doctor_name || '-'}</td>
+                <td>${s.stockist_name || '-'}</td>
+                <td class="text-center">${s.item_count || 0}</td>
+                <td class="small">${recipients}</td>
+            </tr>`;
+        });
+        $('#pendingBody').html(html);
+        updateSelCount();
+    }
+
+    function toggleAll(cb) {
+        $('.scheme-check:not(:disabled)').prop('checked', cb.checked);
+        updateSelCount();
+    }
+
+    function getSelected() {
+        return $('.scheme-check:checked').map(function () { return this.value; }).get();
+    }
+
+    function updateSelCount() {
+        const n = getSelected().length;
+        $('#selCount').text(n);
+        $('#previewBtn').prop('disabled', n === 0);
+    }
+
+    function previewEmails() {
+        const names = getSelected();
+        if (!names.length) return;
+        $('#previewBody').html('<div class="text-center py-4"><i class="fa fa-spinner fa-spin fa-2x text-muted"></i></div>');
+        $('#sendBtn').prop('disabled', true);
+        $('#previewSummary').text('');
+        $('#previewModal').modal('show');
+        $.ajax({
+            url: '/api/method/scanify.api.preview_scheme_emails',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ scheme_names: JSON.stringify(names), month: $('#filterMonth').val() }),
+            success: function (r) {
+                if (r.message && r.message.success) {
+                    lastPreviewGroups = r.message.groups || [];
+                    renderPreview(r.message);
+                } else {
+                    $('#previewBody').html('<div class="alert alert-danger">' + ((r.message && r.message.message) || 'Preview failed') + '</div>');
+                }
+            },
+            error: function (xhr) { console.error(xhr.responseText); $('#previewBody').html('<div class="alert alert-danger">Error building preview</div>'); }
+        });
+    }
+
+    function renderPreview(data) {
+        const groups = data.groups || [];
+        const unroutable = data.unroutable || [];
+        let html = '';
+        if (unroutable.length) {
+            html += `<div class="alert alert-warning"><i class="fa fa-exclamation-triangle"></i>
+                ${unroutable.length} scheme(s) have no To email and will be skipped: ${unroutable.join(', ')}</div>`;
+        }
+        if (!groups.length) {
+            html += '<div class="alert alert-info">Nothing to send — no routable schemes selected.</div>';
+            $('#previewBody').html(html);
+            $('#previewSummary').text('');
+            $('#sendBtn').prop('disabled', true);
+            return;
+        }
+        groups.forEach(function (g, i) {
+            html += `<div class="preview-group">
+                <div class="pg-head">
+                    <div><strong>Email ${i + 1}</strong> &nbsp; <span class="badge badge-secondary">${g.scheme_count} scheme(s), ${g.row_count} line(s)</span></div>
+                    <div class="small mt-1"><strong>Subject:</strong> ${escapeHtml(g.subject)}</div>
+                    <div class="small"><strong>To:</strong> ${escapeHtml((g.to || []).join(', '))}</div>
+                    <div class="small"><strong>CC:</strong> ${escapeHtml((g.cc || []).join(', ')) || '<span class="text-muted">none</span>'}</div>
+                </div>
+                <div class="pg-body">${g.html}</div>
+            </div>`;
+        });
+        $('#previewBody').html(html);
+        const totalSchemes = groups.reduce((a, g) => a + g.scheme_count, 0);
+        $('#previewSummary').text(`${groups.length} email(s) to ${totalSchemes} scheme(s)`);
+        $('#sendBtn').prop('disabled', false).html(`<i class="fa fa-paper-plane"></i> Send ${groups.length} email(s)`);
+    }
+
+    function sendEmails() {
+        const names = getSelected();
+        if (!names.length) return;
+        if (!confirm('Send ' + lastPreviewGroups.length + ' email(s) now?')) return;
+        const $btn = $('#sendBtn');
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Sending...');
+        $.ajax({
+            url: '/api/method/scanify.api.send_scheme_emails',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ scheme_names: JSON.stringify(names), month: $('#filterMonth').val() }),
+            success: function (r) {
+                const d = r.message || {};
+                if (d.success) {
+                    $('#previewModal').modal('hide');
+                    let msg = `Sent ${d.groups_sent} email(s) covering ${d.schemes_sent} scheme(s).`;
+                    if (d.unroutable && d.unroutable.length) msg += ` Skipped ${d.unroutable.length} (no recipient).`;
+                    if (d.errors && d.errors.length) {
+                        msg += ` ${d.errors.length} failed.`;
+                        showAlert(msg + ' ' + d.errors.join(' | '), 'warning');
+                    } else {
+                        showAlert(msg, 'success');
+                    }
+                    loadPending();
+                } else {
+                    $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Send');
+                    showAlert(d.message || 'Send failed', 'danger');
+                }
+            },
+            error: function (xhr) {
+                console.error(xhr.responseText);
+                $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Send');
+                showAlert('Error sending emails', 'danger');
+            }
+        });
+    }
+
+    function escapeHtml(s) {
+        return (s || '').replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function showAlert(msg, type) {
+        let a = $(`<div class="alert alert-${type} alert-dismissible fade show" role="alert"
+            style="position:fixed;top:70px;right:20px;z-index:9999;min-width:350px;max-width:560px;box-shadow:0 4px 6px rgba(0,0,0,.15);">
+            <strong>${msg}</strong>
+            <button type="button" class="close" data-dismiss="alert">&times;</button></div>`);
+        $('body').append(a);
+        setTimeout(() => a.fadeOut(() => a.remove()), 7000);
+    }
+</script>
+{% endblock %}

@@ -120,10 +120,10 @@
                             <tr>
                                 <th>Product</th>
                                 <th>Pack</th>
-                                <th>Order Qty</th>
-                                <th>Free Qty</th>
+                                <th>Order Qty (strips/units)</th>
+                                <th>Free Qty (strips/units)</th>
                                 <th>Rate (PTS)</th>
-                                <th>Special Rate</th>
+                                <th>Special Rate (PTS)</th>
                                 <th>Scheme %</th>
                                 <th class="text-right">Value (₹)</th>
                             </tr>
@@ -334,12 +334,12 @@
                                 <tr>
                                     <th style="min-width:220px;">Product <span class="text-danger">*</span></th>
                                     <th style="min-width:70px;">Pack</th>
-                                    <th style="min-width:90px;">Order Qty <span class="text-danger">*</span></th>
-                                    <th style="min-width:80px;">Free Qty
+                                    <th style="min-width:110px;">Order Qty (strips/units) <span class="text-danger">*</span></th>
+                                    <th style="min-width:100px;">Free Qty (strips/units)
                                         <i class="fa fa-info-circle text-muted" title="Free Qty and Special Price are mutually exclusive — set one or the other."></i>
                                     </th>
                                     <th style="min-width:100px;">Rate (PTS)</th>
-                                    <th style="min-width:100px;">Special Rate
+                                    <th style="min-width:110px;">Special Rate (PTS)
                                         <i class="fa fa-info-circle text-muted" title="Free Qty and Special Price are mutually exclusive — set one or the other."></i>
                                     </th>
                                     <th style="min-width:90px;">Scheme %</th>
@@ -1072,10 +1072,11 @@
         let pct = 0;
         if (special > 0 && rate > 0) pct = ((rate - special) / rate) * 100;
         else if (free > 0 && qty > 0) pct = (free / qty) * 100;
-        let value = 0;
-        if (special > 0) value = qty * special;
-        else if (free > 0) value = (free / conv) * rate;
-        else value = qty * rate;
+        // Order Value = (order qty in strips/units ÷ strips-per-box) × rate-per-box (PTS).
+        // Free qty is the scheme incentive, not part of the order value; special rate
+        // (also a PTS/box figure) replaces PTS when a discount scheme is used.
+        const effectiveRate = special > 0 ? special : rate;
+        const value = (qty / conv) * effectiveRate;
         $('#e-pct-' + rid).val(pct.toFixed(2) + '%');
         $('#e-value-' + rid).val('₹ ' + formatCurrency(value));
         editCalcTotal();

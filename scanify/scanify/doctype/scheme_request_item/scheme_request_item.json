@@ -44,14 +44,14 @@
    "fieldname": "quantity",
    "fieldtype": "Int",
    "in_list_view": 1,
-   "label": "Order Quantity",
+   "label": "Order Qty (strips/units)",
    "reqd": 1
   },
   {
    "fieldname": "free_quantity",
    "fieldtype": "Int",
    "in_list_view": 1,
-   "label": "Free Quantity",
+   "label": "Free Qty (strips/units)",
    "default": "0"
   },
   {
@@ -64,7 +64,7 @@
   {
    "fieldname": "special_rate",
    "fieldtype": "Currency",
-   "label": "Special Rate (if any)"
+   "label": "Special Rate (PTS)"
   },
   {
     "fieldname": "scheme_percentage",

@@ -478,14 +478,11 @@ function calculateRow(rowId) {
         schemePct = (freeQty / qty) * 100;
     }
 
-    let value = 0;
-    if (specialRate > 0) {
-        value = qty * specialRate;
-    } else if (freeQty > 0) {
-        value = (freeQty / conversionFactor) * rate;
-    } else {
-        value = qty * rate;
-    }
+    // Order Value = (order qty in strips/units ÷ strips-per-box) × rate-per-box (PTS).
+    // Free qty is the scheme incentive and is NOT part of the order value; the special
+    // rate (also a PTS/box figure) simply replaces PTS when a discount scheme is used.
+    const effectiveRate = specialRate > 0 ? specialRate : rate;
+    const value = (qty / conversionFactor) * effectiveRate;
 
     $(`#schemepct-${rowId}`).val(schemePct.toFixed(2) + '%');
     $(`#value-${rowId}`).val('\u20B9 ' + formatCurrency(value));

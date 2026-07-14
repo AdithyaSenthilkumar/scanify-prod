@@ -2894,6 +2894,287 @@ def send_scheme_notification(doc, action, comments):
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Send Notification Error")
 
+
+# ───────────────────────────────────────────────────────────────
+# Approved-Scheme Email — HO manually triggers consolidated mails
+# grouped by "To" recipient (CFA), with the RSM note block.
+# ───────────────────────────────────────────────────────────────
+
+_SCHEME_EMAIL_RSM_NOTES = [
+    "Ensure single supply to the approved counter.",
+    "Ensure monthly repeat orders.",
+    "Submit proof of supply for any offer above 20%.",
+]
+
+
+def _split_emails(raw):
+    """Parse a comma/semicolon/newline separated string into a list of valid emails."""
+    if not raw:
+        return []
+    out = []
+    for p in re.split(r"[,;\n]+", str(raw)):
+        e = frappe.utils.validate_email_address((p or "").strip(), throw=False)
+        if e:
+            out.append(e)
+    return out
+
+
+def _dedupe_emails(seq):
+    """De-duplicate emails case-insensitively, preserving first-seen order."""
+    seen, out = set(), []
+    for e in seq:
+        k = (e or "").strip().lower()
+        if k and k not in seen:
+            seen.add(k)
+            out.append(e.strip())
+    return out
+
+
+def _resolve_scheme_recipients(team, requested_by):
+    """To/CC for one scheme = Team Master (to_email/cc_emails) combined with the
+    requestor's User profile (scheme_to_email/scheme_cc_emails), de-duplicated."""
+    to, cc = [], []
+    if team:
+        t = frappe.db.get_value("Team Master", team, ["to_email", "cc_emails"], as_dict=True)
+        if t:
+            to += _split_emails(t.get("to_email"))
+            cc += _split_emails(t.get("cc_emails"))
+    if requested_by:
+        u = frappe.db.get_value("User", requested_by, ["scheme_to_email", "scheme_cc_emails"], as_dict=True)
+        if u:
+            to += _split_emails(u.get("scheme_to_email"))
+            cc += _split_emails(u.get("scheme_cc_emails"))
+    return _dedupe_emails(to), _dedupe_emails(cc)
+
+
+def _scheme_email_month_bounds(month):
+    """month='YYYY-MM' (or any date) -> (first_day, last_day, label like 'Jun 26')."""
+    from frappe.utils import getdate, get_first_day, get_last_day
+    if month and len(str(month)) == 7:
+        d = getdate(str(month) + "-01")
+    elif month:
+        d = getdate(month)
+    else:
+        d = getdate(nowdate())
+    return get_first_day(d), get_last_day(d), d.strftime("%b %y")
+
+
+@frappe.whitelist()
+def get_pending_scheme_emails(division=None, month=None, region=None):
+    """Approved scheme requests in a month (+ optional region) not yet emailed."""
+    try:
+        if not division:
+            division = get_user_division()
+        first_day, last_day, _ = _scheme_email_month_bounds(month)
+
+        conds = ["sr.approval_status = 'Approved'", "COALESCE(sr.email_sent,0) = 0",
+                 "sr.division = %(division)s",
+                 "sr.application_date BETWEEN %(from_date)s AND %(to_date)s"]
+        params = {"division": division, "from_date": first_day, "to_date": last_day}
+        if region:
+            conds.append("sr.region = %(region)s")
+            params["region"] = region
+
+        rows = frappe.db.sql(f"""
+            SELECT sr.name, sr.application_date, sr.division, sr.region, sr.team, sr.hq,
+                   sr.doctor_name, sr.stockist_name, sr.requested_by, sr.total_scheme_value,
+                   rm.region_name, tm.team_name, hm.hq_name,
+                   (SELECT COUNT(*) FROM `tabScheme Request Item` sri WHERE sri.parent = sr.name) AS item_count
+            FROM `tabScheme Request` sr
+            LEFT JOIN `tabRegion Master` rm ON rm.name = sr.region
+            LEFT JOIN `tabTeam Master` tm ON tm.name = sr.team
+            LEFT JOIN `tabHQ Master` hm ON hm.name = sr.hq
+            WHERE {' AND '.join(conds)}
+            ORDER BY rm.region_name, tm.team_name, sr.name
+        """, params, as_dict=True)
+
+        for r in rows:
+            to, cc = _resolve_scheme_recipients(r.team, r.requested_by)
+            r["to_emails"] = to
+            r["cc_emails"] = cc
+            r["has_recipient"] = bool(to)
+        return {"success": True, "schemes": rows, "count": len(rows)}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Pending Scheme Emails Error")
+        return {"success": False, "message": str(e)}
+
+
+def _render_scheme_email_html(rows):
+    """Render the 'Approved for billing' body: CFA table + RSM notes + signature.
+    Styles are inlined for email-client compatibility."""
+    esc = frappe.utils.escape_html
+    th = "padding:4px 6px;border:1px solid #333;background:#f0f0f0;font-size:11px;text-align:center;"
+    td = "padding:4px 6px;border:1px solid #333;font-size:11px;"
+    tdc = td + "text-align:center;"
+    headers = ["S.No", "Sch. No", "Region", "Team", "HQ", "Doctor Name", "Hospital/Chemist",
+               "Stockist", "Product Code", "Pack size", "Order Qty (Strips/Units)", "Free Qty",
+               "Spl. Rate in PTS"]
+    head = "".join(f'<th style="{th}">{h}</th>' for h in headers)
+
+    body = []
+    for i, r in enumerate(rows, start=1):
+        free = r["free_qty"] or ""
+        spl = f'{flt(r["special_rate"]):g}' if flt(r["special_rate"]) > 0 else ""
+        body.append(
+            "<tr>"
+            f'<td style="{tdc}">{i}</td>'
+            f'<td style="{td}">{esc(str(r["sch_no"]))}</td>'
+            f'<td style="{td}">{esc(str(r["region"]))}</td>'
+            f'<td style="{td}">{esc(str(r["team"]))}</td>'
+            f'<td style="{td}">{esc(str(r["hq"]))}</td>'
+            f'<td style="{td}">{esc(str(r["doctor"]))}</td>'
+            f'<td style="{td}">{esc(str(r["hospital"]))}</td>'
+            f'<td style="{td}">{esc(str(r["stockist"]))}</td>'
+            f'<td style="{td}">{esc(str(r["product_code"]))}</td>'
+            f'<td style="{td}">{esc(str(r["pack"]))}</td>'
+            f'<td style="{tdc}">{r["order_qty"]}</td>'
+            f'<td style="{tdc}">{free}</td>'
+            f'<td style="{tdc}">{esc(str(spl))}</td>'
+            "</tr>"
+        )
+    notes = "".join(f"<li>{n}</li>" for n in _SCHEME_EMAIL_RSM_NOTES)
+    return (
+        '<div style="font-family:Arial,sans-serif;font-size:13px;color:#000;">'
+        "<p>Dear CFA,</p>"
+        "<p><b>Approved for billing:</b></p>"
+        '<table style="border-collapse:collapse;border:1px solid #333;">'
+        f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+        "<br><p>Dear RSM,</p>"
+        f"<ul>{notes}</ul>"
+        "<br><p>Regards,<br>Marketing Admin Team,<br>Mobile No. 98406 14334</p>"
+        "</div>"
+    )
+
+
+def _build_scheme_email_groups(scheme_names, month=None):
+    """Group approved schemes by their combined To-set and build recipients, subject
+    and rendered body per group. Returns (groups, unroutable_scheme_names)."""
+    if isinstance(scheme_names, str):
+        scheme_names = json.loads(scheme_names)
+
+    _, _, month_label = _scheme_email_month_bounds(month)
+    groups = {}
+    unroutable = []
+
+    for name in (scheme_names or []):
+        sr = frappe.db.get_value("Scheme Request", name,
+            ["name", "division", "region", "team", "hq", "doctor_name", "hospital_address",
+             "stockist_name", "requested_by", "application_date", "approval_status", "email_sent"],
+            as_dict=True)
+        if not sr:
+            continue
+        to, cc = _resolve_scheme_recipients(sr.team, sr.requested_by)
+        if not to:
+            unroutable.append(name)
+            continue
+        key = tuple(sorted({e.lower() for e in to}))
+        g = groups.get(key)
+        if not g:
+            g = {"to": to, "cc": [], "schemes": []}
+            groups[key] = g
+        g["cc"] += cc
+        g["schemes"].append(sr)
+
+    out = []
+    for g in groups.values():
+        to_lower = {e.lower() for e in g["to"]}
+        g["cc"] = [e for e in _dedupe_emails(g["cc"]) if e.lower() not in to_lower]
+
+        rows, region_names, divisions = [], [], []
+        for sr in sorted(g["schemes"], key=lambda s: s["name"]):
+            rname = frappe.db.get_value("Region Master", sr.region, "region_name") or sr.region or ""
+            tname = frappe.db.get_value("Team Master", sr.team, "team_name") or sr.team or ""
+            hname = frappe.db.get_value("HQ Master", sr.hq, "hq_name") or sr.hq or ""
+            if rname and rname not in region_names:
+                region_names.append(rname)
+            if sr.division and sr.division not in divisions:
+                divisions.append(sr.division)
+            items = frappe.db.sql(
+                "SELECT product_code, pack, quantity, free_quantity, special_rate "
+                "FROM `tabScheme Request Item` WHERE parent=%s ORDER BY idx", sr.name, as_dict=True)
+            for it in items:
+                rows.append({
+                    "sch_no": sr.name, "region": rname, "team": tname, "hq": hname,
+                    "doctor": sr.doctor_name or "", "hospital": sr.hospital_address or "",
+                    "stockist": sr.stockist_name or "", "product_code": it.product_code or "",
+                    "pack": it.pack or "", "order_qty": it.quantity or 0,
+                    "free_qty": it.free_quantity or 0, "special_rate": it.special_rate or 0,
+                })
+        division_label = "/".join(divisions) if divisions else (get_user_division() or "")
+        region_label = "/".join(region_names) if region_names else ""
+        g["rows"] = rows
+        g["subject"] = f"Scheme order: {division_label}/{region_label} Region/{month_label}"
+        g["html"] = _render_scheme_email_html(rows)
+        out.append(g)
+    return out, unroutable
+
+
+@frappe.whitelist()
+def preview_scheme_emails(scheme_names, month=None):
+    """Build the consolidated email(s) for the selected schemes WITHOUT sending."""
+    try:
+        groups, unroutable = _build_scheme_email_groups(scheme_names, month)
+        return {
+            "success": True,
+            "groups": [{
+                "to": g["to"], "cc": g["cc"], "subject": g["subject"], "html": g["html"],
+                "scheme_count": len(g["schemes"]), "row_count": len(g["rows"]),
+                "scheme_names": [s["name"] for s in g["schemes"]],
+            } for g in groups],
+            "unroutable": unroutable,
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Preview Scheme Emails Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def send_scheme_emails(scheme_names, month=None):
+    """Send the consolidated approved-scheme email(s) and stamp each scheme as emailed.
+    Restricted to Sales/System Manager (HO)."""
+    try:
+        from frappe.utils import now_datetime, cint
+        roles = frappe.get_roles(frappe.session.user)
+        if "Sales Manager" not in roles and "System Manager" not in roles:
+            frappe.throw("Not permitted to send scheme emails", frappe.PermissionError)
+
+        groups, unroutable = _build_scheme_email_groups(scheme_names, month)
+        now = now_datetime()
+        groups_sent = schemes_sent = 0
+        errors = []
+
+        for g in groups:
+            # Re-verify each scheme is still Approved and not already emailed.
+            valid = [s for s in g["schemes"]
+                     if s.approval_status == "Approved" and not cint(s.email_sent)]
+            if not valid:
+                continue
+            try:
+                frappe.sendmail(recipients=g["to"], cc=g["cc"], subject=g["subject"],
+                                message=g["html"], now=True)
+            except Exception as se:
+                errors.append(f"{g['subject']}: {se}")
+                frappe.log_error(frappe.get_traceback(), "Send Scheme Email Error")
+                continue
+
+            recipients_str = "To: " + ", ".join(g["to"])
+            if g["cc"]:
+                recipients_str += "; CC: " + ", ".join(g["cc"])
+            for s in valid:
+                frappe.db.set_value("Scheme Request", s["name"], {
+                    "email_sent": 1, "email_sent_on": now, "email_sent_to": recipients_str,
+                }, update_modified=False)
+                schemes_sent += 1
+            groups_sent += 1
+
+        frappe.db.commit()
+        return {"success": True, "groups_sent": groups_sent, "schemes_sent": schemes_sent,
+                "unroutable": unroutable, "errors": errors}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Send Scheme Emails Error")
+        return {"success": False, "message": str(e)}
+
+
 @frappe.whitelist()
 def search_doctors(search_term):
     """Search doctors by name or place"""
@@ -4810,7 +5091,7 @@ def _resolve_import_links(doctype, data, division):
 
 def _find_existing_master(doctype, data, division):
     """Find an existing master record for upsert based on the identifying
-    name field + division combination."""
+    name field + division (+ any extra scope) combination."""
     upsert_keys = {
         "Zone Master":     "zone_name",
         "State Master":    "state_name",
@@ -4822,11 +5103,24 @@ def _find_existing_master(doctype, data, division):
         "Doctor Master":   "doctor_name",
     }
 
+    # Extra identifying fields beyond the name field. Doctors are de-duplicated at the
+    # HQ level, not the Region/Division level: the same doctor name under a different HQ
+    # is a distinct doctor and must be created, not merged into the existing record.
+    # This mirrors Doctor Master.check_duplicate_in_division (name + division + hq).
+    upsert_extra_keys = {
+        "Doctor Master": ["hq"],
+    }
+
     name_field = upsert_keys.get(doctype)
     if not name_field or not data.get(name_field):
         return None
 
     filters = {name_field: data[name_field]}
+
+    for extra in upsert_extra_keys.get(doctype, []):
+        # Match blanks against blanks (empty string) so a doctor with no HQ upserts
+        # consistently rather than colliding with same-name doctors that do have one.
+        filters[extra] = data.get(extra) or ""
 
     # Division-scoped lookup
     meta = frappe.get_meta(doctype)
@@ -6053,8 +6347,15 @@ def create_scheme_request_v2(data):
             elif free_qty > 0 and qty > 0:
                 scheme_pct = (free_qty / qty) * 100
 
+            # Order Value = (order qty in strips/units ÷ strips-per-box) × rate-per-box
+            # (PTS or special rate). Mirrors Scheme Request._compute_order_value, which
+            # recomputes this authoritatively on save. Free qty is not part of the value.
+            pack_match = re.match(r'(\d+)\s*[xX]\s*(\d+)', str(item.get("pack") or "").strip().upper())
+            conversion_factor = flt(pack_match.group(1)) if pack_match else 1
+            if not conversion_factor:
+                conversion_factor = 1
             effective_rate = special_rate if special_rate > 0 else rate
-            product_value = qty * effective_rate
+            product_value = (qty / conversion_factor) * effective_rate
 
             doc.append("items", {
                 "product_code": item.get("product_code"),
@@ -6780,7 +7081,8 @@ def get_portal_users():
         "User",
         filters={"name": ["not in", ["Guest", "Administrator"]], "user_type": "System User"},
         fields=["name", "email", "first_name", "middle_name", "last_name", "full_name",
-                "mobile_no", "user_image", "enabled"],
+                "mobile_no", "user_image", "enabled", "division",
+                "scheme_to_email", "scheme_cc_emails"],
         order_by="full_name asc",
         limit_page_length=500,
     )
@@ -6793,14 +7095,15 @@ def get_portal_users():
             u["role"] = "Sales Manager"
         else:
             u["role"] = "User"
-        u["division"] = frappe.db.get_value("User", u["name"], "division") or ""
+        u["division"] = u.get("division") or ""
 
     return users
 
 
 @frappe.whitelist()
 def create_portal_user(email, first_name, last_name=None, middle_name=None,
-                       role="User", division="Prima", mobile_no=None, password=None):
+                       role="User", division="Prima", mobile_no=None, password=None,
+                       scheme_to_email=None, scheme_cc_emails=None):
     """Create a new portal user. Restricted to System Manager."""
     if "System Manager" not in frappe.get_roles(frappe.session.user):
         frappe.throw("Not permitted", frappe.PermissionError)
@@ -6819,6 +7122,8 @@ def create_portal_user(email, first_name, last_name=None, middle_name=None,
         "last_name": last_name or "",
         "mobile_no": mobile_no or "",
         "division": division,
+        "scheme_to_email": (scheme_to_email or "").strip(),
+        "scheme_cc_emails": (scheme_cc_emails or "").strip(),
         "enabled": 1,
         "send_welcome_email": 0,
         "user_type": "System User",
@@ -6843,6 +7148,53 @@ def create_portal_user(email, first_name, last_name=None, middle_name=None,
     frappe.db.commit()
 
     return {"success": True, "user": email, "message": f"User {email} created successfully"}
+
+
+@frappe.whitelist()
+def update_portal_user(email, first_name=None, last_name=None, middle_name=None,
+                       role=None, division=None, mobile_no=None,
+                       scheme_to_email=None, scheme_cc_emails=None):
+    """Update an existing portal user's details (incl. scheme To/CC). System Manager only."""
+    if "System Manager" not in frappe.get_roles(frappe.session.user):
+        frappe.throw("Not permitted", frappe.PermissionError)
+    if not email or not frappe.db.exists("User", email):
+        frappe.throw(f"User {email} not found")
+
+    user = frappe.get_doc("User", email)
+    if first_name is not None:
+        user.first_name = first_name
+    if middle_name is not None:
+        user.middle_name = middle_name or ""
+    if last_name is not None:
+        user.last_name = last_name or ""
+    if mobile_no is not None:
+        user.mobile_no = mobile_no or ""
+    if division is not None:
+        user.division = division
+    if scheme_to_email is not None:
+        user.scheme_to_email = (scheme_to_email or "").strip()
+    if scheme_cc_emails is not None:
+        user.scheme_cc_emails = (scheme_cc_emails or "").strip()
+    user.save(ignore_permissions=True)
+
+    # Sync role if provided (swap the single app role)
+    if role:
+        role_map = {
+            "System Manager": "System Manager",
+            "Sales Manager": "Sales Manager",
+            "User": "Scanify User",
+        }
+        target = role_map.get(role, "Scanify User")
+        current_app_roles = [r for r in frappe.get_roles(email)
+                             if r in ("System Manager", "Sales Manager", "Scanify User")]
+        for r in current_app_roles:
+            if r != target:
+                user.remove_roles(r)
+        if target not in current_app_roles:
+            user.add_roles(target)
+
+    frappe.db.commit()
+    return {"success": True, "user": email, "message": f"User {email} updated successfully"}
 
 
 @frappe.whitelist()
@@ -8997,6 +9349,9 @@ def get_stockist_secondary_sales_report(division=None, region=None,
 
     rows = frappe.db.sql(f"""
         SELECT ss.stockist_code, ss.stockist_name,
+               ss.hq AS hq_code,
+               COALESCE(hm.hq_name, ss.hq, '') AS hq_name,
+               COALESCE(tm.team_name, hm.team, ss.team, '') AS team_name,
                si.product_code, si.product_name, si.pack,
                SUM((si.sales_qty + si.free_qty) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty_before,
                SUM((si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0)) / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS qty_after,
@@ -9005,10 +9360,12 @@ def get_stockist_secondary_sales_report(division=None, region=None,
         FROM `tabStockist Statement` ss
         INNER JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+        LEFT JOIN `tabHQ Master` hm ON hm.name = ss.hq AND hm.division = %(division)s
+        LEFT JOIN `tabTeam Master` tm ON tm.name = COALESCE(hm.team, ss.team)
         WHERE {where}
-        GROUP BY ss.stockist_code, ss.stockist_name,
+        GROUP BY ss.stockist_code, ss.stockist_name, ss.hq, ss.team, hm.hq_name, hm.team, tm.team_name,
                  si.product_code, si.product_name, si.pack
-        ORDER BY ss.stockist_name, si.product_code
+        ORDER BY team_name, hq_name, ss.stockist_name, si.product_code
     """, params, as_dict=True)
 
     # Remap the internal id to the human-facing Stockist Code up front so the pivot
@@ -9021,12 +9378,17 @@ def get_stockist_secondary_sales_report(division=None, region=None,
     # seq_map lookups and labels all use the business Product Code.
     _apply_product_display_codes(rows)
 
-    # Stockist order (alphabetical by name) and product order (master sequence)
+    # Stockist order (headquarter-wise: Team → HQ → name) and product order (master sequence)
     stockists = {}
     products = {}
     for r in rows:
         if r.stockist_code and r.stockist_code not in stockists:
-            stockists[r.stockist_code] = {"code": r.stockist_code, "name": r.stockist_name or r.stockist_code}
+            stockists[r.stockist_code] = {
+                "code": r.stockist_code,
+                "name": r.stockist_name or r.stockist_code,
+                "hq_name": r.hq_name or "",
+                "team_name": r.team_name or "",
+            }
         if r.product_code and r.product_code not in products:
             products[r.product_code] = {
                 "code": r.product_code,
@@ -9056,7 +9418,12 @@ def get_stockist_secondary_sales_report(division=None, region=None,
         (division,)
     )}
 
-    stockist_list = sorted(stockists.values(), key=lambda s: (s["name"] or "").lower())
+    stockist_list = sorted(
+        stockists.values(),
+        key=lambda s: ((s.get("team_name") or "").lower(),
+                       (s.get("hq_name") or "").lower(),
+                       (s.get("name") or "").lower())
+    )
     product_list = sorted(
         products.values(),
         key=lambda p: (seq_map.get(p["code"], 9999), p["code"] or "")
@@ -9363,9 +9730,9 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
             LEFT JOIN `tabHQ Master` hm ON hm.name = ss.hq AND hm.division = %(division)s
             LEFT JOIN `tabTeam Master` tm ON tm.name = COALESCE(hm.team, ss.team)
             WHERE {where}
-            GROUP BY ss.stockist_code, ss.stockist_name, hm.team, tm.team_name,
+            GROUP BY ss.stockist_code, ss.stockist_name, hm.hq_name, hm.team, tm.team_name,
                      si.product_code, si.product_name, si.pack
-            ORDER BY hm.team, ss.stockist_name, si.product_code
+            ORDER BY hm.team, hm.hq_name, ss.stockist_name, si.product_code
         """, params, as_dict=True)
 
         # Build ordered column list from Stockist Master for this region
@@ -9377,7 +9744,7 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
             LEFT JOIN `tabHQ Master` hm ON hm.name = sm.hq
             LEFT JOIN `tabTeam Master` tm ON tm.name = COALESCE(hm.team, sm.team)
             WHERE sm.division = %(division)s AND sm.region = %(region)s AND sm.status = 'Active'
-            ORDER BY hm.team, sm.stockist_name
+            ORDER BY hm.team, hm.hq_name, sm.stockist_name
         """, params, as_dict=True)
     else:
         # HQ-wise pivot: one column per HQ
@@ -13296,7 +13663,7 @@ def get_region_wise_stockist_moving_trend(division=None, region=None, financial_
         WHERE sm.division = %(division)s
           AND sm.region = %(region)s
           AND sm.status = 'Active'
-        ORDER BY hm.team, sm.stockist_name
+        ORDER BY hm.team, hq_name, sm.stockist_name
     """, {"division": division, "region": region}, as_dict=True)
 
     if not stockists:

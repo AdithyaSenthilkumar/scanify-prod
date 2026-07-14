@@ -8,3 +8,5 @@
 scanify.patches.add_division_to_user
 scanify.patches.drop_stockist_code_unique_index
 scanify.patches.drop_product_code_unique_index
+scanify.patches.seed_scheme_request_series
+scanify.patches.add_scheme_email_fields_to_user

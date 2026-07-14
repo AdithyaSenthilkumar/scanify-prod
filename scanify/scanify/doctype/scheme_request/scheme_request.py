@@ -51,25 +51,28 @@ class SchemeRequest(Document):
             return
         
         for item in self.items:
-            pts = flt(item.product_rate or 0)
-            quantity = flt(item.quantity or 0)
-            free_qty = flt(item.free_quantity or 0)
-            special_rate = flt(item.special_rate or 0)
-
-            if special_rate > 0:
-                item.product_value = quantity * special_rate
-            elif free_qty > 0:
-                pack = item.pack or ''
-                if not pack and item.product_code:
-                    pack = frappe.db.get_value("Product Master", item.product_code, "pack") or ''
-                conversion_factor = self._get_conversion_factor(pack)
-                item.product_value = (free_qty / conversion_factor) * pts
-            else:
-                item.product_value = quantity * pts
-
+            item.product_value = self._compute_order_value(item)
             total += item.product_value
         
         self.total_scheme_value = total
+
+    def _compute_order_value(self, item):
+        """Order Value of a scheme line = (order qty in strips/units ÷ strips-per-box)
+        × rate-per-box (PTS). Quantities are entered in strips/units; PTS and the
+        optional special rate are per-box figures. Free qty is the scheme incentive and
+        is NOT part of the order value — it is tracked separately and handled at
+        deduction time. A special (discount) rate simply replaces PTS."""
+        pts = flt(item.product_rate or 0)
+        quantity = flt(item.quantity or 0)
+        special_rate = flt(item.special_rate or 0)
+
+        pack = item.pack or ''
+        if not pack and item.product_code:
+            pack = frappe.db.get_value("Product Master", item.product_code, "pack") or ''
+        conversion_factor = self._get_conversion_factor(pack)
+
+        effective_rate = special_rate if special_rate > 0 else pts
+        return (quantity / conversion_factor) * effective_rate
 
     @staticmethod
     def _get_conversion_factor(pack_str):
@@ -181,22 +184,9 @@ class SchemeRequest(Document):
                 scheme_pct = (flt(item.free_quantity) / flt(item.quantity)) * 100
             
             item.scheme_percentage = scheme_pct
-            
-            # Recalculate product value with conversion factor for free qty
-            pts = flt(item.product_rate or 0)
-            special_rate = flt(item.special_rate or 0)
-            free_qty = flt(item.free_quantity or 0)
 
-            if special_rate > 0:
-                item.product_value = flt(item.quantity) * special_rate
-            elif free_qty > 0:
-                pack = item.pack or ''
-                if not pack and item.product_code:
-                    pack = frappe.db.get_value("Product Master", item.product_code, "pack") or ''
-                conversion_factor = self._get_conversion_factor(pack)
-                item.product_value = (free_qty / conversion_factor) * pts
-            else:
-                item.product_value = flt(item.quantity) * pts
+            # Order Value = (order qty ÷ strips-per-box) × rate-per-box (see _compute_order_value)
+            item.product_value = self._compute_order_value(item)
 
 
 @frappe.whitelist()

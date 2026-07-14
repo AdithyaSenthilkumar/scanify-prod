@@ -82,12 +82,14 @@
                             <th>Role</th>
                             <th>Division</th>
                             <th>Mobile</th>
+                            <th>Scheme To/CC</th>
                             <th>Status</th>
+                            <th class="text-right">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="usersBody">
                         <tr>
-                            <td colspan="6" class="text-center p-5">
+                            <td colspan="8" class="text-center p-5">
                                 <i class="fa fa-spinner fa-spin fa-2x text-muted"></i>
                                 <p class="mt-3 text-muted">Loading users...</p>
                             </td>
@@ -185,12 +187,118 @@
                             </div>
                         </div>
                     </div>
+                    <hr>
+                    <p class="text-muted small mb-2"><i class="fa fa-paper-plane"></i> Scheme email routing (used when this user's approved schemes are emailed)</p>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label><strong>Scheme Email - To</strong></label>
+                                <input type="email" id="newSchemeTo" class="form-control" placeholder="cfa@example.com">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label><strong>Scheme Email - CC</strong></label>
+                                <input type="text" id="newSchemeCc" class="form-control" placeholder="Comma-separated emails">
+                            </div>
+                        </div>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="createUser()">
                     <i class="fa fa-save"></i> Create User
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit User Modal -->
+<div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa fa-user-edit mr-2"></i> Edit User</h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="editUserForm" autocomplete="off">
+                    <input type="hidden" id="editEmail">
+                    <div class="form-group">
+                        <label><strong>Email</strong></label>
+                        <input type="email" id="editEmailDisplay" class="form-control bg-light" readonly>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label><strong>First Name</strong></label>
+                                <input type="text" id="editFirstName" class="form-control">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label><strong>Middle Name</strong></label>
+                                <input type="text" id="editMiddleName" class="form-control">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label><strong>Last Name</strong></label>
+                                <input type="text" id="editLastName" class="form-control">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label><strong>Role</strong></label>
+                                <select id="editRole" class="form-control">
+                                    <option value="User">User</option>
+                                    <option value="Sales Manager">Sales Manager</option>
+                                    <option value="System Manager">System Manager</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label><strong>Division</strong></label>
+                                <select id="editDivision" class="form-control">
+                                    <option value="Prima">Prima</option>
+                                    <option value="Vektra">Vektra</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label><strong>Mobile No</strong></label>
+                                <input type="text" id="editMobile" class="form-control">
+                            </div>
+                        </div>
+                    </div>
+                    <hr>
+                    <p class="text-muted small mb-2"><i class="fa fa-paper-plane"></i> Scheme email routing</p>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label><strong>Scheme Email - To</strong></label>
+                                <input type="email" id="editSchemeTo" class="form-control" placeholder="cfa@example.com">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label><strong>Scheme Email - CC</strong></label>
+                                <input type="text" id="editSchemeCc" class="form-control" placeholder="Comma-separated emails">
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveEditUser()">
+                    <i class="fa fa-save"></i> Save Changes
                 </button>
             </div>
         </div>
@@ -265,7 +373,7 @@
         $('#recordCount').text(users.length);
 
         if (!users.length) {
-            $('#usersBody').html('<tr><td colspan="6" class="text-center p-4 text-muted">No users found</td></tr>');
+            $('#usersBody').html('<tr><td colspan="8" class="text-center p-4 text-muted">No users found</td></tr>');
             return;
         }
 
@@ -282,6 +390,10 @@
             let roleClass = u.role === 'System Manager' ? 'sm' : (u.role === 'Sales Manager' ? 'sales' : 'user');
             let statusDot = u.enabled ? '<span class="status-dot active"></span>Active' : '<span class="status-dot disabled"></span>Disabled';
 
+            let schemeTo = u.scheme_to_email ? esc(u.scheme_to_email) : '<span class="text-muted">—</span>';
+            let ccCount = (u.scheme_cc_emails || '').split(/[,;\n]+/).filter(Boolean).length;
+            let ccBadge = ccCount ? ` <span class="badge badge-light">+${ccCount} cc</span>` : '';
+
             html += `<tr>
                 <td>
                     <div class="user-cell-name">
@@ -293,11 +405,70 @@
                 <td><span class="badge-role ${roleClass}">${esc(u.role)}</span></td>
                 <td>${u.division ? '<span class="badge-division">' + esc(u.division) + '</span>' : '<span class="text-muted">—</span>'}</td>
                 <td>${u.mobile_no ? esc(u.mobile_no) : '<span class="text-muted">—</span>'}</td>
+                <td class="small">${schemeTo}${ccBadge}</td>
                 <td>${statusDot}</td>
+                <td class="text-right"><button class="btn btn-sm btn-outline-primary" onclick='editUser(${JSON.stringify(u.email)})'><i class="fa fa-edit"></i></button></td>
             </tr>`;
         });
 
         $('#usersBody').html(html);
+    }
+
+    function editUser(email) {
+        const u = allUsers.find(x => x.email === email);
+        if (!u) return;
+        $('#editEmail').val(u.email);
+        $('#editEmailDisplay').val(u.email);
+        $('#editFirstName').val(u.first_name || '');
+        $('#editMiddleName').val(u.middle_name || '');
+        $('#editLastName').val(u.last_name || '');
+        $('#editRole').val(u.role || 'User');
+        $('#editDivision').val(u.division || 'Prima');
+        $('#editMobile').val(u.mobile_no || '');
+        $('#editSchemeTo').val(u.scheme_to_email || '');
+        $('#editSchemeCc').val(u.scheme_cc_emails || '');
+        $('#editUserModal').modal('show');
+    }
+
+    function saveEditUser() {
+        const btn = $(event.target);
+        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Saving...');
+        $.ajax({
+            url: '/api/method/scanify.api.update_portal_user',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({
+                email: $('#editEmail').val(),
+                first_name: $('#editFirstName').val().trim(),
+                middle_name: $('#editMiddleName').val().trim(),
+                last_name: $('#editLastName').val().trim(),
+                role: $('#editRole').val(),
+                division: $('#editDivision').val(),
+                mobile_no: $('#editMobile').val().trim(),
+                scheme_to_email: $('#editSchemeTo').val().trim(),
+                scheme_cc_emails: $('#editSchemeCc').val().trim()
+            }),
+            success: function (r) {
+                btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save Changes');
+                if (r.message && r.message.success) {
+                    showAlert(r.message.message, 'success');
+                    $('#editUserModal').modal('hide');
+                    loadUsers();
+                } else {
+                    showAlert((r.message && r.message.message) || 'Failed to update user', 'danger');
+                }
+            },
+            error: function (xhr) {
+                btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save Changes');
+                let msg = 'Error updating user';
+                try {
+                    let resp = JSON.parse(xhr.responseText);
+                    if (resp._server_messages) { msg = JSON.parse(JSON.parse(resp._server_messages)[0]).message || msg; }
+                } catch (e) {}
+                showAlert(msg, 'danger');
+            }
+        });
     }
 
     function resetFilters() {
@@ -349,7 +520,9 @@
                 role: $('#newRole').val(),
                 division: $('#newDivision').val(),
                 mobile_no: $('#newMobile').val().trim(),
-                password: password
+                password: password,
+                scheme_to_email: $('#newSchemeTo').val().trim(),
+                scheme_cc_emails: $('#newSchemeCc').val().trim()
             }),
             success: function (r) {
                 btn.prop('disabled', false).html('<i class="fa fa-save"></i> Create User');
