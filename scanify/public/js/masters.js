@@ -162,6 +162,10 @@ const masterConfigs = {
             // sanctioned_strength is auto-calculated from HQ per_capita — always readonly
             { name: 'sanctioned_strength', label: 'Sanctioned Strength', type: 'number', readonly_always: true, help: 'Auto-calculated from sum of HQ Per Capita' },
             { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true },
+            { name: 'to_email', label: 'Scheme Email - To', type: 'text',
+              tooltip: 'Primary recipient (CFA) for this team\'s approved-scheme emails. Enter one email only.' },
+            { name: 'cc_emails', label: 'Scheme Email - CC', type: 'textarea',
+              tooltip: 'CC recipients for this team\'s approved-scheme emails. Separate multiple with a comma or new line.' },
             { name: 'region_label', label: 'Region', type: 'display_only' }
         ],
         columns: ['team_code', 'team_name', 'division', 'region_label', 'sanctioned_strength', 'status'],
@@ -677,7 +681,10 @@ function buildForm(config, data) {
 
         html += `<div class="col-md-6 mb-3">`;
         const helpText = field.help ? `<small class="text-info"><i class="fa fa-magic"></i> ${field.help}</small>` : '';
-        html += `<label>${field.label}${field.required ? '<span class="text-danger">*</span>' : ''}</label>`;
+        const tipIcon = field.tooltip
+            ? ` <i class="fa fa-info-circle text-muted" data-toggle="tooltip" title="${String(field.tooltip).replace(/"/g, '&quot;')}"></i>`
+            : '';
+        html += `<label>${field.label}${field.required ? '<span class="text-danger">*</span>' : ''}${tipIcon}</label>`;
 
         if (field.type === 'hq_select') {
             // HQ dropdown — auto-fills team/region/zone (Stockist/Doctor forms)
@@ -740,6 +747,9 @@ function buildForm(config, data) {
 
     html += '</div>';
     $('#form-fields').html(html);
+
+    // Enable hover tooltips (native `title` is the fallback if Bootstrap tooltip is unavailable)
+    try { $('#form-fields [data-toggle="tooltip"]').tooltip(); } catch (e) { }
 
     // Populate all dropdowns
     populateHQDropdown(data);
