@@ -2,6 +2,7 @@ import frappe
 import json
 from frappe import _
 from frappe.utils import flt, nowdate, add_months, get_first_day
+from scanify.permissions import require_process
 import requests
 import os
 import base64
@@ -152,6 +153,7 @@ def build_product_catalog_for_prompt(division=None):
     return catalog_text, products
 
 @frappe.whitelist()
+@require_process("secondary")
 def extract_stockist_statement(doc_name, file_url):
     """
     Extract stockist statement data using Gemini AI.
@@ -675,6 +677,7 @@ def check_extraction_status(doc_name):
 
 
 @frappe.whitelist()
+@require_process("secondary")
 def save_extracted_statement(doc_name, data):
     """
     Save the extracted and QC-verified data, then immediately submit the statement
@@ -758,6 +761,7 @@ def save_extracted_statement(doc_name, data):
 
 
 @frappe.whitelist()
+@require_process("secondary")
 def save_draft_statement(doc_name, data):
     """
     Persist the current items of a draft Stockist Statement without submitting.
@@ -1574,6 +1578,7 @@ IMPORTANT:
 
 
 @frappe.whitelist()
+@require_process("secondary")
 def start_bulk_ocr_job(docname):
     """
     Portal entry point: validates the doc, then runs extraction in a background thread.
@@ -1684,6 +1689,7 @@ def get_bulk_job_status(docname):
 
 
 @frappe.whitelist()
+@require_process("secondary")
 def upload_bulk_zip():
     """
     Custom ZIP upload endpoint for portal users who lack desk access.
@@ -1789,6 +1795,7 @@ def get_bulk_jobs_list(division=None):
 
 
 @frappe.whitelist()
+@require_process("secondary")
 def create_bulk_ocr_job(statement_month, zip_file_url, division=None, job_name=None, region=None):
     """
     Create a new Bulk Statement Upload document from portal.
@@ -1868,6 +1875,7 @@ def get_bulk_job_delete_info(docname):
 
 
 @frappe.whitelist()
+@require_process("secondary")
 def delete_bulk_job(docname):
     """
     Delete ONLY the Bulk Statement Upload job entry.
@@ -1919,6 +1927,7 @@ def delete_bulk_job(docname):
 
 # ========== REST OF THE API FILE (UNCHANGED) ==========
 @frappe.whitelist()
+@require_process("secondary")
 def bulk_extract_statements_async(docname):
     """
     Enqueue bulk extraction as background job
@@ -2260,6 +2269,7 @@ def process_bulk_extraction(docname, month, zip_file_url):
             pass
 
 @frappe.whitelist()
+@require_process("secondary")
 def bulk_extract_statements(month, zip_file_url):
     """
     Bulk extract stock statements from ZIP file
@@ -4215,6 +4225,7 @@ def get_master_data(doctype, division=None, status=None):
 
 
 @frappe.whitelist()
+@require_process("masters")
 def save_master_record(doctype, name, data):
     """
     Save a master record.
@@ -4331,6 +4342,7 @@ def save_master_record(doctype, name, data):
 
 
 @frappe.whitelist()
+@require_process("masters")
 def delete_master_record(doctype, name):
     """Delete a master record"""
     try:
@@ -4368,6 +4380,7 @@ def _recalculate_team_sanctioned_strength(team_name):
 
 
 @frappe.whitelist()
+@require_process("masters")
 def recalculate_team_sanctioned_strength(team_name):
     """Public API to trigger sanctioned_strength recalculation for a team."""
     try:
@@ -4565,7 +4578,8 @@ def get_hq_details(hq_name):
     except Exception as e:
         return {"success": False, "message": str(e)}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
+@require_process("masters")
 def portal_link_search(doctype=None, search=""):
     import json
 
@@ -4702,6 +4716,7 @@ def get_hq_yearly_target_details(name):
 
 
 @frappe.whitelist()
+@require_process("sales_targets")
 def submit_hq_yearly_target_from_portal(name):
     """Submit / Approve an HQ yearly target from the portal."""
     try:
@@ -4719,6 +4734,7 @@ def submit_hq_yearly_target_from_portal(name):
 
 
 @frappe.whitelist()
+@require_process("sales_targets")
 def update_hq_yearly_target_from_portal(name, financial_year, start_date, end_date, hq_targets, status="Draft"):
     """Update existing draft HQ Yearly Target from portal."""
     try:
@@ -4770,6 +4786,7 @@ def update_hq_yearly_target_from_portal(name, financial_year, start_date, end_da
 
 
 @frappe.whitelist()
+@require_process("sales_targets")
 def resolve_hq_target_rows_from_file(division=None):
     """Parse uploaded CSV/Excel bulk target file and resolve HQ names to IDs.
     Required columns: HQ Name, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar
@@ -4840,6 +4857,7 @@ def resolve_hq_target_rows_from_file(division=None):
 
 
 @frappe.whitelist()
+@require_process("sales_targets")
 def create_hq_yearly_target_from_portal(financial_year, start_date, end_date, status="Draft", hq_targets=None):
     """Create HQ Yearly Target with HQ-wise monthly values from portal screen."""
     try:
@@ -4931,6 +4949,7 @@ def create_hq_yearly_target_from_portal(financial_year, start_date, end_date, st
 
 
 @frappe.whitelist()
+@require_process("masters")
 def import_master_data(doctype, division):
     """Bulk import master data from Excel or CSV file.
 
@@ -5672,6 +5691,7 @@ def fetch_deduction_items_portal(scheme_request, stockist_statement, division=No
 
 
 @frappe.whitelist()
+@require_process("deductions")
 def create_scheme_deduction_portal(scheme_request, stockist_statement, items, deduction_date=None, division=None):
     """Create a Scheme Deduction document from portal"""
     try:
@@ -5746,6 +5766,7 @@ def create_scheme_deduction_portal(scheme_request, stockist_statement, items, de
 
 
 @frappe.whitelist()
+@require_process("deductions")
 def create_bulk_scheme_deductions_portal(deductions, deduction_date, division=None):
     """Create multiple Scheme Deductions at once from the auto-deduction portal page"""
     try:
@@ -6033,6 +6054,7 @@ def get_bulk_deduction_candidates(division=None, zone=None, region=None, team=No
 
 
 @frappe.whitelist()
+@require_process("scheme_delete")
 def delete_and_revert_scheme(scheme_request):
     """Undo any deduction for a scheme (reversing the statement via the deduction
     controller's on_cancel) and then delete the scheme request."""
@@ -8124,6 +8146,7 @@ def get_statement_summary(doc_name):
 
 
 @frappe.whitelist()
+@require_process("secondary_admin")
 def delete_stockist_statement(doc_name, reason):
     """Delete a stockist statement with a mandatory reason logged to audit trail"""
     try:
@@ -8285,6 +8308,7 @@ def get_bulk_delete_preview(division=None, region=None, team=None, hq=None,
 
 
 @frappe.whitelist()
+@require_process("secondary_admin")
 def bulk_delete_stockist_statements(doc_names, reason, division=None):
     """Delete multiple stockist statements with a mandatory reason logged to audit trail."""
     import json as _json
@@ -8432,6 +8456,7 @@ def _resync_statement_org(doc):
 
 
 @frappe.whitelist()
+@require_process("secondary_admin")
 def reload_stockist_statements(doc_names, division=None, options=None):
     """Refresh selected aspects of the given statements from the live masters.
 
@@ -8568,6 +8593,7 @@ def check_statement_exists(stockist_code, statement_month, division=None):
 
 
 @frappe.whitelist()
+@require_process("secondary")
 def create_ocr_statement(stockist_code, statement_month, uploaded_file=None, division=None):
     """Create a Draft Stockist Statement for the single-file OCR flow.
 
@@ -8686,6 +8712,7 @@ def _parse_num(val):
 
 
 @frappe.whitelist()
+@require_process("primary_upload")
 def process_primary_sales_upload(upload_month, file_url):
     """
     Process an uploaded Excel file of primary sales data.
@@ -9175,6 +9202,7 @@ def get_secondary_sales_upload_log(name):
 
 
 @frappe.whitelist()
+@require_process("primary_view")
 def save_primary_sales_record(name=None, data=None):
     """Create or update a Primary Sales Data record."""
     try:
@@ -9223,6 +9251,7 @@ def save_primary_sales_record(name=None, data=None):
 
 
 @frappe.whitelist()
+@require_process("primary_view")
 def delete_primary_sales_record(name):
     """Delete a Primary Sales Data record."""
     try:
@@ -9261,6 +9290,7 @@ def get_primary_sales_month_stockists(month, division=None):
 
 
 @frappe.whitelist()
+@require_process("primary_upload")
 def delete_primary_sales_month(month, reason, stockist_codes=None, division=None):
     """Delete all Primary Sales Data for a division + month, optionally limited to a
     set of stockists. A reason (>= 5 chars) is recorded on the month's upload record(s)

@@ -1,4 +1,5 @@
 import frappe
+import functools
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Portal roles & access control
@@ -148,6 +149,28 @@ def require(process, user=None):
         frappe.throw("You are not permitted to perform this action.", frappe.PermissionError)
 
 
+def require_process(process):
+    """Decorator for whitelisted endpoints: enforce that the caller's portal role
+    may use `process` (per PROCESS_ROLES) before the body runs. Apply it *below*
+    @frappe.whitelist() so the registered/callable object carries the guard:
+
+        @frappe.whitelist()
+        @require_process("secondary_admin")
+        def reload_stockist_statements(...): ...
+
+    functools.wraps preserves the wrapped function's signature, so Frappe's argument
+    dispatch (inspect.signature -> get_newargs) still binds form_dict kwargs correctly.
+    This only adds ACCESS control (portal role); it does not replace the doctype-level
+    permission checks the body may still perform."""
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            require(process)
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 def _page_from_path(path):
     path = (path or "").strip("/")
     if not path.startswith("portal"):
@@ -160,12 +183,25 @@ def _page_from_path(path):
 # redirect to /desk, and the desk SPA shell renders from /desk[/...].
 _DESK_EXACT = {"/app", "/apps", "/desk"}
 
+# Framework landing pages a portal-managed user should never land on: the bare site
+# root (which resolves to the desk for System Managers, or Frappe's generic /me page
+# otherwise) and the built-in /me profile. These aren't "desk paths", so they'd slip
+# past _is_desk_path — send them to /portal too.
+_HOME_EXACT = {"/", "/me"}
+
 
 def _is_desk_path(path):
     if not path:
         return False
     p = (path.split("?", 1)[0]).rstrip("/") or "/"
     return p in _DESK_EXACT or p.startswith("/app/") or p.startswith("/desk/")
+
+
+def _is_home_path(path):
+    if not path:
+        return False
+    p = (path.split("?", 1)[0]).rstrip("/") or "/"
+    return p in _HOME_EXACT
 
 
 def _desk_blocked(user=None):
@@ -181,7 +217,8 @@ def _desk_blocked(user=None):
 def enforce_portal_access(context=None):
     """`update_website_context` hook — runs for every rendered web page.
     (1) Portal-managed users are redirected away from the Frappe Desk (/app, /desk)
-        to the portal — they get the portal, never the framework UI.
+        and the framework landing pages (site root, /me) to the portal — they get
+        the portal, never the framework UI.
     (2) For /portal/* routes, users whose role can't access that page are sent back
         to the dashboard. Unmapped portal pages are left open to avoid lockouts."""
     try:
@@ -191,7 +228,7 @@ def enforce_portal_access(context=None):
         return
     if frappe.session.user == "Guest":
         return  # login flow handles auth
-    if _is_desk_path(path) and _desk_blocked():
+    if _desk_blocked() and (_is_desk_path(path) or _is_home_path(path)):
         frappe.local.flags.redirect_location = "/portal"
         raise frappe.Redirect(http_status_code=302)
     page = _page_from_path(path)
