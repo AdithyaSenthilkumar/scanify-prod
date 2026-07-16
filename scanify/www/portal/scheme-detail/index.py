@@ -23,16 +23,16 @@ def get_context(context):
     context.division = user_division
     context.scheme_name = scheme_name
 
-    # Get user role
+    # Approval is a manager function: portal Admin/HO (or a Frappe Sales/System Manager).
+    from scanify.permissions import get_portal_role
     roles = frappe.get_roles(user)
-    if "System Manager" in roles:
-        context.user_role = "System Manager"
-        context.is_manager = True
-    elif "Sales Manager" in roles:
-        context.user_role = "Sales Manager"
-        context.is_manager = True
-    else:
-        context.user_role = "User"
-        context.is_manager = False
+    portal_role = get_portal_role(user)
+    context.portal_role = portal_role
+    context.user_role = portal_role
+    context.is_manager = (
+        portal_role in ("Admin", "HO")
+        or "System Manager" in roles
+        or "Sales Manager" in roles
+    )
 
     return context

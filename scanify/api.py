@@ -2788,6 +2788,8 @@ def fetch_previous_month_closing(stockist_code, current_month):
 @frappe.whitelist()
 def reroute_scheme_request(doc_name, comments):
     try:
+        from scanify.permissions import require_manager
+        require_manager()
         doc = frappe.get_doc("Scheme Request", doc_name)
 
         if doc.approval_status == "Rerouted":
@@ -2816,6 +2818,8 @@ def reroute_scheme_request(doc_name, comments):
 def approve_scheme_request(doc_name, comments):
     """Approve a scheme request"""
     try:
+        from scanify.permissions import require_manager
+        require_manager()
         doc = frappe.get_doc("Scheme Request", doc_name)
 
         if doc.approval_status == "Approved":
@@ -2847,6 +2851,8 @@ def approve_scheme_request(doc_name, comments):
 def reject_scheme_request(doc_name, comments):
     """Reject a scheme request"""
     try:
+        from scanify.permissions import require_manager
+        require_manager()
         doc = frappe.get_doc("Scheme Request", doc_name)
 
         if doc.approval_status == "Rejected":
@@ -2971,7 +2977,18 @@ def get_pending_scheme_emails(division=None, month=None, region=None):
                  "sr.division = %(division)s",
                  "sr.application_date BETWEEN %(from_date)s AND %(to_date)s"]
         params = {"division": division, "from_date": first_day, "to_date": last_day}
-        if region:
+
+        # Region scoping: non-admins (incl. HO) only email schemes in their mapped regions.
+        from scanify.permissions import get_allowed_region_codes, clamp_region_codes
+        _allowed = get_allowed_region_codes(division=division)
+        if _allowed is not None:
+            _codes = clamp_region_codes(region, division=division)
+            if not _codes:
+                conds.append("1=0")
+            else:
+                conds.append("sr.region IN %(allowed_regions)s")
+                params["allowed_regions"] = tuple(_codes)
+        elif region:
             conds.append("sr.region = %(region)s")
             params["region"] = region
 
@@ -3910,7 +3927,15 @@ def get_user_hqs(division=None):
     filters = {"status": "Active"}
     if division and division != "Both":
         filters["division"] = ["in", [division, "Both"]]
-    
+
+    # Region scoping: non-admins only see HQs within their mapped regions.
+    from scanify.permissions import get_allowed_region_codes
+    allowed_regions = get_allowed_region_codes(division=division)
+    if allowed_regions is not None:
+        if not allowed_regions:
+            return []
+        filters["region"] = ["in", allowed_regions]
+
     hqs = frappe.get_all(
         "HQ Master",
         filters=filters,
@@ -4397,6 +4422,14 @@ def get_region_list(division=None, search=""):
             filters["division"] = ["in", [division, "Both"]]
         if search:
             filters["region_name"] = ["like", f"%{search}%"]
+
+        # Region scoping: non-admins only get their mapped regions in dropdowns.
+        from scanify.permissions import get_allowed_region_codes
+        allowed_regions = get_allowed_region_codes(division=division)
+        if allowed_regions is not None:
+            if not allowed_regions:
+                return {"success": True, "data": []}
+            filters["name"] = ["in", allowed_regions]
 
         regions = frappe.get_all(
             "Region Master",
@@ -6431,6 +6464,20 @@ def get_scheme_list_portal(division=None, filters=None):
         elif filters.get("request_type") == "Original":
             where_clauses.append("COALESCE(sr.repeated_request, 0) = 0")
 
+        # Region scoping (security): non-admins only see schemes in their mapped regions.
+        from scanify.permissions import get_allowed_region_codes, clamp_region_codes
+        _allowed = get_allowed_region_codes(division=division)
+        if _allowed is not None:
+            _codes = clamp_region_codes(filters.get("region"), division=division)
+            if not _codes:
+                where_clauses.append("1=0")
+            else:
+                where_clauses.append("sr.region IN %(allowed_regions)s")
+                params["allowed_regions"] = tuple(_codes)
+        elif filters.get("region"):
+            where_clauses.append("sr.region = %(region)s")
+            params["region"] = filters["region"]
+
         where_sql = " AND ".join(where_clauses)
 
         rows = frappe.db.sql(f"""
@@ -7077,42 +7124,66 @@ def get_portal_users():
     """Return list of all non-Guest users for the Users management page (System Manager only)."""
 
 
+    from scanify.permissions import get_portal_role
+    if not (get_portal_role() == "Admin"):
+        frappe.throw("Not permitted", frappe.PermissionError)
+
     users = frappe.get_all(
         "User",
-        filters={"name": ["not in", ["Guest", "Administrator"]], "user_type": "System User"},
+        filters={"name": ["not in", ["Guest", "Administrator"]]},
         fields=["name", "email", "first_name", "middle_name", "last_name", "full_name",
                 "mobile_no", "user_image", "enabled", "division",
+                "portal_role", "allowed_divisions", "allowed_regions",
                 "scheme_to_email", "scheme_cc_emails"],
         order_by="full_name asc",
         limit_page_length=500,
     )
 
     for u in users:
-        roles = frappe.get_roles(u["name"])
-        if "System Manager" in roles:
-            u["role"] = "System Manager"
-        elif "Sales Manager" in roles:
-            u["role"] = "Sales Manager"
-        else:
-            u["role"] = "User"
+        u["role"] = u.get("portal_role") or get_portal_role(u["name"])
         u["division"] = u.get("division") or ""
 
     return users
 
 
+def _norm_csv(v):
+    """Normalise a list / JSON-array-string / comma-or-newline string to a clean list."""
+    if not v:
+        return []
+    if isinstance(v, str):
+        v = v.strip()
+        if v.startswith("["):
+            try:
+                v = json.loads(v)
+            except Exception:
+                v = v.split(",")
+        else:
+            v = v.replace("\n", ",").split(",")
+    return [str(x).strip() for x in v if str(x).strip()]
+
+
 @frappe.whitelist()
 def create_portal_user(email, first_name, last_name=None, middle_name=None,
-                       role="User", division="Prima", mobile_no=None, password=None,
-                       scheme_to_email=None, scheme_cc_emails=None):
-    """Create a new portal user. Restricted to System Manager."""
-    if "System Manager" not in frappe.get_roles(frappe.session.user):
+                       role="Regional User", division=None, mobile_no=None, password=None,
+                       scheme_to_email=None, scheme_cc_emails=None,
+                       allowed_divisions=None, allowed_regions=None):
+    """Create a new portal user. Restricted to portal Admin."""
+    from scanify.permissions import is_portal_admin, PORTAL_ROLES
+    if not is_portal_admin():
         frappe.throw("Not permitted", frappe.PermissionError)
 
     if not email or not first_name or not password:
         frappe.throw("Email, First Name and Password are required")
-
+    if role not in PORTAL_ROLES:
+        frappe.throw(f"Invalid role: {role}")
     if frappe.db.exists("User", email):
         frappe.throw(f"User {email} already exists")
+
+    divs = _norm_csv(allowed_divisions)
+    regions = _norm_csv(allowed_regions)
+    if role != "Admin" and (not divs or not regions):
+        frappe.throw("Division and Region mapping are required for non-admin roles")
+    active_division = division or (divs[0] if divs else "Prima")
 
     user = frappe.get_doc({
         "doctype": "User",
@@ -7121,7 +7192,10 @@ def create_portal_user(email, first_name, last_name=None, middle_name=None,
         "middle_name": middle_name or "",
         "last_name": last_name or "",
         "mobile_no": mobile_no or "",
-        "division": division,
+        "division": active_division,
+        "portal_role": role,
+        "allowed_divisions": ", ".join(divs),
+        "allowed_regions": ", ".join(regions),
         "scheme_to_email": (scheme_to_email or "").strip(),
         "scheme_cc_emails": (scheme_cc_emails or "").strip(),
         "enabled": 1,
@@ -7130,21 +7204,12 @@ def create_portal_user(email, first_name, last_name=None, middle_name=None,
     })
     user.insert(ignore_permissions=True)
 
-    # Set password
     from frappe.utils.password import update_password as _update_password
     _update_password(email, password)
 
-    # Assign role
-    role_map = {
-        "System Manager": "System Manager",
-        "Sales Manager": "Sales Manager",
-        "User": "Scanify User",
-    }
-    frappe_role = role_map.get(role, "Scanify User")
-    if not frappe.db.exists("Role", frappe_role):
-        frappe_role = role  # fall back to exact string
-
-    user.add_roles(frappe_role)
+    # Grant the underlying Frappe permissions this portal role needs.
+    from scanify.permissions import sync_frappe_roles
+    sync_frappe_roles(email, role, prune=False)
     frappe.db.commit()
 
     return {"success": True, "user": email, "message": f"User {email} created successfully"}
@@ -7153,9 +7218,12 @@ def create_portal_user(email, first_name, last_name=None, middle_name=None,
 @frappe.whitelist()
 def update_portal_user(email, first_name=None, last_name=None, middle_name=None,
                        role=None, division=None, mobile_no=None,
-                       scheme_to_email=None, scheme_cc_emails=None):
-    """Update an existing portal user's details (incl. scheme To/CC). System Manager only."""
-    if "System Manager" not in frappe.get_roles(frappe.session.user):
+                       scheme_to_email=None, scheme_cc_emails=None,
+                       allowed_divisions=None, allowed_regions=None, password=None):
+    """Update an existing portal user (role, division/region mapping, scheme To/CC,
+    and optional password reset). Restricted to portal Admin."""
+    from scanify.permissions import is_portal_admin, PORTAL_ROLES
+    if not is_portal_admin():
         frappe.throw("Not permitted", frappe.PermissionError)
     if not email or not frappe.db.exists("User", email):
         frappe.throw(f"User {email} not found")
@@ -7169,32 +7237,80 @@ def update_portal_user(email, first_name=None, last_name=None, middle_name=None,
         user.last_name = last_name or ""
     if mobile_no is not None:
         user.mobile_no = mobile_no or ""
-    if division is not None:
-        user.division = division
     if scheme_to_email is not None:
         user.scheme_to_email = (scheme_to_email or "").strip()
     if scheme_cc_emails is not None:
         user.scheme_cc_emails = (scheme_cc_emails or "").strip()
+    if role is not None:
+        if role not in PORTAL_ROLES:
+            frappe.throw(f"Invalid role: {role}")
+        user.portal_role = role
+    if allowed_divisions is not None:
+        user.allowed_divisions = ", ".join(_norm_csv(allowed_divisions))
+    if allowed_regions is not None:
+        user.allowed_regions = ", ".join(_norm_csv(allowed_regions))
+
+    # Non-admins must have division + region mapping; keep the active division valid.
+    divs = _norm_csv(user.allowed_divisions)
+    eff_role = user.portal_role
+    if eff_role and eff_role != "Admin" and (not divs or not _norm_csv(user.allowed_regions)):
+        frappe.throw("Division and Region mapping are required for non-admin roles")
+    if division is not None:
+        user.division = division
+    elif divs and user.division not in divs:
+        user.division = divs[0]
+
     user.save(ignore_permissions=True)
 
-    # Sync role if provided (swap the single app role)
-    if role:
-        role_map = {
-            "System Manager": "System Manager",
-            "Sales Manager": "Sales Manager",
-            "User": "Scanify User",
-        }
-        target = role_map.get(role, "Scanify User")
-        current_app_roles = [r for r in frappe.get_roles(email)
-                             if r in ("System Manager", "Sales Manager", "Scanify User")]
-        for r in current_app_roles:
-            if r != target:
-                user.remove_roles(r)
-        if target not in current_app_roles:
-            user.add_roles(target)
+    # Optional password reset by the portal admin.
+    if password:
+        if len(password) < 8:
+            frappe.throw("Password must be at least 8 characters")
+        from frappe.utils.password import update_password as _update_password
+        _update_password(email, password)
+
+    # Keep the underlying Frappe permissions in sync with the portal role.
+    if role is not None:
+        from scanify.permissions import sync_frappe_roles
+        sync_frappe_roles(email, user.portal_role, prune=True)
 
     frappe.db.commit()
     return {"success": True, "user": email, "message": f"User {email} updated successfully"}
+
+
+@frappe.whitelist()
+def delete_portal_user(email):
+    """Delete a portal user; if the user has linked records (e.g. scheme requests),
+    disable instead. Restricted to portal Admin."""
+    from scanify.permissions import is_portal_admin
+    if not is_portal_admin():
+        frappe.throw("Not permitted", frappe.PermissionError)
+    if email in ("Administrator", frappe.session.user):
+        frappe.throw("You cannot delete this user")
+    if not frappe.db.exists("User", email):
+        frappe.throw(f"User {email} not found")
+    try:
+        frappe.delete_doc("User", email, ignore_permissions=True)
+        frappe.db.commit()
+        return {"success": True, "mode": "deleted", "message": f"User {email} deleted"}
+    except Exception:
+        frappe.db.rollback()
+        frappe.db.set_value("User", email, "enabled", 0, update_modified=False)
+        frappe.db.commit()
+        return {"success": True, "mode": "disabled",
+                "message": f"User {email} has linked records — disabled instead of deleted"}
+
+
+@frappe.whitelist()
+def set_portal_user_enabled(email, enabled):
+    """Enable/disable a portal user. Restricted to portal Admin."""
+    from scanify.permissions import is_portal_admin
+    if not is_portal_admin():
+        frappe.throw("Not permitted", frappe.PermissionError)
+    on = 1 if str(enabled).lower() in ("1", "true", "yes") else 0
+    frappe.db.set_value("User", email, "enabled", on, update_modified=False)
+    frappe.db.commit()
+    return {"success": True, "enabled": on}
 
 
 @frappe.whitelist()
@@ -8241,16 +8357,98 @@ def get_statements_for_reload(division=None, region=None, team=None, hq=None,
     )
 
 
-@frappe.whitelist()
-def reload_stockist_statements(doc_names, division=None):
-    """Recompute totals for the given statements using the live masters.
+# What each reload aspect touches, and its default state. Kept here so the API,
+# the docstring and the portal UI stay in agreement.
+RELOAD_OPTION_DEFAULTS = {
+    "org": True,      # HQ / Team / Region / Zone / Division from Stockist Master
+    "totals": True,   # closing qty + opening/purchase/sales/closing values
+    "pts": False,     # RE-PRICE from Product Master (opt-in — overwrites captured PTS)
+    "qc": False,      # QC review status from item mapping_status
+}
 
-    Replicates what manually re-saving a Stockist Statement does — re-runs the
-    division, closing/total value and QC-confidence calculations against the
-    current Product Master (PTS/PTR/pack) — but for many statements at once and
-    WITHOUT re-triggering submit-time side effects (e.g. next-month opening).
-    Use this after masters are updated so report/statement totals reflect the
-    new master values.
+
+def _parse_reload_options(options):
+    """Normalise the `options` argument into a dict of bools.
+
+    Accepts a JSON string, a dict, or None. Missing/unknown keys fall back to
+    RELOAD_OPTION_DEFAULTS (the safe hierarchy + totals refresh that never
+    touches captured prices).
+    """
+    import json as _json
+
+    if options is None:
+        return dict(RELOAD_OPTION_DEFAULTS)
+    if isinstance(options, str):
+        try:
+            options = _json.loads(options)
+        except Exception:
+            options = {}
+    if not isinstance(options, dict):
+        return dict(RELOAD_OPTION_DEFAULTS)
+
+    def _b(v):
+        if isinstance(v, bool):
+            return v
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+    return {k: _b(options[k]) if k in options else default
+            for k, default in RELOAD_OPTION_DEFAULTS.items()}
+
+
+def _resync_statement_org(doc):
+    """Copy HQ / Team / Region / Zone / Division onto the statement from the live
+    Stockist Master — what `fetch_from` does for a fresh draft, but applied to
+    already-submitted statements too (fetch_from is skipped once a doc is
+    submitted, so these snapshots otherwise stay frozen at creation time).
+
+    Returns True if any field actually changed.
+    """
+    if not doc.stockist_code:
+        return False
+
+    sm = frappe.db.get_value(
+        "Stockist Master", doc.stockist_code,
+        ["hq", "team", "region", "zone", "division"], as_dict=True,
+    )
+    if not sm:
+        return False
+
+    changed = False
+    for field in ("hq", "team", "region", "zone"):
+        new_val = sm.get(field)
+        if (doc.get(field) or None) != (new_val or None):
+            doc.set(field, new_val)
+            changed = True
+
+    # Division: the master's validate keeps Stockist Master.division in step with
+    # its HQ, so trust it — but only overwrite with a real value (never blank the
+    # statement's existing division out).
+    new_div = sm.get("division")
+    if new_div and new_div != doc.division:
+        doc.division = new_div
+        changed = True
+
+    return changed
+
+
+@frappe.whitelist()
+def reload_stockist_statements(doc_names, division=None, options=None):
+    """Refresh selected aspects of the given statements from the live masters.
+
+    `options` (JSON string / dict of bools) chooses WHAT to refresh:
+        org    - re-sync HQ / Team / Region / Zone / Division from Stockist Master.
+                 Fixes reports after a stockist's HQ/hierarchy is changed. (default ON)
+        totals - recompute closing qty + opening/purchase/sales/closing values from
+                 the current quantities and pack sizes, using the PTS already stored
+                 on each line (unless `pts` is also chosen). (default ON)
+        pts    - RE-PRICE: overwrite each line's PTS with the current Product Master
+                 price and re-value everything off it. (default OFF — opt-in). Reports
+                 read the statement's own PTS, so most refreshes must NOT do this;
+                 only enable it when you deliberately want to reprice history.
+        qc     - recompute the QC review status from item mapping_status. (default OFF)
+
+    Persists via db_update so submitted statements can be refreshed WITHOUT
+    re-triggering submit-time side effects (e.g. next-month opening).
     """
     import json as _json
     if not division:
@@ -8265,6 +8463,17 @@ def reload_stockist_statements(doc_names, division=None):
     if not doc_names:
         return {"success": False, "message": "No statements provided to reload."}
 
+    opts = _parse_reload_options(options)
+    do_pts = opts["pts"]
+    # Re-pricing only takes effect through a totals recompute, so imply it.
+    do_totals = opts["totals"] or do_pts
+    do_org = opts["org"]
+    do_qc = opts["qc"]
+
+    if not (do_org or do_totals or do_qc):
+        return {"success": False,
+                "message": "Nothing selected to reload. Choose at least one option."}
+
     reloaded, errors = [], []
     for doc_name in doc_names:
         try:
@@ -8273,38 +8482,56 @@ def reload_stockist_statements(doc_names, division=None):
                 continue
 
             doc = frappe.get_doc("Stockist Statement", doc_name)
+            touch_parent = False
+            touch_items = False
 
-            # Force the PTS rate to be re-read from the live Product Master.
-            # On a normal statement item.pts holds a cached copy of the master PTS
-            # (written back on every save), so the calc's "non-zero item.pts wins"
-            # rule would otherwise keep the OLD rate and defeat the point of a
-            # master-driven refresh. Backfilled statements (skip_conversion) carry a
-            # genuine per-line source net-rate in item.pts, so leave those untouched.
-            if not getattr(doc, "skip_conversion", 0):
+            if do_org and _resync_statement_org(doc):
+                touch_parent = True
+
+            if do_pts and not getattr(doc, "skip_conversion", 0):
+                # Wipe the cached per-line PTS so the recompute re-reads the live
+                # Product Master price. On a normal statement item.pts holds a cached
+                # copy of the master PTS, so the calc's "non-zero item.pts wins" rule
+                # would otherwise keep the OLD rate. Backfilled statements
+                # (skip_conversion) carry a genuine source net-rate — leave those be.
                 for item in doc.items:
                     if item.product_code:
                         item.pts = 0
 
-            # Re-run the same calculations the form does on validate, but persist
-            # only the derived fields so submitted statements can be refreshed too.
-            doc.set_division_from_stockist()
-            doc.calculate_closing_and_totals()
-            doc.calculate_qc_confidence()
+            if do_totals:
+                # Preserves each line's stored PTS unless `pts` wiped it above.
+                doc.calculate_closing_and_totals()
+                touch_items = True
+                touch_parent = True
 
-            for item in doc.items:
-                item.db_update()
-            doc.db_update()
+            if do_qc:
+                doc.calculate_qc_confidence()
+                touch_parent = True
+
+            if touch_items:
+                for item in doc.items:
+                    item.db_update()
+            if touch_parent:
+                doc.db_update()
 
             reloaded.append(doc_name)
         except Exception as e:
-            frappe.log_error(frappe.get_traceback(), "Reload Statement Totals Error")
+            frappe.log_error(frappe.get_traceback(), "Reload Statement Error")
             errors.append(f"{doc_name}: {str(e)}")
 
     frappe.db.commit()
-    msg = f"{len(reloaded)} statement(s) refreshed."
+
+    applied = [label for label, on in (
+        ("hierarchy", do_org), ("totals", do_totals),
+        ("re-priced PTS", do_pts), ("QC status", do_qc)) if on]
+    msg = f"{len(reloaded)} statement(s) refreshed"
+    if applied:
+        msg += f" ({', '.join(applied)})"
+    msg += "."
     if errors:
         msg += f" {len(errors)} error(s): " + "; ".join(errors[:3])
-    return {"success": True, "reloaded": reloaded, "errors": errors, "message": msg}
+    return {"success": True, "reloaded": reloaded, "errors": errors,
+            "applied": applied, "message": msg}
 
 
 # ===================== DUPLICATE STATEMENT CHECK =====================

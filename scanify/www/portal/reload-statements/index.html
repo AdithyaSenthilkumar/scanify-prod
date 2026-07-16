@@ -120,7 +120,7 @@
             </div>
         </div>
         <div class="card-footer d-flex justify-content-between align-items-center">
-            <small class="text-muted">Check the statements to refresh, then click Reload Selected. Totals are recomputed from the current masters.</small>
+            <small class="text-muted">Check the statements to refresh, then click Reload Selected and choose what to reload.</small>
             <button class="btn btn-primary btn-sm" id="btnReload" onclick="openReloadModal()" disabled>
                 <i class="fa fa-sync-alt mr-1"></i> Reload Selected
             </button>
@@ -137,13 +137,42 @@
                 <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="alert alert-info mb-3">
-                    <i class="fa fa-info-circle mr-1"></i>
-                    You are about to recompute totals for <strong id="reloadCountLabel">0</strong> statement(s)
-                    using the current master values. This is safe and reversible (just reload again) — it only
-                    refreshes computed totals and does not change the entered quantities.
+                <p class="mb-2">Refresh <strong id="reloadCountLabel">0</strong> statement(s) from the current masters. Choose what to reload:</p>
+                <div class="rl-options mb-3">
+                    <label class="rl-opt">
+                        <input type="checkbox" id="rlOptOrg" checked>
+                        <span class="rl-opt-body">
+                            <span class="rl-opt-title">Hierarchy — HQ / Team / Region / Zone</span>
+                            <span class="rl-opt-desc">Re-sync each statement to its stockist's current HQ and hierarchy from the master. Fixes reports after an HQ change. Does not touch quantities or prices.</span>
+                        </span>
+                    </label>
+                    <label class="rl-opt">
+                        <input type="checkbox" id="rlOptTotals" checked>
+                        <span class="rl-opt-body">
+                            <span class="rl-opt-title">Recompute totals — closing stock &amp; values</span>
+                            <span class="rl-opt-desc">Recalculate closing stock and values from the current quantities and pack sizes. Keeps the PTS already saved on each statement.</span>
+                        </span>
+                    </label>
+                    <label class="rl-opt">
+                        <input type="checkbox" id="rlOptQc">
+                        <span class="rl-opt-body">
+                            <span class="rl-opt-title">Recompute QC status</span>
+                            <span class="rl-opt-desc">Re-derive the QC review state from the current product mappings.</span>
+                        </span>
+                    </label>
+                    <label class="rl-opt rl-opt-danger">
+                        <input type="checkbox" id="rlOptPts" onchange="onRlPtsToggle()">
+                        <span class="rl-opt-body">
+                            <span class="rl-opt-title text-danger">Re-price from Product Master (PTS) &mdash; off by default</span>
+                            <span class="rl-opt-desc"><i class="fa fa-exclamation-triangle text-warning mr-1"></i>Overwrites each line's saved PTS with the current master price and re-values everything. Reports read the statement's own PTS — only enable this if you deliberately want to reprice historical statements.</span>
+                        </span>
+                    </label>
                 </div>
-                <div class="mb-0" id="reloadSummaryList" style="max-height:240px;overflow-y:auto;font-size:12px;background:#f8f9fa;border-radius:6px;padding:10px;">
+                <div id="rlPtsWarn" class="alert alert-warning py-2 px-3 small mb-3" style="display:none;">
+                    <i class="fa fa-exclamation-triangle mr-1"></i> Re-pricing is ON — captured PTS on the selected statements will be replaced with today's Product Master price. Totals are recomputed automatically.
+                </div>
+                <div class="mb-1 small text-muted font-weight-bold">Statements to refresh:</div>
+                <div class="mb-0" id="reloadSummaryList" style="max-height:200px;overflow-y:auto;font-size:12px;background:#f8f9fa;border-radius:6px;padding:10px;">
                 </div>
             </div>
             <div class="modal-footer">
@@ -169,6 +198,21 @@
     #reloadPreviewTable th { font-size: 11px; padding: 7px 8px; }
     #reloadPreviewTable td { font-size: 12px; padding: 5px 8px; vertical-align: middle; }
     #reloadPreviewTable tbody tr.selected-row { background: #eff6ff; }
+
+    .rl-options { border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+    .rl-opt {
+        display: flex; align-items: flex-start; gap: 10px;
+        padding: 10px 12px; margin: 0; cursor: pointer;
+        border-bottom: 1px solid #eef2f7;
+    }
+    .rl-opt:last-child { border-bottom: 0; }
+    .rl-opt:hover { background: #f8fafc; }
+    .rl-opt input[type="checkbox"] { margin-top: 3px; flex: 0 0 auto; width: 16px; height: 16px; }
+    .rl-opt-body { display: flex; flex-direction: column; }
+    .rl-opt-title { font-size: 13px; font-weight: 600; color: #1e293b; }
+    .rl-opt-desc { font-size: 11.5px; color: #64748b; line-height: 1.35; margin-top: 2px; }
+    .rl-opt-danger { background: #fef2f2; }
+    .rl-opt-danger:hover { background: #fee2e2; }
 </style>
 {% endblock %}
 
@@ -369,6 +413,15 @@ function openReloadModal() {
     $('.rl-row-check:checked').each(function() { selected.push($(this).val()); });
     if (!selected.length) return;
 
+    // Reset options to the safe defaults every time the dialog opens so an earlier
+    // PTS re-price never silently carries over into the next batch.
+    document.getElementById('rlOptOrg').checked = true;
+    document.getElementById('rlOptTotals').checked = true;
+    document.getElementById('rlOptTotals').disabled = false;
+    document.getElementById('rlOptQc').checked = false;
+    document.getElementById('rlOptPts').checked = false;
+    document.getElementById('rlPtsWarn').style.display = 'none';
+
     $('#reloadCountLabel').text(selected.length);
 
     var summaryHtml = '<strong>' + selected.length + ' statement(s) will be refreshed:</strong><ul class="mt-2 mb-0 pl-3">';
@@ -387,10 +440,39 @@ function openReloadModal() {
     $('#reloadModal').modal('show');
 }
 
+// PTS re-pricing only takes effect through a totals recompute, so imply + lock
+// "Recompute totals" whenever PTS is enabled, and surface the warning banner.
+function onRlPtsToggle() {
+    var pts = document.getElementById('rlOptPts').checked;
+    var totals = document.getElementById('rlOptTotals');
+    if (pts) {
+        totals.checked = true;
+        totals.disabled = true;
+    } else {
+        totals.disabled = false;
+    }
+    document.getElementById('rlPtsWarn').style.display = pts ? '' : 'none';
+}
+
+function getReloadOptions() {
+    return {
+        org:    document.getElementById('rlOptOrg').checked,
+        totals: document.getElementById('rlOptTotals').checked,
+        pts:    document.getElementById('rlOptPts').checked,
+        qc:     document.getElementById('rlOptQc').checked
+    };
+}
+
 function confirmReload() {
     var selected = [];
     $('.rl-row-check:checked').each(function() { selected.push($(this).val()); });
     if (!selected.length) return;
+
+    var options = getReloadOptions();
+    if (!options.org && !options.totals && !options.pts && !options.qc) {
+        showAlert('Select at least one thing to reload.', 'warning');
+        return;
+    }
 
     var $btn = $('#confirmReloadBtn');
     $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i> Reloading...');
@@ -402,7 +484,8 @@ function confirmReload() {
         headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
         data: JSON.stringify({
             doc_names: JSON.stringify(selected),
-            division: getActiveDivision()
+            division: getActiveDivision(),
+            options: JSON.stringify(options)
         }),
         success: function(r) {
             $btn.prop('disabled', false).html('<i class="fa fa-sync-alt mr-1"></i> Reload Now');

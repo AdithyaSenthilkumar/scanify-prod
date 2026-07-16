@@ -45,9 +45,10 @@
                 <div class="col-md-3">
                     <select class="form-control" id="filterRole">
                         <option value="">All Roles</option>
-                        <option value="System Manager">System Manager</option>
-                        <option value="Sales Manager">Sales Manager</option>
-                        <option value="User">User</option>
+                        <option value="Admin">Admin</option>
+                        <option value="HO">HO</option>
+                        <option value="Regional User (Future)">Regional User (Future)</option>
+                        <option value="Regional User">Regional User</option>
                     </select>
                 </div>
                 <div class="col-md-3">
@@ -80,8 +81,8 @@
                             <th>User</th>
                             <th>Email</th>
                             <th>Role</th>
-                            <th>Division</th>
-                            <th>Mobile</th>
+                            <th>Divisions</th>
+                            <th>Regions</th>
                             <th>Scheme To/CC</th>
                             <th>Status</th>
                             <th class="text-right">Actions</th>
@@ -151,23 +152,33 @@
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div class="form-group">
                                 <label><strong>Role <span class="text-danger">*</span></strong></label>
-                                <select id="newRole" class="form-control" required>
-                                    <option value="User">User</option>
-                                    <option value="Sales Manager">Sales Manager</option>
-                                    <option value="System Manager">System Manager</option>
+                                <select id="newRole" class="form-control" onchange="onRoleChange('new')" required>
+                                    <option value="Admin">Admin</option>
+                                    <option value="HO">HO</option>
+                                    <option value="Regional User (Future)">Regional User (Future)</option>
+                                    <option value="Regional User" selected>Regional User</option>
                                 </select>
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-8">
+                            <div class="form-group new-map-field">
+                                <label><strong>Divisions <span class="text-danger">*</span></strong></label>
+                                <div class="d-flex flex-wrap" style="gap:14px;" id="newDivisions">
+                                    <label class="mb-0"><input type="checkbox" class="new-div" value="Prima" onchange="loadRegionsFor('new')"> Prima</label>
+                                    <label class="mb-0"><input type="checkbox" class="new-div" value="Vektra" onchange="loadRegionsFor('new')"> Vektra</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row new-map-field">
+                        <div class="col-md-12">
                             <div class="form-group">
-                                <label><strong>Division <span class="text-danger">*</span></strong></label>
-                                <select id="newDivision" class="form-control" required>
-                                    <option value="Prima">Prima</option>
-                                    <option value="Vektra">Vektra</option>
-                                </select>
+                                <label><strong>Regions <span class="text-danger">*</span></strong>
+                                    <small class="text-muted">— regions this user can access (auto-selected on their screens)</small></label>
+                                <select id="newRegions" class="form-control" multiple size="6"></select>
                             </div>
                         </div>
                     </div>
@@ -251,29 +262,56 @@
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <div class="form-group">
                                 <label><strong>Role</strong></label>
-                                <select id="editRole" class="form-control">
-                                    <option value="User">User</option>
-                                    <option value="Sales Manager">Sales Manager</option>
-                                    <option value="System Manager">System Manager</option>
+                                <select id="editRole" class="form-control" onchange="onRoleChange('edit')">
+                                    <option value="Admin">Admin</option>
+                                    <option value="HO">HO</option>
+                                    <option value="Regional User (Future)">Regional User (Future)</option>
+                                    <option value="Regional User">Regional User</option>
                                 </select>
                             </div>
                         </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><strong>Division</strong></label>
-                                <select id="editDivision" class="form-control">
-                                    <option value="Prima">Prima</option>
-                                    <option value="Vektra">Vektra</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <div class="form-group">
                                 <label><strong>Mobile No</strong></label>
                                 <input type="text" id="editMobile" class="form-control">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-12">
+                            <div class="form-group edit-map-field">
+                                <label><strong>Divisions <span class="text-danger">*</span></strong></label>
+                                <div class="d-flex flex-wrap" style="gap:14px;" id="editDivisions">
+                                    <label class="mb-0"><input type="checkbox" class="edit-div" value="Prima" onchange="loadRegionsFor('edit')"> Prima</label>
+                                    <label class="mb-0"><input type="checkbox" class="edit-div" value="Vektra" onchange="loadRegionsFor('edit')"> Vektra</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row edit-map-field">
+                        <div class="col-md-12">
+                            <div class="form-group">
+                                <label><strong>Regions <span class="text-danger">*</span></strong></label>
+                                <select id="editRegions" class="form-control" multiple size="6"></select>
+                            </div>
+                        </div>
+                    </div>
+                    <hr>
+                    <p class="text-muted small mb-2"><i class="fa fa-key"></i> Reset password</p>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label><strong>New Password</strong> <small class="text-muted">(leave blank to keep current)</small></label>
+                                <input type="password" id="editPassword" class="form-control" placeholder="Min 8 characters" autocomplete="new-password">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label><strong>Confirm New Password</strong></label>
+                                <input type="password" id="editPasswordConfirm" class="form-control" placeholder="Re-enter new password" autocomplete="new-password">
                             </div>
                         </div>
                     </div>
@@ -329,6 +367,59 @@
             .replace(/'/g, '&#039;');
     }
 
+    const _hdr = () => ({ 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': frappe.csrf_token });
+    const _csv = v => (v || '').split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+
+    function getCheckedDivisions(prefix) {
+        return $('.' + prefix + '-div:checked').map(function () { return this.value; }).get();
+    }
+    function getSelectedRegions(prefix) {
+        return $('#' + prefix + 'Regions').val() || [];
+    }
+    function onRoleChange(prefix) {
+        const isAdmin = $('#' + prefix + 'Role').val() === 'Admin';
+        $('.' + prefix + '-map-field').toggle(!isAdmin);
+    }
+    // Load the region multiselect for the checked divisions; keep `preselect` (or current) chosen.
+    function loadRegionsFor(prefix, preselect) {
+        const divs = getCheckedDivisions(prefix);
+        const $sel = $('#' + prefix + 'Regions');
+        const keep = preselect || getSelectedRegions(prefix);
+        if (!divs.length) { $sel.html('<option disabled>Select a division first</option>'); return; }
+        Promise.all(divs.map(d => fetch('/api/method/scanify.api.get_region_list', {
+            method: 'POST', headers: _hdr(), body: JSON.stringify({ division: d })
+        }).then(r => r.json()).then(j => ({ d: d, regs: (j.message && j.message.data) || [] }))))
+            .then(results => {
+                let html = '';
+                results.forEach(({ d, regs }) => {
+                    if (!regs.length) return;
+                    html += `<optgroup label="${esc(d)}">`;
+                    regs.forEach(rg => {
+                        const sel = keep.includes(rg.name) ? ' selected' : '';
+                        html += `<option value="${rg.name}"${sel}>${esc(rg.region_name || rg.name)}</option>`;
+                    });
+                    html += '</optgroup>';
+                });
+                $sel.html(html || '<option disabled>No regions</option>');
+            });
+    }
+
+    function deleteUser(email) {
+        if (!confirm('Delete user ' + email + '?\n(Users with history are disabled instead of deleted.)')) return;
+        fetch('/api/method/scanify.api.delete_portal_user', {
+            method: 'POST', headers: _hdr(), body: JSON.stringify({ email: email })
+        }).then(r => r.json()).then(r => {
+            const d = r.message || {};
+            if (d.success) { showAlert(d.message, d.mode === 'deleted' ? 'success' : 'warning'); loadUsers(); }
+            else showAlert(d.message || 'Failed to delete user', 'danger');
+        }).catch(() => showAlert('Error deleting user', 'danger'));
+    }
+    function toggleUserEnabled(email, enabled) {
+        fetch('/api/method/scanify.api.set_portal_user_enabled', {
+            method: 'POST', headers: _hdr(), body: JSON.stringify({ email: email, enabled: enabled })
+        }).then(r => r.json()).then(() => loadUsers()).catch(() => showAlert('Error updating user', 'danger'));
+    }
+
     function loadUsers() {
         $.ajax({
             url: '/api/method/scanify.api.get_portal_users',
@@ -350,7 +441,8 @@
     function updateStats() {
         $('#statTotal').text(allUsers.length);
         $('#statActive').text(allUsers.filter(u => u.enabled).length);
-        $('#statManagers').text(allUsers.filter(u => u.role === 'System Manager').length);
+        $('#statManagers').text(allUsers.filter(u => u.role === 'Admin').length);
+        $('.stat-box').eq(2).find('.stat-label').text('Admins');
     }
 
     function applyFilters() {
@@ -362,7 +454,7 @@
             if (search && !(u.full_name || '').toLowerCase().includes(search) &&
                 !(u.email || '').toLowerCase().includes(search)) return false;
             if (role && u.role !== role) return false;
-            if (division && u.division !== division) return false;
+            if (division && !_csv(u.allowed_divisions).includes(division) && u.division !== division) return false;
             return true;
         });
 
@@ -387,12 +479,24 @@
                 avatarHtml = `<div class="user-table-avatar">${initial}</div>`;
             }
 
-            let roleClass = u.role === 'System Manager' ? 'sm' : (u.role === 'Sales Manager' ? 'sales' : 'user');
+            let roleClass = u.role === 'Admin' ? 'sm' : (u.role === 'HO' ? 'sales' : 'user');
             let statusDot = u.enabled ? '<span class="status-dot active"></span>Active' : '<span class="status-dot disabled"></span>Disabled';
 
             let schemeTo = u.scheme_to_email ? esc(u.scheme_to_email) : '<span class="text-muted">—</span>';
-            let ccCount = (u.scheme_cc_emails || '').split(/[,;\n]+/).filter(Boolean).length;
+            let ccCount = _csv(u.scheme_cc_emails).length;
             let ccBadge = ccCount ? ` <span class="badge badge-light">+${ccCount} cc</span>` : '';
+
+            const isAdminRole = u.role === 'Admin';
+            let divCell = isAdminRole ? '<span class="text-muted">All</span>'
+                : (_csv(u.allowed_divisions).map(d => '<span class="badge-division">' + esc(d) + '</span>').join(' ') || '<span class="text-danger">unset</span>');
+            let regCodes = _csv(u.allowed_regions);
+            let regCell = isAdminRole ? '<span class="text-muted">All</span>'
+                : (regCodes.length ? `<span class="badge badge-info" title="${esc(regCodes.join(', '))}">${regCodes.length} region(s)</span>` : '<span class="text-danger">unset</span>');
+
+            const emailJs = JSON.stringify(u.email);
+            const toggleBtn = u.enabled
+                ? `<button class="btn btn-sm btn-outline-secondary" title="Disable" onclick='toggleUserEnabled(${emailJs}, 0)'><i class="fa fa-ban"></i></button>`
+                : `<button class="btn btn-sm btn-outline-success" title="Enable" onclick='toggleUserEnabled(${emailJs}, 1)'><i class="fa fa-check"></i></button>`;
 
             html += `<tr>
                 <td>
@@ -403,11 +507,15 @@
                 </td>
                 <td>${esc(u.email)}</td>
                 <td><span class="badge-role ${roleClass}">${esc(u.role)}</span></td>
-                <td>${u.division ? '<span class="badge-division">' + esc(u.division) + '</span>' : '<span class="text-muted">—</span>'}</td>
-                <td>${u.mobile_no ? esc(u.mobile_no) : '<span class="text-muted">—</span>'}</td>
+                <td>${divCell}</td>
+                <td>${regCell}</td>
                 <td class="small">${schemeTo}${ccBadge}</td>
                 <td>${statusDot}</td>
-                <td class="text-right"><button class="btn btn-sm btn-outline-primary" onclick='editUser(${JSON.stringify(u.email)})'><i class="fa fa-edit"></i></button></td>
+                <td class="text-right" style="white-space:nowrap;">
+                    <button class="btn btn-sm btn-outline-primary" title="Edit" onclick='editUser(${emailJs})'><i class="fa fa-edit"></i></button>
+                    ${toggleBtn}
+                    <button class="btn btn-sm btn-outline-danger" title="Delete" onclick='deleteUser(${emailJs})'><i class="fa fa-trash"></i></button>
+                </td>
             </tr>`;
         });
 
@@ -422,15 +530,32 @@
         $('#editFirstName').val(u.first_name || '');
         $('#editMiddleName').val(u.middle_name || '');
         $('#editLastName').val(u.last_name || '');
-        $('#editRole').val(u.role || 'User');
-        $('#editDivision').val(u.division || 'Prima');
+        $('#editRole').val(u.role || 'Regional User');
         $('#editMobile').val(u.mobile_no || '');
         $('#editSchemeTo').val(u.scheme_to_email || '');
         $('#editSchemeCc').val(u.scheme_cc_emails || '');
+        const divs = _csv(u.allowed_divisions);
+        $('.edit-div').each(function () { this.checked = divs.includes(this.value); });
+        loadRegionsFor('edit', _csv(u.allowed_regions));
+        $('#editPassword').val('');
+        $('#editPasswordConfirm').val('');
+        onRoleChange('edit');
         $('#editUserModal').modal('show');
     }
 
     function saveEditUser() {
+        const role = $('#editRole').val();
+        const divisions = getCheckedDivisions('edit');
+        const regions = getSelectedRegions('edit');
+        if (role !== 'Admin' && (!divisions.length || !regions.length)) {
+            showAlert('Select at least one Division and one Region for non-admin roles', 'danger');
+            return;
+        }
+        const newPass = $('#editPassword').val();
+        if (newPass) {
+            if (newPass.length < 8) { showAlert('New password must be at least 8 characters', 'danger'); return; }
+            if (newPass !== $('#editPasswordConfirm').val()) { showAlert('Passwords do not match', 'danger'); return; }
+        }
         const btn = $(event.target);
         btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Saving...');
         $.ajax({
@@ -443,9 +568,11 @@
                 first_name: $('#editFirstName').val().trim(),
                 middle_name: $('#editMiddleName').val().trim(),
                 last_name: $('#editLastName').val().trim(),
-                role: $('#editRole').val(),
-                division: $('#editDivision').val(),
+                role: role,
                 mobile_no: $('#editMobile').val().trim(),
+                allowed_divisions: divisions,
+                allowed_regions: regions,
+                password: newPass || '',
                 scheme_to_email: $('#editSchemeTo').val().trim(),
                 scheme_cc_emails: $('#editSchemeCc').val().trim()
             }),
@@ -480,6 +607,9 @@
 
     function showCreateModal() {
         $('#createUserForm')[0].reset();
+        $('.new-div').prop('checked', false);
+        $('#newRegions').html('<option disabled>Select a division first</option>');
+        onRoleChange('new');
         $('#createUserModal').modal('show');
     }
 
@@ -504,6 +634,14 @@
             return;
         }
 
+        const role = $('#newRole').val();
+        const divisions = getCheckedDivisions('new');
+        const regions = getSelectedRegions('new');
+        if (role !== 'Admin' && (!divisions.length || !regions.length)) {
+            showAlert('Select at least one Division and one Region for non-admin roles', 'danger');
+            return;
+        }
+
         let btn = $(event.target);
         btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Creating...');
 
@@ -517,10 +655,11 @@
                 first_name: firstName,
                 last_name: $('#newLastName').val().trim(),
                 middle_name: $('#newMiddleName').val().trim(),
-                role: $('#newRole').val(),
-                division: $('#newDivision').val(),
+                role: role,
                 mobile_no: $('#newMobile').val().trim(),
                 password: password,
+                allowed_divisions: divisions,
+                allowed_regions: regions,
                 scheme_to_email: $('#newSchemeTo').val().trim(),
                 scheme_cc_emails: $('#newSchemeCc').val().trim()
             }),

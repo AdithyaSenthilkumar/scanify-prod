@@ -34,13 +34,14 @@
             </button>
 
             <div class="topbar-right">
-                <!-- Division Switcher -->
+                <!-- Division Switcher (limited to the user's allowed divisions) -->
+                {% set my_divs = get_allowed_divisions() %}
                 <div class="division-switcher">
+                    {% if my_divs|length > 1 %}
                     <button class="division-button" type="button" id="divisionMenuButton"
                         onclick="toggleDivisionMenu(event)">
                         <div class="division-info">
-                            <span class="division-name">{{ division or "Prima" }}</span>
-                           
+                            <span class="division-name">{{ division or my_divs[0] }}</span>
                         </div>
                         <i class="fa fa-chevron-down ml-2 opacity-50"></i>
                     </button>
@@ -48,19 +49,22 @@
                         <div class="div-dropdown-header">
                             <i class="fa fa-building mr-1"></i> Switch Division
                         </div>
+                        {% for d in my_divs %}
                         <a class="dropdown-item division-option" href="javascript:void(0)"
-                            onclick="switchDivision('Prima', event)">
-                            <span class="div-color-dot dot-prima"></span>
-                            <span class="div-option-name">Prima</span>
-                            {% if division == 'Prima' %}<span class="div-active-badge">Active</span>{% endif %}
+                            onclick="switchDivision('{{ d }}', event)">
+                            <span class="div-color-dot dot-{{ d|lower }}"></span>
+                            <span class="div-option-name">{{ d }}</span>
+                            {% if division == d %}<span class="div-active-badge">Active</span>{% endif %}
                         </a>
-                        <a class="dropdown-item division-option" href="javascript:void(0)"
-                            onclick="switchDivision('Vektra', event)">
-                            <span class="div-color-dot dot-vektra"></span>
-                            <span class="div-option-name">Vektra</span>
-                            {% if division == 'Vektra' %}<span class="div-active-badge">Active</span>{% endif %}
-                        </a>
+                        {% endfor %}
                     </div>
+                    {% else %}
+                    <button class="division-button" type="button" style="cursor:default;">
+                        <div class="division-info">
+                            <span class="division-name">{{ division or (my_divs[0] if my_divs else "Prima") }}</span>
+                        </div>
+                    </button>
+                    {% endif %}
                 </div>
 
                 <!-- User Menu -->
@@ -78,7 +82,7 @@
                         {% endif %}
                         <div class="user-info d-none d-md-block">
                             <span class="user-name">{{ frappe.session.user_fullname or frappe.session.user }}</span>
-                            <span class="user-role">{{ user_role or 'User' }}</span>
+                            <span class="user-role">{{ get_portal_role() }}</span>
                         </div>
                         <i class="fa fa-chevron-down ml-1 opacity-50"></i>
                     </div>
@@ -105,6 +109,7 @@
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <nav class="sidebar-nav">
+                {% set nav = nav_access() %}
                 <!-- Dashboard — always visible, no collapse -->
                 <a href="/portal" class="nav-link nav-link-solo">
                     <i class="fa fa-th-large"></i>
@@ -113,6 +118,7 @@
 
                 <div class="nav-divider"></div>
 
+                {% if nav.masters %}
                 <!-- Masters Management -->
                 <div class="nav-group">
                     <button class="nav-group-toggle" type="button" data-target="grp-masters">
@@ -133,7 +139,9 @@
                         </a>
                     </div>
                 </div>
-                
+                {% endif %}
+
+                {% if nav.chatbot %}
                 <!-- AI Chatbot -->
                 <div class="nav-group">
                     <button class="nav-group-toggle" type="button" data-target="grp-ai">
@@ -148,7 +156,9 @@
                         </a>
                     </div>
                 </div>
+                {% endif %}
 
+                {% if nav.primary_upload or nav.primary_view %}
                 <!-- Primary Sales -->
                 <div class="nav-group">
                     <button class="nav-group-toggle" type="button" data-target="grp-primary">
@@ -158,18 +168,24 @@
                         <i class="fa fa-chevron-right nav-group-chevron"></i>
                     </button>
                     <div class="nav-group-links" id="grp-primary">
+                        {% if nav.primary_upload %}
                         <a href="/portal/upload-primary-sales" class="nav-link">
                             <i class="fa fa-upload"></i> <span>Upload Primary Sales</span>
                         </a>
+                        {% endif %}
+                        {% if nav.primary_view %}
                         <a href="/portal/primary-sales-list" class="nav-link">
                             <i class="fa fa-table"></i> <span>Primary Sales Data</span>
                         </a>
                         <a href="/portal/export-primary-sales" class="nav-link">
                             <i class="fa fa-file-excel"></i> <span>Export Primary Data</span>
                         </a>
+                        {% endif %}
                     </div>
                 </div>
+                {% endif %}
 
+                {% if nav.secondary or nav.secondary_admin %}
                 <!-- Secondary Sales (Statements) -->
                 <div class="nav-group">
                     <button class="nav-group-toggle" type="button" data-target="grp-secondary">
@@ -179,6 +195,7 @@
                         <i class="fa fa-chevron-right nav-group-chevron"></i>
                     </button>
                     <div class="nav-group-links" id="grp-secondary">
+                        {% if nav.secondary %}
                         <a href="/portal/stock-statements-list" class="nav-link">
                             <i class="fa fa-file-invoice"></i> <span>Statements List</span>
                         </a>
@@ -200,6 +217,8 @@
                         <a href="/portal/export-secondary-sales" class="nav-link">
                             <i class="fa fa-file-excel"></i> <span>Export Secondary Data</span>
                         </a>
+                        {% endif %}
+                        {% if nav.secondary_admin %}
                         <a href="/portal/reload-statements" class="nav-link"
                             title="Recompute statement totals from the latest masters. Use this after updating any master (product PTS/PTR/pack, stockist HQ/division, etc.) so statements and reports reflect the new values.">
                             <i class="fa fa-sync-alt"></i> <span>Reload Statements</span>
@@ -207,9 +226,12 @@
                         <a href="/portal/delete-statement" class="nav-link">
                             <i class="fa fa-trash-alt"></i> <span>Delete Statement</span>
                         </a>
+                        {% endif %}
                     </div>
                 </div>
+                {% endif %}
 
+                {% if nav.scheme_list or nav.scheme_new or nav.scheme_repeat or nav.scheme_email or nav.deductions or nav.scheme_delete %}
                 <!-- Scheme Management -->
                 <div class="nav-group">
                     <button class="nav-group-toggle" type="button" data-target="grp-schemes">
@@ -219,18 +241,27 @@
                         <i class="fa fa-chevron-right nav-group-chevron"></i>
                     </button>
                     <div class="nav-group-links" id="grp-schemes">
+                        {% if nav.scheme_list %}
                         <a href="/portal/scheme-list" class="nav-link">
                             <i class="fa fa-list"></i> <span>Scheme Requests</span>
                         </a>
+                        {% endif %}
+                        {% if nav.scheme_new %}
                         <a href="/portal/scheme-new" class="nav-link">
                             <i class="fa fa-plus-circle"></i> <span>New Scheme Request</span>
                         </a>
+                        {% endif %}
+                        {% if nav.scheme_repeat %}
                         <a href="/portal/scheme-repeat" class="nav-link">
                             <i class="fa fa-redo"></i> <span>Repeat Request</span>
                         </a>
+                        {% endif %}
+                        {% if nav.scheme_email %}
                         <a href="/portal/scheme-email" class="nav-link">
                             <i class="fa fa-paper-plane"></i> <span>Send Emails</span>
                         </a>
+                        {% endif %}
+                        {% if nav.deductions %}
                         <a href="/portal/scheme-deduction" class="nav-link">
                             <i class="fa fa-minus-circle"></i> <span>Manual Deduction</span>
                         </a>
@@ -240,12 +271,17 @@
                         <a href="/portal/scheme-deduction-list" class="nav-link">
                             <i class="fa fa-clipboard-list"></i> <span>Deduction List</span>
                         </a>
+                        {% endif %}
+                        {% if nav.scheme_delete %}
                         <a href="/portal/scheme-delete-revert" class="nav-link">
                             <i class="fa fa-trash-restore"></i> <span>Delete &amp; Revert</span>
                         </a>
+                        {% endif %}
                     </div>
                 </div>
+                {% endif %}
 
+                {% if nav.sales_targets %}
                 <!-- Sales Targets -->
                 <div class="nav-group">
                     <button class="nav-group-toggle" type="button" data-target="grp-targets">
@@ -263,7 +299,9 @@
                         </a>
                     </div>
                 </div>
+                {% endif %}
 
+                {% if nav.reports %}
                 <!-- Analytics -->
                 <div class="nav-group">
                     <button class="nav-group-toggle" type="button" data-target="grp-analytics">
@@ -290,7 +328,9 @@
                         </a>
                     </div>
                 </div>
+                {% endif %}
 
+                {% if nav.audit %}
                 <!-- Audit Trail -->
                 <div class="nav-group">
                     <button class="nav-group-toggle" type="button" data-target="grp-audit">
@@ -305,7 +345,9 @@
                         </a>
                     </div>
                 </div>
+                {% endif %}
 
+                {% if nav.users %}
                 <!-- User Management -->
                 <div class="nav-group">
                     <button class="nav-group-toggle" type="button" data-target="grp-users">
@@ -320,6 +362,7 @@
                         </a>
                     </div>
                 </div>
+                {% endif %}
 
             </nav>
         </aside>
