@@ -10974,9 +10974,12 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
             cell.border = thin_border
             if c > 3:
                 cell.alignment = Alignment(horizontal="right")
+                # Plain 2-decimal format, no thousands separators
+                cell.number_format = "0.00"
         row += 1
 
-        # Product rows
+        # Product rows — quantities kept as real numbers but displayed without any
+        # thousands separators (client wants no commas), up to 2 decimals.
         for p in products:
             p_vals = [p.get("sno", ""), p.get("product_code", ""), p.get("pack", "")]
             for team in teams:
@@ -10988,6 +10991,8 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
             rqty = p.get("region_qty")
             p_vals.append(rqty if rqty else "")
             write_data_row(ws, row, p_vals)
+            for c in range(4, len(p_vals) + 1):
+                ws.cell(row=row, column=c).number_format = "0.##"
             row += 1
 
     elif report_type == "sec_vs_closing":

@@ -1897,10 +1897,11 @@ function renderRegionProductStock(result, thead, tbody) {
     var teams = result.team_order || [];
     var products = result.products || [];
     var vil = result.value_in_lakhs || {};
-    // Stockist-wise has many narrow columns with long stockist names → render the
-    // column headers vertically (rotated, like Report 16) so the grid stays compact.
-    // Organization view (Zone → Region columns) always uses horizontal headers.
+    // Stockist-wise (many narrow columns) and the organization view (Zone → Region)
+    // both render column headers vertically (rotated, like Report 16) so the grid
+    // stays compact; HQ-wise keeps horizontal headers.
     var isStockist = !result.is_org && result.group_by === "stockist";
+    var vertClass = result.is_org ? "org-vert" : (isStockist ? "stk-vert" : "");
     // Group/grand-total labels: Team/Region for a single region, Zone/Organization
     // for the all-regions organization view.
     var groupTotalLabel = (result.group_label || "Team") + " Total";
@@ -1916,8 +1917,8 @@ function renderRegionProductStock(result, thead, tbody) {
         var span = team.hqs.length + 1; // HQ cols + Team Total
         headerRow1 += "<th colspan='" + span + "' style='text-align:center;background:#334155;color:#fff;border:1px solid #475569;'>" + esc(team.team_name || team.team_code) + "</th>";
         team.hqs.forEach(function(hq) {
-            if (isStockist) {
-                headerRow2 += "<th class='stk-vert'>" + esc(hq.col_name || hq.col_code) + "</th>";
+            if (vertClass) {
+                headerRow2 += "<th class='" + vertClass + "'>" + esc(hq.col_name || hq.col_code) + "</th>";
             } else {
                 headerRow2 += "<th style='text-align:center;font-size:10px;max-width:80px;white-space:normal;word-break:break-word;'>" + esc(hq.col_name || hq.col_code) + "</th>";
             }
@@ -1949,12 +1950,12 @@ function renderRegionProductStock(result, thead, tbody) {
         teams.forEach(function(team) {
             team.hqs.forEach(function(hq) {
                 var qty = (p.col_qty || {})[hq.col_code];
-                row += "<td class='text-right'>" + (qty != null && qty !== 0 ? fmtQty(qty) : "") + "</td>";
+                row += "<td class='text-right'>" + fmtQtyNCnz(qty) + "</td>";
             });
             var tqty = (p.team_qty || {})[team.team_code];
-            row += "<td class='text-right' style='font-weight:700;background:#f1f5f9;'>" + (tqty != null && tqty !== 0 ? fmtQty(tqty) : "") + "</td>";
+            row += "<td class='text-right' style='font-weight:700;background:#f1f5f9;'>" + fmtQtyNCnz(tqty) + "</td>";
         });
-        row += "<td class='text-right' style='font-weight:700;background:#1e293b;color:#fff;'>" + (p.region_qty != null && p.region_qty !== 0 ? fmtQty(p.region_qty) : "") + "</td></tr>";
+        row += "<td class='text-right' style='font-weight:700;background:#1e293b;color:#fff;'>" + fmtQtyNCnz(p.region_qty) + "</td></tr>";
         tbody.innerHTML += row;
     });
 }
