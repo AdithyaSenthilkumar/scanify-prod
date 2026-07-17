@@ -99,6 +99,40 @@ def sync_frappe_roles(user, portal_role=None, prune=True):
             doc.remove_roles(*to_remove)
 
 
+def sync_user_frappe_roles(doc, method=None):
+    """User doc_event (after_insert / on_update): keep the underlying Frappe roles
+    aligned with the user's portal_role, so portal access is ALWAYS backed by the real
+    doctype permissions — no matter how portal_role got set: the portal Users page, the
+    Frappe Desk User form, a data import, or a patch.
+
+    Without this, portal_role and Frappe roles drift: a user can be a portal Admin
+    (sidebar + page guards pass) yet lack System Manager / Sales roles, so every real
+    write (save a master, delete a scheme) fails Frappe's doctype permission check with
+    'does not have doctype access via role permission'.
+
+    Recursion-guarded because sync_frappe_roles grants/strips roles via
+    User.add_roles / remove_roles, each of which saves the User and re-fires on_update."""
+    user = getattr(doc, "name", None)
+    if user in ("Administrator", "Guest", "", None):
+        return
+    if not doc.get("portal_role"):
+        return
+    if frappe.flags.get("in_sync_user_frappe_roles"):
+        return
+    # Only act when the portal role actually changed (or on first insert), so unrelated
+    # profile saves (name, image, password, scheme emails, …) don't re-sync every time.
+    if method == "on_update" and not doc.has_value_changed("portal_role"):
+        return
+    frappe.flags.in_sync_user_frappe_roles = True
+    try:
+        sync_frappe_roles(user, doc.portal_role, prune=True)
+    except Exception:
+        # A role-sync problem must never block the User save itself (login-critical).
+        frappe.log_error(frappe.get_traceback(), "sync_user_frappe_roles failed")
+    finally:
+        frappe.flags.in_sync_user_frappe_roles = False
+
+
 def get_portal_role(user=None):
     """The user's single portal role. Administrator / any Frappe System Manager is Admin.
     Unmapped portal users default to the most restrictive role."""

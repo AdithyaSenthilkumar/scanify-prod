@@ -4320,8 +4320,13 @@ def save_master_record(doctype, name, data):
         # -----------------------------
         # APPLY DATA & SAVE
         # -----------------------------
+        # Access is already authorized by @require_process("masters") (portal Admin only)
+        # — the portal is the sole entry point and the real security boundary. Save with
+        # ignore_permissions so the operation doesn't depend on the acting user's Frappe
+        # role/user_type: a portal Admin who is a Website User (no System Manager) would
+        # otherwise fail Frappe's doctype permission check ("no doctype access via role").
         doc.update(data)
-        doc.save(ignore_permissions=False)
+        doc.save(ignore_permissions=True)
         frappe.db.commit()
 
         # After saving an HQ, recalculate the linked team's sanctioned strength
@@ -4351,7 +4356,9 @@ def delete_master_record(doctype, name):
         if doctype == 'HQ Master':
             team_name = frappe.db.get_value('HQ Master', name, 'team')
 
-        frappe.delete_doc(doctype, name, ignore_permissions=False)
+        # Authorized by @require_process("masters") (portal Admin only); delete with
+        # ignore_permissions so it works regardless of the admin's Frappe role/user_type.
+        frappe.delete_doc(doctype, name, ignore_permissions=True)
         frappe.db.commit()
 
         # Recalculate team strength after HQ deletion
@@ -6078,15 +6085,21 @@ def delete_and_revert_scheme(scheme_request):
         for dname in deductions:
             dd = frappe.get_doc("Scheme Deduction", dname)
             if dd.docstatus == 1:
+                dd.flags.ignore_permissions = True
                 dd.cancel()
             reverted.append(dname)
             # Remove the cancelled deduction so it no longer links to the scheme
             frappe.delete_doc("Scheme Deduction", dname, force=1, ignore_permissions=True)
 
-        # 2) Cancel (if submitted) and delete the scheme request
+        # 2) Cancel (if submitted) and delete the scheme request. Access is already
+        #    gated by @require_process("scheme_delete") (portal Admin only); use
+        #    ignore_permissions throughout so the operation doesn't depend on the admin's
+        #    Frappe role/user_type and can't half-fail after the deductions above were
+        #    already reverted/removed (consistent with that Scheme Deduction delete).
         if scheme.docstatus == 1:
+            scheme.flags.ignore_permissions = True
             scheme.cancel()
-        frappe.delete_doc("Scheme Request", scheme_request, force=1)
+        frappe.delete_doc("Scheme Request", scheme_request, force=1, ignore_permissions=True)
         frappe.db.commit()
 
         msg = "Scheme deleted"
@@ -9953,11 +9966,20 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
     """
     if not division:
         division = get_user_division()
-    if not region:
-        frappe.throw("Region is required for this report.")
 
-    conditions = ["ss.division = %(division)s", "ss.region = %(region)s", "ss.docstatus IN (0, 1)"]
-    params = {"division": division, "region": region}
+    # "All Regions (Organization)" view: no single region is selected. Instead of
+    # one column per HQ/Stockist within a region, we roll one level up the
+    # hierarchy (Division -> Zone -> Region) and show one column per Region grouped
+    # by Zone. The response reuses the exact same pivot shape (Zone plays the
+    # "team" role, Region plays the "column" role) so the render/PDF/Excel pipeline
+    # stays unchanged apart from the group/total labels.
+    is_org = (not region) or str(region).upper() in ("__ALL__", "ALL", "ORG", "ORGANIZATION")
+
+    conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
+    params = {"division": division}
+    if not is_org:
+        conditions.append("ss.region = %(region)s")
+        params["region"] = region
 
     if from_date:
         conditions.append("ss.statement_month >= %(from_date)s")
@@ -9968,7 +9990,42 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
 
     where = " AND ".join(conditions)
 
-    if group_by == "stockist":
+    if is_org:
+        # Organization view: one column per Region, grouped by Zone
+        rows = frappe.db.sql(f"""
+            SELECT
+                COALESCE(hm.region, ss.region, '') AS col_code,
+                COALESCE(rm.region_name, hm.region, ss.region, '') AS col_name,
+                COALESCE(rm.zone, '') AS team_code,
+                COALESCE(zm.zone_name, rm.zone, '') AS team_name,
+                si.product_code,
+                si.product_name,
+                si.pack,
+                SUM(si.closing_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS closing_qty,
+                SUM(COALESCE(si.closing_value, (si.closing_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) * si.pts, 0)) AS closing_value
+            FROM `tabStockist Statement` ss
+            INNER JOIN `tabStockist Statement Item` si
+                ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+            LEFT JOIN `tabHQ Master` hm ON hm.name = ss.hq AND hm.division = %(division)s
+            LEFT JOIN `tabRegion Master` rm ON rm.name = COALESCE(hm.region, ss.region)
+            LEFT JOIN `tabZone Master` zm ON zm.name = rm.zone
+            WHERE {where}
+            GROUP BY COALESCE(hm.region, ss.region, ''), rm.region_name, rm.zone, zm.zone_name,
+                     si.product_code, si.product_name, si.pack
+            ORDER BY zm.zone_name, rm.region_name, si.product_code
+        """, params, as_dict=True)
+
+        # Ordered Region column list grouped by Zone (from masters)
+        col_list = frappe.db.sql("""
+            SELECT rm.name AS col_code, COALESCE(rm.region_name, rm.name, '') AS col_name,
+                   COALESCE(rm.zone, '') AS team_code,
+                   COALESCE(zm.zone_name, rm.zone, '') AS team_name
+            FROM `tabRegion Master` rm
+            LEFT JOIN `tabZone Master` zm ON zm.name = rm.zone
+            WHERE rm.division IN (%(division)s, 'Both') AND rm.status = 'Active'
+            ORDER BY zm.zone_name, rm.region_name
+        """, params, as_dict=True)
+    elif group_by == "stockist":
         # Stockist-wise pivot: one column per stockist
         rows = frappe.db.sql(f"""
             SELECT
@@ -10041,9 +10098,21 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
     # Rows link by the Product Master id; pivot keys and labels use business codes.
     _apply_product_display_codes(rows)
 
+    # Header/label hints so the same render pipeline can title the grouping and
+    # totals correctly for the per-region ("Team"/"Region") vs organization
+    # ("Zone"/"Organization") views.
+    group_label = "Zone" if is_org else "Team"
+    total_label = "Organization" if is_org else "Region"
+    if is_org:
+        region_name = "All Regions (Organization)"
+    else:
+        region_name = frappe.db.get_value("Region Master", region, "region_name") or region
+
     if not rows:
         return {"success": True, "products": [], "team_order": [], "hq_columns": [],
-                "value_in_lakhs": {}, "region": region, "region_name": region, "group_by": group_by}
+                "value_in_lakhs": {}, "region": "" if is_org else region,
+                "region_name": region_name, "group_by": group_by,
+                "is_org": is_org, "group_label": group_label, "total_label": total_label}
 
     # Fall back to data-derived column list if master has no entries
     if not col_list:
@@ -10134,12 +10203,13 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
             "region_qty": region_qty,
         })
 
-    region_name = frappe.db.get_value("Region Master", region, "region_name") or region
-
     return {
         "success": True,
-        "region": region,
+        "region": "" if is_org else region,
         "region_name": region_name,
+        "is_org": is_org,
+        "group_label": group_label,
+        "total_label": total_label,
         "from_date": from_date,
         "to_date": to_date,
         "group_by": group_by,
@@ -10798,11 +10868,21 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         teams = result.get("team_order", [])
         products = result.get("products", [])
         vil = result.get("value_in_lakhs", {})
-        gb_label = "Stockist-wise" if group_by == "stockist" else "HQ-wise"
+        is_org = result.get("is_org", False)
+        # In the organization view Zone plays the "team" role and Region the "column"
+        # role, so the group/grand-total headers switch labels accordingly.
+        group_total_hdr = (result.get("group_label", "Team")) + " Total"
+        grand_total_hdr = (result.get("total_label", "Region")) + " Total"
+        if is_org:
+            gb_label = "Region-wise (grouped by Zone)"
+            scope_label = region_name
+        else:
+            gb_label = "Stockist-wise" if group_by == "stockist" else "HQ-wise"
+            scope_label = f"Region: {region_name}"
         period_label = f"{from_date} to {to_date}" if from_date and to_date else "All Dates"
 
         row = write_title_rows(ws, f"Product Closing Stock – Region Summary ({division})",
-                               f"Region: {region_name}  |  {gb_label}  |  Period: {period_label}")
+                               f"{scope_label}  |  {gb_label}  |  Period: {period_label}")
 
         # Build flat column list
         flat_cols = []
@@ -10843,9 +10923,9 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                                end_row=hdr_row1, end_column=col_cursor + span - 1)
             col_cursor += span
 
-        # Region Total header (merged across 2 rows)
+        # Grand Total header (Region Total, or Organization Total in the org view)
         rt_col = col_cursor
-        cell = ws.cell(row=hdr_row1, column=rt_col, value="Region Total")
+        cell = ws.cell(row=hdr_row1, column=rt_col, value=grand_total_hdr)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_align
@@ -10863,8 +10943,8 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                 cell.alignment = Alignment(horizontal="center", wrap_text=True)
                 cell.border = thin_border
                 col_cursor2 += 1
-            # Team Total column
-            cell = ws.cell(row=hdr_row2, column=col_cursor2, value="Team Total")
+            # Group Total column (Team Total, or Zone Total in the org view)
+            cell = ws.cell(row=hdr_row2, column=col_cursor2, value=group_total_hdr)
             cell.font = Font(bold=True, size=10, color="FFFFFF")
             cell.fill = PatternFill(start_color="475569", end_color="475569", fill_type="solid")
             cell.alignment = Alignment(horizontal="center")

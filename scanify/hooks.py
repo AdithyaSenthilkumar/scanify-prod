@@ -51,7 +51,14 @@ doc_events = {
     },
     "Scheme Request": {
         "on_submit": "scanify.scanify.doctype.scheme_request.scheme_request.create_stock_adjustment"
-    }
+    },
+    # Keep each portal user's Frappe roles in sync with their portal_role, whatever path
+    # sets it (portal Users page, Desk User form, import, patch). Prevents the portal
+    # Admin vs. System-Manager drift that breaks master saves / scheme deletes.
+    "User": {
+        "after_insert": "scanify.permissions.sync_user_frappe_roles",
+        "on_update": "scanify.permissions.sync_user_frappe_roles",
+    },
 }
 
 # Register the portal as an "app" so post-login lands on /portal for BOTH System and
