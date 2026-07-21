@@ -7582,21 +7582,42 @@ def set_portal_user_enabled(email, enabled):
     return {"success": True, "enabled": on}
 
 
+_PORTAL_ROLE_LABELS = {
+    "Admin": "Administrator",
+    "HO": "Head Office (HO)",
+    "Regional User": "Regional User",
+    "Regional User (Future)": "Regional User (Future)",
+}
+
+
 @frappe.whitelist()
 def get_my_profile():
-    """Return the current user's profile data."""
+    """Return the current user's profile data, including the portal role (the custom
+    role mapping), the divisions they may use, and the regions they are scoped to."""
+    from scanify.permissions import (
+        get_portal_role, is_portal_admin, get_allowed_divisions,
+        get_allowed_region_codes,
+    )
+
     user = frappe.session.user
     if user == "Guest":
         frappe.throw("Please login to continue", frappe.PermissionError)
 
     doc = frappe.get_doc("User", user)
-    roles = frappe.get_roles(user)
-    if "System Manager" in roles:
-        role = "System Manager"
-    elif "Sales Manager" in roles:
-        role = "Sales Manager"
+
+    portal_role = get_portal_role(user)
+    admin = is_portal_admin(user)
+    divisions = get_allowed_divisions(user) or []
+
+    # Regions the user is mapped to (read-only). Admins are not region-scoped.
+    if admin:
+        regions = []
     else:
-        role = "User"
+        codes = get_allowed_region_codes(user) or []
+        region_rows = frappe.get_all(
+            "Region Master", filters={"name": ["in", codes or [""]]},
+            fields=["name", "region_name"], order_by="region_name") if codes else []
+        regions = [{"code": r["name"], "name": r["region_name"] or r["name"]} for r in region_rows]
 
     return {
         "email": doc.email,
@@ -7606,9 +7627,57 @@ def get_my_profile():
         "full_name": doc.full_name or "",
         "mobile_no": doc.mobile_no or "",
         "user_image": doc.user_image or "",
-        "role": role,
-        "division": doc.division or "",
+        "role": portal_role,
+        "role_label": _PORTAL_ROLE_LABELS.get(portal_role, portal_role),
+        "is_admin": admin,
+        "division": doc.division or (divisions[0] if divisions else ""),
+        "divisions": divisions,
+        "regions": regions,
     }
+
+
+@frappe.whitelist()
+def change_my_password(current_password, new_password):
+    """Let a logged-in user change their own password after verifying the current one."""
+    from frappe.utils.password import check_password, update_password as _update_password
+
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw("Please login to continue", frappe.PermissionError)
+
+    current_password = (current_password or "").strip()
+    new_password = (new_password or "").strip()
+
+    if not current_password or not new_password:
+        return {"success": False, "message": "Both current and new password are required."}
+    if len(new_password) < 6:
+        return {"success": False, "message": "New password must be at least 6 characters."}
+    if new_password == current_password:
+        return {"success": False, "message": "New password must be different from the current one."}
+
+    # Verify the current password (raises AuthenticationError if wrong).
+    try:
+        check_password(user, current_password)
+    except frappe.AuthenticationError:
+        return {"success": False, "message": "Current password is incorrect."}
+
+    # Enforce the site's password strength policy, if enabled. The core helper
+    # returns {} when the policy is off, and otherwise a result whose feedback says
+    # whether the score passed. Best-effort: never block on a policy-lookup error.
+    try:
+        from frappe.core.doctype.user.user import test_password_strength
+        result = test_password_strength(new_password)
+        feedback = (result or {}).get("feedback") or {}
+        if result and not feedback.get("password_policy_validation_passed", True):
+            parts = [feedback.get("warning") or "Please choose a stronger password."]
+            parts += (feedback.get("suggestions") or [])
+            return {"success": False, "message": " ".join(p for p in parts if p).strip()}
+    except Exception:
+        pass
+
+    _update_password(user, new_password)
+    frappe.db.commit()
+    return {"success": True, "message": "Password changed successfully."}
 
 
 @frappe.whitelist()
@@ -12576,6 +12645,15 @@ def get_ranking_moving_trend_report(division=None, sales_type="secondary",
             "month_labels": _MONTH_LABELS, "criteria": criteria}
 
 
+def _pri_master_name(doctype, value, name_field):
+    """Primary Sales Data stores region/zone/team by their DISPLAY NAME, while the
+    ranking dropdowns send the Master's code (its PK). Resolve code → stored name so
+    primary-sales filters actually match (mirrors the stockist primary report)."""
+    if not value:
+        return value
+    return frappe.db.get_value(doctype, value, name_field) or value
+
+
 def _moving_trend_primary(division, criteria, from_date, to_date, region, zone):
     """Query Primary Sales Data for Moving Trend grouped by criteria."""
     criteria_col_map = {
@@ -12584,7 +12662,6 @@ def _moving_trend_primary(division, criteria, from_date, to_date, region, zone):
         "Team": "ps.team",
         "Stockist": "CONCAT(ps.stockist_code, ' – ', ps.stockist_name)",
         "Product": "CONCAT(ps.pcode, ' – ', ps.product)",
-        "Doctor": "ps.region",  # doctors not in primary sales; fallback to region
     }
     criteria_col = criteria_col_map.get(criteria, "ps.region")
 
@@ -12597,10 +12674,10 @@ def _moving_trend_primary(division, criteria, from_date, to_date, region, zone):
         join_sm = " LEFT JOIN `tabStockist Master` sm ON sm.name = ps.stockist_code AND sm.status = 'Active'"
     if region:
         conditions.append("ps.region = %(region)s")
-        params["region"] = region
+        params["region"] = _pri_master_name("Region Master", region, "region_name")
     if zone:
         conditions.append("ps.zonee = %(zone)s")
-        params["zone"] = zone
+        params["zone"] = _pri_master_name("Zone Master", zone, "zone_name")
 
     where = " AND ".join(conditions)
     return frappe.db.sql(f"""
@@ -12623,7 +12700,6 @@ def _moving_trend_secondary(division, criteria, from_date, to_date, region, zone
         "Stockist": "CONCAT(ss.stockist_code, ' – ', ss.stockist_name)",
         # si.product_code stores the Product Master id; show the business code.
         "Product": "CONCAT(COALESCE(pm.product_code, si.product_code), ' – ', si.product_name)",
-        "Doctor": "ss.region",  # doctors have no direct relation to statements; fallback
     }
     criteria_col = criteria_col_map.get(criteria, "ss.region")
 
@@ -12827,7 +12903,7 @@ def get_ranking_productwise_all(division=None, product_code=None, region=None,
         params = {"division": division, "product_code": product_code}
         if region:
             conditions.append("ps.region = %(region)s")
-            params["region"] = region
+            params["region"] = _pri_master_name("Region Master", region, "region_name")
         if from_date:
             conditions.append("ps.invoicedate >= %(from_date)s")
             params["from_date"] = from_date
@@ -12955,7 +13031,7 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
         params = {"division": division}
         if region:
             conditions.append("ps.region = %(region)s")
-            params["region"] = region
+            params["region"] = _pri_master_name("Region Master", region, "region_name")
         if from_date:
             conditions.append("ps.invoicedate >= %(from_date)s")
             params["from_date"] = from_date
@@ -13083,7 +13159,7 @@ def get_ranking_pcpm_tracker(division=None, sales_type="secondary",
         params = {"division": division, "from_date": fy_start, "to_date": fy_end}
         if region:
             conditions.append("ps.region = %(region)s")
-            params["region"] = region
+            params["region"] = _pri_master_name("Region Master", region, "region_name")
         if codes:
             conditions.append("ps.pcode IN %(codes)s")
             params["codes"] = codes

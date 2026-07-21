@@ -71,7 +71,6 @@
                     <option value="Region">Region</option>
                     <option value="HQ">HQ</option>
                     <option value="Team">Team</option>
-                    <option value="Doctor">Doctor</option>
                     <option value="Stockist">Stockist</option>
                     <option value="Product">Product</option>
                 </select>
@@ -356,10 +355,10 @@
 {% endblock %}
 
 {% block scripts %}
-<!-- jsPDF + Chart.js for consolidated PDF -->
+<!-- jsPDF + shared Stedman letterhead template for the report PDF -->
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="/assets/scanify/js/report_pdf.js"></script>
 
 <script>
 var DIVISION = "{{ division }}";
@@ -776,316 +775,42 @@ function downloadExcel() {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   Download Consolidated PDF (Summary + Charts + Data)
+   Download PDF — clean Stedman letterhead + single bordered table
+   (shared template: /assets/scanify/js/report_pdf.js)
    ══════════════════════════════════════════════════════════════ */
-async function downloadPDF() {
+function rankingPdfTitle() {
+    var titles = {
+        moving_trend: "Moving Trend Report", rupee_wise: "Rupee Wise Report",
+        productwise_topn: "Productwise Ranking (Top N)", productwise_all: "Productwise Ranking ALL",
+        productwise_advanced: "Productwise Ranking Advanced", pcpm_tracker: "PCPM Tracker"
+    };
+    var base = titles[currentReportType] || "Ranking Report";
+    var st = currentReportType === "productwise_advanced" ? getRadio("sales-type-adv") : getRadio("sales-type");
+    var stLabel = st === "primary" ? "Primary Sales" : (st === "closing" ? "Closing Stock" : "Secondary Sales");
+    return base + " (" + stLabel + ")";
+}
+
+function downloadPDF() {
     if (!currentReportData) return;
-    var jsPDF = window.jspdf.jsPDF;
-    var doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    var pageW = doc.internal.pageSize.getWidth();
-    var pageH = doc.internal.pageSize.getHeight();
+    var tableEl = document.getElementById("report-table");
+    if (!tableEl) return;
 
-    /* ── helpers ── */
-    function addPDFHeader(doc, title, subtitle, y) {
-        doc.setFillColor(30,41,59);
-        doc.rect(0, 0, pageW, 22, "F");
-        doc.setFontSize(14); doc.setTextColor(255);
-        doc.text(title || "", 14, 10);
-        doc.setFontSize(9); doc.setTextColor(200);
-        doc.text(subtitle || "", 14, 17);
-        doc.setTextColor(0);
-        return 28;
-    }
-    function addPageFooter(doc) {
-        var pages = doc.internal.getNumberOfPages();
-        for (var i = 1; i <= pages; i++) {
-            doc.setPage(i);
-            doc.setFontSize(8); doc.setTextColor(150);
-            doc.text("Page " + i + " of " + pages, pageW - 30, pageH - 5);
-            doc.text(DIVISION + " \u2013 Ranking Reports", 14, pageH - 5);
+    var sub = DIVISION + " Division";
+    if (currentReportMeta.subtitle) sub += "  |  " + currentReportMeta.subtitle;
+
+    ScanifyReportPDF.exportTable({
+        tableEl: tableEl,
+        title: rankingPdfTitle(),
+        subtitle: sub,
+        division: DIVISION,
+        orientation: "landscape",
+        filename: currentReportType + "_" + DIVISION + "_" + new Date().toISOString().slice(0, 10) + ".pdf",
+        rowClassStyles: {
+            "grand-total-row": "grandtotal",
+            "total-row": "total",
+            "group-row": "group"
         }
-    }
-    function renderChartToImage(cfg, w, h) {
-        return new Promise(function(resolve) {
-            var canvas = document.createElement("canvas");
-            canvas.width = w * 2; canvas.height = h * 2;
-            canvas.style.width = w + "px"; canvas.style.height = h + "px";
-            var ctx = canvas.getContext("2d");
-            ctx.scale(2, 2);
-            cfg.options = cfg.options || {};
-            cfg.options.responsive = false;
-            cfg.options.animation = false;
-            cfg.options.devicePixelRatio = 2;
-            var chart = new Chart(ctx, cfg);
-            setTimeout(function() {
-                var img = canvas.toDataURL("image/png");
-                chart.destroy();
-                resolve(img);
-            }, 300);
-        });
-    }
-    var COLORS = ["#4f46e5","#059669","#dc2626","#d97706","#7c3aed","#0891b2","#be185d","#65a30d","#0d9488","#6366f1"];
-
-    var result = currentReportData;
-    var data   = result.data || [];
-    if (!data.length) return;
-
-    /* ═══════════════════════════════════════════════
-       PAGE 1: Consolidated Summary
-       ═══════════════════════════════════════════════ */
-    var y = addPDFHeader(doc, currentReportMeta.title, currentReportMeta.subtitle);
-
-    // Summary stats boxes
-    var summaryRows = [];
-    if (currentReportType === "moving_trend") {
-        var gtMT = 0; data.forEach(function(r){ gtMT += r.total||0; });
-        summaryRows = [
-            ["Criteria Rows", String(data.length)],
-            ["Grand Total", fmtQty(gtMT)],
-            ["Monthly Average", fmtQty(gtMT / 12)],
-            ["Criteria", result.criteria || "Region"]
-        ];
-    } else if (currentReportType === "rupee_wise") {
-        var tV = 0, tQ = 0; data.forEach(function(r){ tV += r.value||0; tQ += r.qty||0; });
-        var regions = {}; data.forEach(function(r){ regions[r.region]=1; });
-        summaryRows = [
-            ["Total Records", String(data.length)],
-            ["Total Value", "\u20b9 " + fmt(tV)],
-            ["Value in Lakhs", "\u20b9 " + fmtLakhs(tV) + " L"],
-            ["Total Qty", fmtQty(tQ)],
-            ["Regions", String(Object.keys(regions).length)]
-        ];
-    } else if (currentReportType === "productwise_topn") {
-        summaryRows = [
-            ["Products Ranked", String(data.length)],
-            ["Grand Total", "\u20b9 " + fmt(result.grand_total||0)],
-            ["Value in Lakhs", "\u20b9 " + fmtLakhs(result.grand_total||0) + " L"],
-            ["Top Product", data[0] ? esc(data[0].product_name) : "-"]
-        ];
-    } else if (currentReportType === "productwise_all") {
-        summaryRows = [
-            ["Records", String(data.length)],
-            ["Grand Total", "\u20b9 " + fmt(result.grand_total||0)],
-            ["Value in Lakhs", "\u20b9 " + fmtLakhs(result.grand_total||0) + " L"],
-            ["Top Ranked", data[0] ? esc(data[0].product_name) + " (" + esc(data[0].hq) + ")" : "-"]
-        ];
-    } else if (currentReportType === "productwise_advanced") {
-        var tVA = 0, tQA = 0; data.forEach(function(r){ tVA += r.value||0; tQA += r.qty||0; });
-        summaryRows = [
-            ["Records", String(data.length)],
-            ["Total Value", "\u20b9 " + fmt(tVA)],
-            ["Value in Lakhs", "\u20b9 " + fmtLakhs(tVA) + " L"],
-            ["Total Qty", fmtQty(tQA)]
-        ];
-    } else if (currentReportType === "pcpm_tracker") {
-        var gtPC = 0; data.forEach(function(r){ gtPC += r.total||0; });
-        summaryRows = [
-            ["Products Tracked", String(data.length)],
-            ["Grand Total Qty", fmtQty(gtPC)],
-            ["Sanctioned Strength", String(result.sanctioned_strength||0)],
-            ["Active Months", String(result.active_months||0)]
-        ];
-    }
-
-    // Draw stat boxes
-    var boxW = 60, boxH = 16, gap = 6, startX = 14;
-    summaryRows.forEach(function(item, i) {
-        var col = i % 4, row2 = Math.floor(i / 4);
-        var bx = startX + col * (boxW + gap);
-        var by = y + row2 * (boxH + gap);
-        doc.setFillColor(248,250,252); doc.roundedRect(bx, by, boxW, boxH, 2, 2, "F");
-        doc.setFontSize(7); doc.setTextColor(100); doc.text(item[0], bx + 4, by + 5);
-        doc.setFontSize(10); doc.setTextColor(30,41,59); doc.text(item[1], bx + 4, by + 12);
     });
-    y += Math.ceil(summaryRows.length / 4) * (boxH + gap) + 6;
-
-    // Summary autoTable
-    var summHead = [], summBody = [];
-    if (currentReportType === "moving_trend") {
-        summHead = [["Criteria", "Total", "Average"]];
-        data.slice(0, 15).forEach(function(r) {
-            summBody.push([r.criteria_name, fmtQty(r.total), fmtQty(r.average)]);
-        });
-    } else if (currentReportType === "rupee_wise") {
-        var regAgg = {}; data.forEach(function(r) {
-            if (!regAgg[r.region]) regAgg[r.region] = { qty: 0, value: 0, count: 0 };
-            regAgg[r.region].qty += r.qty||0; regAgg[r.region].value += r.value||0; regAgg[r.region].count++;
-        });
-        summHead = [["Region", "Records", "Total Qty", "Total Value", "Value \u20b9 Lakhs"]];
-        Object.keys(regAgg).sort().forEach(function(rg) {
-            var a = regAgg[rg];
-            summBody.push([rg, String(a.count), fmtQty(a.qty), fmt(a.value), fmtLakhs(a.value)]);
-        });
-    } else if (currentReportType === "productwise_topn") {
-        summHead = [["Rank", "Product", "Total Value", "Value \u20b9 Lakhs", "Contribution %"]];
-        data.forEach(function(r) {
-            summBody.push([String(r.rank), r.product_name, fmt(r.total_value), fmtLakhs(r.total_value), fmtPct(r.contribution_pct)]);
-        });
-    } else if (currentReportType === "productwise_all") {
-        var hqAgg = {}; data.forEach(function(r) {
-            if (!hqAgg[r.hq]) hqAgg[r.hq] = { value: 0, count: 0 };
-            hqAgg[r.hq].value += r.total_value||0; hqAgg[r.hq].count++;
-        });
-        summHead = [["HQ", "Products", "Total Value", "Value \u20b9 Lakhs"]];
-        Object.keys(hqAgg).sort().forEach(function(h) {
-            var a = hqAgg[h];
-            summBody.push([h, String(a.count), fmt(a.value), fmtLakhs(a.value)]);
-        });
-    } else if (currentReportType === "productwise_advanced") {
-        var regAgg2 = {}; data.forEach(function(r) {
-            var k = r.region || "Unknown";
-            if (!regAgg2[k]) regAgg2[k] = { qty: 0, value: 0, count: 0 };
-            regAgg2[k].qty += r.qty||0; regAgg2[k].value += r.value||0; regAgg2[k].count++;
-        });
-        summHead = [["Region", "Records", "Total Qty", "Total Value", "Value \u20b9 Lakhs"]];
-        Object.keys(regAgg2).sort().forEach(function(rg) {
-            var a = regAgg2[rg];
-            summBody.push([rg, String(a.count), fmtQty(a.qty), fmt(a.value), fmtLakhs(a.value)]);
-        });
-    } else if (currentReportType === "pcpm_tracker") {
-        summHead = [["Product Code", "Product Name", "Total", "Average", "PCPM"]];
-        data.forEach(function(r) {
-            summBody.push([r.product_code, r.product_name, fmtQty(r.total), fmtQty(r.average), r.pcpm.toFixed(2)]);
-        });
-    }
-
-    if (summBody.length) {
-        doc.autoTable({
-            head: summHead, body: summBody, startY: y,
-            styles: { fontSize: 7, cellPadding: 1.5 },
-            headStyles: { fillColor: [79,70,229], textColor: 255, fontStyle: "bold" },
-            margin: { left: 14, right: 14 }
-        });
-    }
-
-    /* ═══════════════════════════════════════════════
-       PAGE 2: Charts
-       ═══════════════════════════════════════════════ */
-    doc.addPage("a4", "landscape");
-    y = addPDFHeader(doc, "Charts \u2013 " + currentReportMeta.title, currentReportMeta.subtitle);
-
-    var chartImg1 = null, chartImg2 = null;
-
-    if (currentReportType === "moving_trend") {
-        var ml = ["Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar"];
-        var monthTotals = [0,0,0,0,0,0,0,0,0,0,0,0];
-        data.forEach(function(r){ r.months.forEach(function(v,i){ monthTotals[i] += v||0; }); });
-        chartImg1 = await renderChartToImage({
-            type: "bar",
-            data: { labels: ml, datasets: [{ label: "Monthly Total", data: monthTotals, backgroundColor: COLORS.slice(0,12) }] },
-            options: { plugins: { legend: { display: false }, title: { display: true, text: "Monthly Trend" } } }
-        }, 520, 280);
-    } else if (currentReportType === "rupee_wise") {
-        var regAggC = {}; data.forEach(function(r) {
-            if (!regAggC[r.region]) regAggC[r.region] = 0;
-            regAggC[r.region] += r.value||0;
-        });
-        var rLabels = Object.keys(regAggC).sort();
-        chartImg1 = await renderChartToImage({
-            type: "bar",
-            data: { labels: rLabels, datasets: [{ label: "Value", data: rLabels.map(function(k){return regAggC[k];}), backgroundColor: COLORS }] },
-            options: { plugins: { title: { display: true, text: "Region-wise Value Distribution" } } }
-        }, 350, 260);
-        chartImg2 = await renderChartToImage({
-            type: "doughnut",
-            data: { labels: rLabels, datasets: [{ data: rLabels.map(function(k){return regAggC[k];}), backgroundColor: COLORS }] },
-            options: { plugins: { title: { display: true, text: "Value Share by Region" } } }
-        }, 300, 260);
-    } else if (currentReportType === "productwise_topn") {
-        var topSlice = data.slice(0, 10);
-        chartImg1 = await renderChartToImage({
-            type: "bar",
-            data: { labels: topSlice.map(function(r){return r.product_name;}),
-                    datasets: [{ label: "Total Value", data: topSlice.map(function(r){return r.total_value||0;}), backgroundColor: COLORS }] },
-            options: { indexAxis: "y", plugins: { title: { display: true, text: "Top Products by Value" } } }
-        }, 520, 280);
-    } else if (currentReportType === "productwise_all") {
-        var hqAggC = {}; data.forEach(function(r) {
-            if (!hqAggC[r.hq]) hqAggC[r.hq] = 0;
-            hqAggC[r.hq] += r.total_value||0;
-        });
-        var hqL = Object.keys(hqAggC).sort();
-        chartImg1 = await renderChartToImage({
-            type: "bar",
-            data: { labels: hqL, datasets: [{ label: "Total Value", data: hqL.map(function(k){return hqAggC[k];}), backgroundColor: COLORS }] },
-            options: { plugins: { title: { display: true, text: "HQ-wise Value" } } }
-        }, 520, 280);
-    } else if (currentReportType === "productwise_advanced") {
-        var regAggC2 = {}; data.forEach(function(r) {
-            var k = r.region||"Unknown";
-            if (!regAggC2[k]) regAggC2[k] = 0;
-            regAggC2[k] += r.value||0;
-        });
-        var rL2 = Object.keys(regAggC2).sort();
-        chartImg1 = await renderChartToImage({
-            type: "bar",
-            data: { labels: rL2, datasets: [{ label: "Value", data: rL2.map(function(k){return regAggC2[k];}), backgroundColor: COLORS }] },
-            options: { plugins: { title: { display: true, text: "Region-wise Value" } } }
-        }, 350, 260);
-        chartImg2 = await renderChartToImage({
-            type: "pie",
-            data: { labels: rL2, datasets: [{ data: rL2.map(function(k){return regAggC2[k];}), backgroundColor: COLORS }] },
-            options: { plugins: { title: { display: true, text: "Region Value Share" } } }
-        }, 300, 260);
-    } else if (currentReportType === "pcpm_tracker") {
-        var ml2 = ["Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar"];
-        var datasets = data.slice(0, 6).map(function(r, idx) {
-            return { label: r.product_name, data: r.months, borderColor: COLORS[idx % COLORS.length], fill: false, tension: 0.3 };
-        });
-        chartImg1 = await renderChartToImage({
-            type: "line",
-            data: { labels: ml2, datasets: datasets },
-            options: { plugins: { title: { display: true, text: "Monthly Trend (Top Products)" } } }
-        }, 520, 280);
-    }
-
-    if (chartImg1 && chartImg2) {
-        doc.addImage(chartImg1, "PNG", 10, y, 140, 100);
-        doc.addImage(chartImg2, "PNG", 155, y, 130, 100);
-    } else if (chartImg1) {
-        doc.addImage(chartImg1, "PNG", 20, y, 250, 140);
-    }
-
-    /* ═══════════════════════════════════════════════
-       PAGE 3+: Detail Data
-       ═══════════════════════════════════════════════ */
-    doc.addPage("a4", "landscape");
-    y = addPDFHeader(doc, "Detail Data \u2013 " + currentReportMeta.title, currentReportMeta.subtitle);
-
-    var table = document.getElementById("report-table");
-    var head = [], body = [];
-    table.querySelectorAll("thead tr").forEach(function(tr) {
-        var row = [];
-        tr.querySelectorAll("th").forEach(function(c){ row.push(c.textContent.trim()); });
-        head.push(row);
-    });
-    table.querySelectorAll("tbody tr").forEach(function(tr) {
-        var row = [];
-        var isGroup = tr.classList.contains("group-row");
-        var isTotal = tr.classList.contains("total-row") || tr.classList.contains("grand-total-row");
-        tr.querySelectorAll("td").forEach(function(c){ row.push(c.textContent.trim()); });
-        body.push({ cells: row, isGroup: isGroup, isTotal: isTotal });
-    });
-
-    doc.autoTable({
-        head: head,
-        body: body.map(function(r){ return r.cells; }),
-        startY: y,
-        styles: { fontSize: 6.5, cellPadding: 1.2 },
-        headStyles: { fillColor: [30,41,59], textColor: 255, fontStyle: "bold", fontSize: 6.5 },
-        didParseCell: function(data) {
-            if (data.section === "body") {
-                var r = body[data.row];
-                if (r && r.isGroup) { data.cell.styles.fillColor = [232,237,243]; data.cell.styles.fontStyle = "bold"; }
-                if (r && r.isTotal) { data.cell.styles.fillColor = [30,41,59]; data.cell.styles.textColor = 255; data.cell.styles.fontStyle = "bold"; }
-            }
-        },
-        margin: { left: 8, right: 8 }
-    });
-
-    addPageFooter(doc);
-    var filename = currentReportType + "_" + DIVISION + "_" + new Date().toISOString().slice(0,10) + ".pdf";
-    doc.save(filename);
 }
 </script>
 {% endblock %}

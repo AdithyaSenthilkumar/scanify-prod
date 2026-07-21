@@ -5,105 +5,203 @@
 {% block portal_content %}
 <div class="portal-page profile-page">
     <!-- Page Header -->
-    <div class="page-header">
-        <h1 class="page-title"><i class="fa fa-user-circle"></i> My Profile</h1>
-        <p class="page-subtitle">View and update your personal information</p>
+    <div class="pf-header">
+        <div class="pf-header-content">
+            <div class="pf-header-icon"><i class="fa fa-user-circle"></i></div>
+            <div>
+                <h1 class="pf-title">My Profile</h1>
+                <p class="pf-subtitle">View your access details and manage your account</p>
+            </div>
+        </div>
     </div>
 
     <div class="profile-layout">
-        <!-- Left: Avatar Card -->
-        <div class="card">
-            <div class="avatar-section">
-                <div class="profile-avatar-large" id="profileAvatar">
-                    <!-- Populated by JS -->
+        <!-- Left column -->
+        <div class="pf-col-left">
+            <!-- Identity card -->
+            <div class="card pf-card">
+                <div class="avatar-section">
+                    <div class="profile-avatar-large" id="profileAvatar"><!-- JS --></div>
+                    <div class="avatar-name" id="profileFullName">—</div>
+                    <div class="avatar-email" id="profileEmail">—</div>
+                    <div class="info-badges">
+                        <span class="info-badge role" id="profileRoleBadge">—</span>
+                        <span class="info-badge division" id="profileDivisionBadge">—</span>
+                    </div>
+                    <input type="file" id="avatarFileInput" accept=".png,.jpg,.jpeg" style="display:none;">
+                    <button class="btn btn-outline-secondary btn-sm mt-3" onclick="$('#avatarFileInput').click()">
+                        <i class="fa fa-camera mr-1"></i> Change Photo
+                    </button>
+                    <div id="uploadProgress" class="text-muted mt-2" style="font-size:12px; display:none;">
+                        <i class="fa fa-spinner fa-spin"></i> Uploading…
+                    </div>
                 </div>
-                <div class="avatar-name" id="profileFullName">—</div>
-                <div class="avatar-email" id="profileEmail">—</div>
-                <div class="info-badges">
-                    <span class="info-badge role" id="profileRoleBadge">—</span>
-                    <span class="info-badge division" id="profileDivisionBadge">—</span>
-                </div>
-                <input type="file" id="avatarFileInput" accept=".png,.jpg,.jpeg" style="display:none;">
-                <button class="btn btn-secondary btn-sm mt-2" onclick="$('#avatarFileInput').click()">
-                    <i class="fa fa-camera"></i> Change Photo
-                </button>
-                <div id="uploadProgress" class="text-muted mt-1" style="font-size:12px; display:none;">
-                    <i class="fa fa-spinner fa-spin"></i> Uploading...
+            </div>
+
+            <!-- Access & Scope card -->
+            <div class="card pf-card">
+                <div class="pf-card-head"><i class="fa fa-id-badge mr-2"></i> Access &amp; Scope</div>
+                <div class="pf-card-body">
+                    <div class="scope-item">
+                        <div class="scope-label">Role</div>
+                        <div class="scope-value" id="scopeRole">—</div>
+                    </div>
+                    <div class="scope-item">
+                        <div class="scope-label">Division(s)</div>
+                        <div class="scope-chips" id="scopeDivisions"><span class="text-muted">—</span></div>
+                    </div>
+                    <div class="scope-item">
+                        <div class="scope-label">Regions Mapped</div>
+                        <div class="scope-chips" id="scopeRegions"><span class="text-muted">—</span></div>
+                    </div>
+                    <p class="scope-note"><i class="fa fa-lock mr-1"></i> Role, divisions and regions are managed by your administrator.</p>
                 </div>
             </div>
         </div>
 
-        <!-- Right: Info Card -->
-        <div class="card">
-            <div class="card-header">
-                <span><i class="fa fa-edit"></i> Personal Information</span>
-            </div>
-            <div class="card-body">
-                <form id="profileForm" autocomplete="off">
-                    <!-- Read-only fields -->
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label><strong>Email</strong></label>
+        <!-- Right column -->
+        <div class="pf-col-right">
+            <!-- Personal Information -->
+            <div class="card pf-card">
+                <div class="pf-card-head"><i class="fa fa-user-edit mr-2"></i> Personal Information</div>
+                <div class="pf-card-body">
+                    <form id="profileForm" autocomplete="off">
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label>Email</label>
                                 <input type="text" id="pEmail" class="form-control bg-light" readonly>
                             </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="form-group">
-                                <label><strong>Role</strong></label>
-                                <input type="text" id="pRole" class="form-control bg-light" readonly>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="form-group">
-                                <label><strong>Division</strong></label>
-                                <input type="text" id="pDivision" class="form-control bg-light" readonly>
-                            </div>
-                        </div>
-                    </div>
-
-                    <hr>
-
-                    <!-- Editable fields -->
-                    <div class="row">
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><strong>First Name <span class="text-danger">*</span></strong></label>
-                                <input type="text" id="pFirstName" class="form-control" placeholder="First name" required>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><strong>Middle Name</strong></label>
-                                <input type="text" id="pMiddleName" class="form-control" placeholder="Middle name">
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><strong>Last Name</strong></label>
-                                <input type="text" id="pLastName" class="form-control" placeholder="Last name">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label><strong>Mobile No</strong></label>
+                            <div class="form-group col-md-6">
+                                <label>Mobile No</label>
                                 <input type="text" id="pMobile" class="form-control" placeholder="Mobile number">
                             </div>
                         </div>
-                    </div>
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label>First Name <span class="text-danger">*</span></label>
+                                <input type="text" id="pFirstName" class="form-control" placeholder="First name" required>
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>Middle Name</label>
+                                <input type="text" id="pMiddleName" class="form-control" placeholder="Middle name">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>Last Name</label>
+                                <input type="text" id="pLastName" class="form-control" placeholder="Last name">
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <button type="button" class="btn btn-primary" id="saveProfileBtn" onclick="saveProfile()">
+                                <i class="fa fa-save mr-1"></i> Save Changes
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
 
-                    <div class="mt-3">
-                        <button type="button" class="btn btn-primary" onclick="saveProfile()">
-                            <i class="fa fa-save"></i> Save Changes
-                        </button>
-                    </div>
-                </form>
+            <!-- Change Password -->
+            <div class="card pf-card">
+                <div class="pf-card-head"><i class="fa fa-key mr-2"></i> Change Password</div>
+                <div class="pf-card-body">
+                    <form id="passwordForm" autocomplete="off">
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label>Current Password <span class="text-danger">*</span></label>
+                                <div class="pw-wrap">
+                                    <input type="password" id="pwCurrent" class="form-control" autocomplete="current-password">
+                                    <button type="button" class="pw-toggle" data-target="pwCurrent" tabindex="-1"><i class="fa fa-eye"></i></button>
+                                </div>
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>New Password <span class="text-danger">*</span></label>
+                                <div class="pw-wrap">
+                                    <input type="password" id="pwNew" class="form-control" autocomplete="new-password">
+                                    <button type="button" class="pw-toggle" data-target="pwNew" tabindex="-1"><i class="fa fa-eye"></i></button>
+                                </div>
+                                <small class="text-muted">At least 6 characters.</small>
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>Confirm New Password <span class="text-danger">*</span></label>
+                                <div class="pw-wrap">
+                                    <input type="password" id="pwConfirm" class="form-control" autocomplete="new-password">
+                                    <button type="button" class="pw-toggle" data-target="pwConfirm" tabindex="-1"><i class="fa fa-eye"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <button type="button" class="btn btn-primary" id="changePwBtn" onclick="changePassword()">
+                                <i class="fa fa-shield-alt mr-1"></i> Update Password
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
 </div>
+
+<style>
+    .profile-page { animation: fadeIn 0.3s ease; }
+
+    .pf-header {
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        border-radius: 14px; padding: 22px 26px; margin-bottom: 20px; color: #fff;
+    }
+    .pf-header-content { display: flex; align-items: center; gap: 16px; }
+    .pf-header-icon {
+        width: 48px; height: 48px; border-radius: 12px; background: rgba(255,255,255,0.15);
+        display: flex; align-items: center; justify-content: center; font-size: 22px;
+    }
+    .pf-title { font-size: 22px; font-weight: 700; margin: 0; color: #fff; }
+    .pf-subtitle { font-size: 13px; color: rgba(255,255,255,0.7); margin: 2px 0 0; }
+
+    .profile-layout { display: grid; grid-template-columns: 340px 1fr; gap: 18px; align-items: start; }
+    @media (max-width: 900px) { .profile-layout { grid-template-columns: 1fr; } }
+
+    .pf-card { border: 1px solid var(--color-border, #e2e8f0); border-radius: 14px; margin-bottom: 18px; overflow: hidden; }
+    .pf-card-head {
+        padding: 13px 18px; font-weight: 600; font-size: 14px; color: var(--color-text, #0f172a);
+        background: #f8fafc; border-bottom: 1px solid var(--color-border, #e2e8f0);
+    }
+    .pf-card-body { padding: 18px; }
+
+    /* Avatar */
+    .avatar-section { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 26px 18px; }
+    .profile-avatar-large {
+        width: 96px; height: 96px; border-radius: 50%; overflow: hidden;
+        background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 40px; font-weight: 700; margin-bottom: 14px;
+    }
+    .profile-avatar-large img { width: 100%; height: 100%; object-fit: cover; }
+    .avatar-name { font-size: 17px; font-weight: 700; color: var(--color-text, #0f172a); }
+    .avatar-email { font-size: 13px; color: var(--color-text-muted, #64748b); margin-top: 2px; word-break: break-all; }
+    .info-badges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+    .info-badge { font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 9999px; }
+    .info-badge.role { background: #eef2ff; color: #4338ca; }
+    .info-badge.division { background: #ecfdf5; color: #059669; }
+
+    /* Scope */
+    .scope-item { padding: 10px 0; border-bottom: 1px dashed var(--color-border, #e2e8f0); }
+    .scope-item:last-of-type { border-bottom: none; }
+    .scope-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--color-text-muted, #64748b); margin-bottom: 6px; }
+    .scope-value { font-size: 15px; font-weight: 600; color: var(--color-text, #0f172a); }
+    .scope-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .scope-chip { font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 8px; background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
+    .scope-chip.all { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+    .scope-note { font-size: 11.5px; color: var(--color-text-muted, #64748b); margin: 12px 0 0; }
+
+    /* Forms */
+    .profile-page label { font-weight: 600; font-size: 12.5px; color: #334155; margin-bottom: 4px; }
+    .profile-page .form-control { border-radius: 8px; font-size: 14px; }
+    .pw-wrap { position: relative; }
+    .pw-wrap .form-control { padding-right: 38px; }
+    .pw-toggle {
+        position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+        border: none; background: transparent; color: #94a3b8; cursor: pointer; padding: 4px 8px;
+    }
+    .pw-toggle:hover { color: #475569; }
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -113,78 +211,82 @@
     $(document).ready(function () {
         loadProfile();
 
-        // Avatar file selection
         $('#avatarFileInput').on('change', function () {
             let file = this.files[0];
             if (!file) return;
-
-            // Validate type
             let validTypes = ['image/png', 'image/jpeg', 'image/jpg'];
-            if (!validTypes.includes(file.type)) {
-                showAlert('Please select a PNG or JPEG image', 'danger');
-                return;
-            }
-
-            // Validate size (max 2MB)
-            if (file.size > 2 * 1024 * 1024) {
-                showAlert('Image must be smaller than 2 MB', 'danger');
-                return;
-            }
-
+            if (!validTypes.includes(file.type)) { showAlert('Please select a PNG or JPEG image', 'danger'); return; }
+            if (file.size > 2 * 1024 * 1024) { showAlert('Image must be smaller than 2 MB', 'danger'); return; }
             uploadAvatar(file);
         });
+
+        // Show/hide password toggles
+        $('.pw-toggle').on('click', function () {
+            let inp = document.getElementById($(this).data('target'));
+            if (!inp) return;
+            let show = inp.type === 'password';
+            inp.type = show ? 'text' : 'password';
+            $(this).find('i').toggleClass('fa-eye fa-eye-slash');
+        });
     });
+
+    function esc(s) { let d = document.createElement('div'); d.textContent = (s == null ? '' : s); return d.innerHTML; }
 
     function loadProfile() {
         $.ajax({
             url: '/api/method/scanify.api.get_my_profile',
-            type: 'POST',
-            contentType: 'application/json',
+            type: 'POST', contentType: 'application/json',
             headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
             data: JSON.stringify({}),
-            success: function (r) {
-                profileData = r.message || {};
-                populateForm();
-            },
-            error: function () {
-                showAlert('Failed to load profile', 'danger');
-            }
+            success: function (r) { profileData = r.message || {}; populateForm(); },
+            error: function () { showAlert('Failed to load profile', 'danger'); }
         });
     }
 
     function populateForm() {
         let d = profileData;
-
-        // Read-only
         $('#pEmail').val(d.email);
-        $('#pRole').val(d.role);
-        $('#pDivision').val(d.division);
-
-        // Editable
         $('#pFirstName').val(d.first_name);
         $('#pMiddleName').val(d.middle_name);
         $('#pLastName').val(d.last_name);
         $('#pMobile').val(d.mobile_no);
 
-        // Sidebar / header info
         let fullName = [d.first_name, d.middle_name, d.last_name].filter(Boolean).join(' ') || d.email;
         $('#profileFullName').text(fullName);
         $('#profileEmail').text(d.email);
-        $('#profileRoleBadge').html('<i class="fa fa-shield-alt mr-1"></i> ' + (d.role || 'User'));
-        $('#profileDivisionBadge').html('<i class="fa fa-building mr-1"></i> ' + (d.division || '—'));
+        $('#profileRoleBadge').html('<i class="fa fa-shield-alt mr-1"></i> ' + esc(d.role_label || d.role || 'User'));
+        $('#profileDivisionBadge').html('<i class="fa fa-building mr-1"></i> ' + esc(d.division || '—'));
 
-        // Avatar
+        // Access & Scope
+        $('#scopeRole').text(d.role_label || d.role || '—');
+
+        let divs = d.divisions || [];
+        if (divs.length) {
+            $('#scopeDivisions').html(divs.map(function (x) {
+                let active = x === d.division ? ' style="background:#eef2ff;color:#4338ca;border-color:#c7d2fe;"' : '';
+                return '<span class="scope-chip"' + active + '>' + esc(x) + '</span>';
+            }).join(''));
+        } else {
+            $('#scopeDivisions').html('<span class="text-muted">—</span>');
+        }
+
+        if (d.is_admin) {
+            $('#scopeRegions').html('<span class="scope-chip all"><i class="fa fa-globe mr-1"></i> All Regions</span>');
+        } else if ((d.regions || []).length) {
+            $('#scopeRegions').html(d.regions.map(function (r) {
+                return '<span class="scope-chip" title="' + esc(r.code) + '">' + esc(r.name) + '</span>';
+            }).join(''));
+        } else {
+            $('#scopeRegions').html('<span class="text-muted">No regions mapped</span>');
+        }
+
         renderAvatar(d.user_image, d.first_name, d.email);
     }
 
     function renderAvatar(imageUrl, firstName, email) {
         let el = $('#profileAvatar');
-        if (imageUrl) {
-            el.html('<img src="' + imageUrl + '" alt="">');
-        } else {
-            let initial = (firstName || email || '?')[0].toUpperCase();
-            el.html(initial);
-        }
+        if (imageUrl) { el.html('<img src="' + imageUrl + '" alt="">'); }
+        else { el.text(((firstName || email || '?')[0] || '?').toUpperCase()); }
     }
 
     function uploadAvatar(file) {
@@ -193,31 +295,16 @@
         formData.append('is_private', '0');
         formData.append('doctype', 'User');
         formData.append('docname', profileData.email);
-
         $('#uploadProgress').show();
-
         $.ajax({
-            url: '/api/method/upload_file',
-            type: 'POST',
-            data: formData,
-            processData: false,
-            contentType: false,
-            headers: {
-                'X-Frappe-CSRF-Token': frappe.csrf_token
-            },
+            url: '/api/method/upload_file', type: 'POST', data: formData,
+            processData: false, contentType: false,
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
             success: function (r) {
                 let fileUrl = r.message && r.message.file_url;
-                if (!fileUrl) {
-                    $('#uploadProgress').hide();
-                    showAlert('Upload failed — no URL returned', 'danger');
-                    return;
-                }
-
-                // Now update user_image on the User doc
+                if (!fileUrl) { $('#uploadProgress').hide(); showAlert('Upload failed — no URL returned', 'danger'); return; }
                 $.ajax({
-                    url: '/api/method/scanify.api.update_user_image',
-                    type: 'POST',
-                    contentType: 'application/json',
+                    url: '/api/method/scanify.api.update_user_image', type: 'POST', contentType: 'application/json',
                     headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
                     data: JSON.stringify({ file_url: fileUrl }),
                     success: function (res) {
@@ -226,37 +313,22 @@
                             profileData.user_image = fileUrl;
                             renderAvatar(fileUrl);
                             showAlert('Profile photo updated!', 'success');
-                        } else {
-                            showAlert('Failed to save image', 'danger');
-                        }
+                        } else { showAlert('Failed to save image', 'danger'); }
                     },
-                    error: function () {
-                        $('#uploadProgress').hide();
-                        showAlert('Error saving profile image', 'danger');
-                    }
+                    error: function () { $('#uploadProgress').hide(); showAlert('Error saving profile image', 'danger'); }
                 });
             },
-            error: function () {
-                $('#uploadProgress').hide();
-                showAlert('File upload failed', 'danger');
-            }
+            error: function () { $('#uploadProgress').hide(); showAlert('File upload failed', 'danger'); }
         });
     }
 
     function saveProfile() {
         let firstName = $('#pFirstName').val().trim();
-        if (!firstName) {
-            showAlert('First Name is required', 'danger');
-            return;
-        }
-
-        let btn = $(event.target).closest('.btn');
-        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Saving...');
-
+        if (!firstName) { showAlert('First Name is required', 'danger'); return; }
+        let btn = $('#saveProfileBtn');
+        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i> Saving…');
         $.ajax({
-            url: '/api/method/scanify.api.update_my_profile',
-            type: 'POST',
-            contentType: 'application/json',
+            url: '/api/method/scanify.api.update_my_profile', type: 'POST', contentType: 'application/json',
             headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
             data: JSON.stringify({
                 first_name: firstName,
@@ -265,20 +337,56 @@
                 mobile_no: $('#pMobile').val().trim()
             }),
             success: function (r) {
-                btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save Changes');
+                btn.prop('disabled', false).html('<i class="fa fa-save mr-1"></i> Save Changes');
                 if (r.message && r.message.success) {
                     showAlert('Profile updated successfully!', 'success');
                     let newFull = [$('#pFirstName').val(), $('#pMiddleName').val(), $('#pLastName').val()].filter(Boolean).join(' ');
                     $('#profileFullName').text(newFull);
-                } else {
-                    showAlert((r.message && r.message.message) || 'Failed to update profile', 'danger');
-                }
+                } else { showAlert((r.message && r.message.message) || 'Failed to update profile', 'danger'); }
             },
             error: function () {
-                btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save Changes');
+                btn.prop('disabled', false).html('<i class="fa fa-save mr-1"></i> Save Changes');
                 showAlert('Error updating profile', 'danger');
             }
         });
+    }
+
+    function changePassword() {
+        let cur = $('#pwCurrent').val();
+        let nw = $('#pwNew').val();
+        let cf = $('#pwConfirm').val();
+        if (!cur || !nw || !cf) { showAlert('Please fill in all password fields', 'danger'); return; }
+        if (nw.length < 6) { showAlert('New password must be at least 6 characters', 'danger'); return; }
+        if (nw !== cf) { showAlert('New password and confirmation do not match', 'danger'); return; }
+
+        let btn = $('#changePwBtn');
+        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i> Updating…');
+        $.ajax({
+            url: '/api/method/scanify.api.change_my_password', type: 'POST', contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({ current_password: cur, new_password: nw }),
+            success: function (r) {
+                btn.prop('disabled', false).html('<i class="fa fa-shield-alt mr-1"></i> Update Password');
+                if (r.message && r.message.success) {
+                    showAlert('Password changed successfully!', 'success');
+                    $('#pwCurrent, #pwNew, #pwConfirm').val('');
+                } else { showAlert((r.message && r.message.message) || 'Failed to change password', 'danger'); }
+            },
+            error: function (xhr) {
+                btn.prop('disabled', false).html('<i class="fa fa-shield-alt mr-1"></i> Update Password');
+                let msg = 'Error changing password';
+                try { msg = JSON.parse(xhr.responseText)._server_messages ? 'Failed to change password' : msg; } catch (e) {}
+                showAlert(msg, 'danger');
+            }
+        });
+    }
+
+    function showAlert(msg, type) {
+        let h = '<div class="alert alert-' + type + ' alert-dismissible fade show" role="alert" style="position:fixed;top:20px;right:20px;z-index:9999;min-width:280px;box-shadow:var(--shadow-md);">' +
+            esc(msg) + '<button type="button" class="close" data-dismiss="alert">&times;</button></div>';
+        let $a = $(h);
+        $('body').append($a);
+        setTimeout(function () { $a.alert('close'); }, 4000);
     }
 </script>
 {% endblock %}

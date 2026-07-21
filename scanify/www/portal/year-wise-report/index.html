@@ -6,8 +6,15 @@
 <div class="portal-page report-page year-wise-report-page">
     <div class="page-header d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1 class="page-title"><i class="fa fa-chart-bar"></i> Year-wise Sales Target Report</h1>
-            <p class="page-subtitle text-muted">Approved targets for {{ division }} division</p>
+            <h1 class="page-title"><i class="fa fa-bullseye"></i> Sales Target Report</h1>
+            <p class="page-subtitle text-muted">
+                HQ-wise yearly targets for {{ division }} division
+                {% if report_status %}
+                <span class="badge {% if has_draft %}badge-warning{% else %}badge-success{% endif %} ml-2" style="font-size:11px;">
+                    {% if has_draft %}<i class="fa fa-pencil-alt mr-1"></i> Includes Draft targets{% else %}<i class="fa fa-check-circle mr-1"></i> All Approved{% endif %}
+                </span>
+                {% endif %}
+            </p>
         </div>
         <div class="d-flex align-items-center" style="gap: 10px;">
             <select class="form-control" id="fy-select" style="min-width: 150px;">
@@ -177,7 +184,7 @@
     <div class="card border-0 shadow-sm">
         <div class="card-body text-center py-5 text-muted">
             <i class="fa fa-chart-bar fa-3x mb-3"></i>
-            <p>No approved targets found for this financial year.</p>
+            <p>No targets found for this financial year.</p>
         </div>
     </div>
     {% endif %}
@@ -245,12 +252,12 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="/assets/scanify/js/report_pdf.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     $('#fy-select').on('change', function () {
         window.location.href = '/portal/year-wise-report?financial_year=' + encodeURIComponent($(this).val());
     });
-
     $('#btn-download-pdf').on('click', downloadPDF);
 });
 
@@ -258,90 +265,29 @@ function downloadPDF() {
     var table = document.getElementById('report-table');
     if (!table) return;
 
-    var jsPDF = window.jspdf.jsPDF;
-    var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-
     var division = '{{ division }}';
     var fy = '{{ financial_year }}';
+    var status = '{{ report_status }}';
 
-    // Title block
-    doc.setFontSize(16);
-    doc.setFont(undefined, 'bold');
-    doc.text(division + ' Division - Sales Targets', 14, 14);
-    doc.setFontSize(11);
-    doc.setFont(undefined, 'normal');
-    doc.setTextColor(100);
-    doc.text('Financial Year: ' + fy + '  |  Generated: ' + new Date().toLocaleDateString('en-IN'), 14, 21);
-    doc.setTextColor(0);
+    var subtitle = division + ' Division  |  Financial Year ' + fy + '  |  Values in Lakhs';
+    if (status) subtitle += '  |  ' + status + ' targets';
 
-    // Extract table data
-    var head = [];
-    var body = [];
-    table.querySelectorAll('thead tr').forEach(function (tr) {
-        var row = [];
-        tr.querySelectorAll('th').forEach(function (c) { row.push(c.textContent.trim()); });
-        head.push(row);
-    });
-
-    var rowTypes = [];
-    table.querySelectorAll('tbody tr').forEach(function (tr) {
-        var row = [];
-        var type = 'hq';
-        if (tr.classList.contains('region-row')) type = 'region';
-        else if (tr.classList.contains('team-row')) type = 'team';
-        else if (tr.classList.contains('team-total-row')) type = 'team-total';
-        else if (tr.classList.contains('region-total-row')) type = 'region-total';
-
-        tr.querySelectorAll('td').forEach(function (c) { row.push(c.textContent.trim()); });
-        body.push(row);
-        rowTypes.push(type);
-    });
-
-    doc.autoTable({
-        head: head,
-        body: body,
-        startY: 26,
-        styles: { fontSize: 7, cellPadding: 1.5, lineWidth: 0.1 },
-        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold', fontSize: 7 },
-        columnStyles: {
-            0: { cellWidth: 52 },
-            4: { fillColor: [241, 245, 249], fontStyle: 'bold' },
-            8: { fillColor: [241, 245, 249], fontStyle: 'bold' },
-            12: { fillColor: [241, 245, 249], fontStyle: 'bold' },
-            16: { fillColor: [241, 245, 249], fontStyle: 'bold' },
-            17: { fillColor: [238, 242, 255], fontStyle: 'bold', textColor: [79, 70, 229] }
-        },
-        didParseCell: function (data) {
-            if (data.section !== 'body') return;
-            var type = rowTypes[data.row.index];
-            if (type === 'region') {
-                data.cell.styles.fillColor = [30, 41, 59];
-                data.cell.styles.textColor = 255;
-                data.cell.styles.fontStyle = 'bold';
-            } else if (type === 'team') {
-                data.cell.styles.fillColor = [226, 232, 240];
-                data.cell.styles.fontStyle = 'bold';
-            } else if (type === 'team-total') {
-                data.cell.styles.fillColor = [255, 251, 235];
-                data.cell.styles.fontStyle = 'bold';
-            } else if (type === 'region-total') {
-                data.cell.styles.fillColor = [219, 234, 254];
-                data.cell.styles.fontStyle = 'bold';
-            }
-        },
-        margin: { left: 8, right: 8 },
-        didDrawPage: function (data) {
-            // Footer
-            var pageCount = doc.internal.getNumberOfPages();
-            doc.setFontSize(8);
-            doc.setTextColor(150);
-            doc.text('Page ' + data.pageNumber + ' of ' + pageCount, data.settings.margin.left, doc.internal.pageSize.height - 6);
-            doc.text('Stedman Pharmaceuticals - ' + division + ' Division', doc.internal.pageSize.width - 8, doc.internal.pageSize.height - 6, { align: 'right' });
+    ScanifyReportPDF.exportTable({
+        tableEl: table,
+        title: 'Sales Target Report',
+        subtitle: subtitle,
+        division: division,
+        orientation: 'landscape',
+        filename: 'Sales_Target_' + division + '_' + fy + '.pdf',
+        fontSize: 7,
+        columnStyles: { 0: { cellWidth: 40, halign: 'left' } },
+        rowClassStyles: {
+            'region-row': 'dark',
+            'team-row': 'group',
+            'team-total-row': 'subtotal',
+            'region-total-row': 'total'
         }
     });
-
-    var filename = 'Sales_Target_' + division + '_' + fy + '.pdf';
-    doc.save(filename);
 }
 </script>
 {% endblock %}
