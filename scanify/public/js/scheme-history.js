@@ -8,6 +8,10 @@
  */
 
 let shCtx = {};
+// Per-tab filter state (reset whenever the modal is (re)opened).
+let shSchemePeriod = 3;          // trailing months for Doctor Scheme History
+let shSalesEndMonth = '';        // YYYY-MM end month for Sales History (blank = latest on record)
+let shSalesMode = 'after_deduction';
 
 function shFmt(v) {
     return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0);
@@ -16,6 +20,22 @@ function shInt(v) {
     return new Intl.NumberFormat('en-IN').format(Math.round(v || 0));
 }
 function shMoney(v) { return '₹ ' + shFmt(v); }
+/** Compact number: up to 2 decimals, trailing zeros stripped. */
+function shNum(v) {
+    var n = Math.round((Number(v) || 0) * 100) / 100;
+    return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(n);
+}
+/** Same as shNum but renders an empty cell when the value is ~zero (matches the client sheet). */
+function shNumBlank(v) {
+    var n = Number(v) || 0;
+    if (Math.abs(n) < 0.005) return '';
+    return shNum(n);
+}
+function shEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
 
 function shPost(method, payload) {
     return fetch('/api/method/scanify.api.' + method, {
@@ -81,13 +101,16 @@ function shTrendTable(trend, labelA, labelB, fmtA, fmtB) {
 
 function openSchemeHistory(ctx) {
     shCtx = ctx || {};
+    shSchemePeriod = 3;
+    shSalesEndMonth = '';
+    shSalesMode = 'after_deduction';
     ['sh-scheme', 'sh-secondary', 'sh-product', 'sh-doctor'].forEach(function (id) {
         document.getElementById(id).innerHTML = shSpinner();
     });
     $('#schemeHistoryModal').modal('show');
 
     shLoadSchemeTab();
-    shLoadSecondaryTab();
+    shLoadSalesHistoryTab();
     shLoadDoctorTab();
     shLoadProductTab();
 }
@@ -107,95 +130,134 @@ function openSchemeHistoryFromForm() {
     openSchemeHistory({ doctor_code: doctor_code, stockist_code: stockist_code, hq: hq, products: products });
 }
 
-// ===================== SCHEME HISTORY =====================
+// ===================== SCHEME HISTORY (Doctor Scheme History — client Format 1) =====================
+// Product-line detail of the doctor's scheme requests:
+//   App Date | P Code | PTS | Qty (bx/units) | Free (bx/units) | Spl Rate | Value
+
+function shSetSchemePeriod(v) { shSchemePeriod = v; shLoadSchemeTab(); }
+
+function shPeriodFilter() {
+    var opts = [['3', 'Last 3 Months'], ['6', 'Last 6 Months'], ['12', 'Last 12 Months'], ['0', 'All']];
+    var sel = '';
+    opts.forEach(function (o) {
+        sel += '<option value="' + o[0] + '"' + (String(shSchemePeriod) === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+    });
+    return '<div class="d-flex align-items-center mb-3" style="gap:8px;">'
+        + '<span class="text-muted" style="font-size:.8rem;font-weight:600;">Period</span>'
+        + '<select class="form-control form-control-sm" style="width:auto;" onchange="shSetSchemePeriod(this.value)">' + sel + '</select>'
+        + '</div>';
+}
 
 function shLoadSchemeTab() {
     const pane = document.getElementById('sh-scheme');
-    if (!shCtx.doctor_code && !shCtx.stockist_code) {
-        pane.innerHTML = shEmpty('Select a doctor or stockist to see scheme history');
+    if (!shCtx.doctor_code) {
+        pane.innerHTML = shEmpty('Select a doctor to see scheme history');
         return;
     }
-    shPost('get_scheme_history_portal', {
-        doctor_code: shCtx.doctor_code, stockist_code: shCtx.stockist_code, hq: shCtx.hq, division: shDivision()
+    pane.innerHTML = shSpinner();
+    shPost('get_doctor_scheme_history', {
+        doctor_code: shCtx.doctor_code, hq: shCtx.hq, division: shDivision(), period_months: shSchemePeriod
     }).then(function (r) {
-        const rows = (r.message && r.message.success) ? (r.message.data || []) : [];
-        if (!rows.length) { pane.innerHTML = shEmpty('No scheme history'); return; }
+        const d = (r.message && r.message.success) ? r.message : null;
+        const rows = d ? (d.rows || []) : [];
+        const t = d ? (d.totals || {}) : {};
+        const header = '<div class="mb-2"><strong><i class="fa fa-user-md text-muted"></i> Doctor Name: </strong>'
+            + '<span class="text-danger font-weight-bold">' + shEsc(d && d.doctor_name ? d.doctor_name : '-') + '</span></div>';
 
-        const totalValue = rows.reduce(function (a, s) { return a + (s.total_scheme_value || 0); }, 0);
-        const totalFree = rows.reduce(function (a, s) { return a + (s.total_free_qty || 0); }, 0);
-        const approved = rows.filter(function (s) { return s.approval_status === 'Approved'; }).length;
-        const deducted = rows.filter(function (s) { return s.approval_status === 'Deducted'; }).length;
+        if (!rows.length) { pane.innerHTML = header + shPeriodFilter() + shEmpty('No scheme history for this period'); return; }
 
         let body = '';
         rows.forEach(function (s) {
             body += `<tr>
-                <td><a href="/portal/scheme-detail?name=${s.name}" target="_blank">${s.name}</a>${s.repeated_request ? ' <span class="badge badge-light">R</span>' : ''}</td>
-                <td>${s.application_date || '-'}</td>
-                <td>${s.doctor_name || '-'}</td>
-                <td>${s.stockist_name || '-'}</td>
-                <td>${s.hq_name || '-'}</td>
-                <td class="text-right">${s.product_count || 0}</td>
-                <td class="text-right">${shInt(s.total_free_qty)}</td>
-                <td class="text-right">${shMoney(s.total_scheme_value)}</td>
-                <td>${shBadge(s.approval_status)}</td>
+                <td>${shEsc(s.application_date) || '-'}</td>
+                <td><strong>${shEsc(s.product_code) || '-'}</strong></td>
+                <td class="text-right">${shNum(s.pts)}</td>
+                <td class="text-right">${shNumBlank(s.quantity)}</td>
+                <td class="text-right">${shNumBlank(s.free_quantity)}</td>
+                <td class="text-right">${shNumBlank(s.special_rate)}</td>
+                <td class="text-right font-weight-bold">${shFmt(s.value)}</td>
             </tr>`;
         });
 
-        pane.innerHTML =
-            shStatCards([
-                { label: 'Total Schemes', value: rows.length },
-                { label: 'Approved', value: approved, color: 'success' },
-                { label: 'Deducted', value: deducted, color: 'primary' },
-                { label: 'Total Free Qty', value: shInt(totalFree) },
-                { label: 'Total Order Value', value: shMoney(totalValue) },
-            ]) +
-            shScrollTable(
-                '<tr><th>Scheme</th><th>Date</th><th>Doctor</th><th>Stockist</th><th>HQ</th><th class="text-right">Products</th><th class="text-right">Free Qty</th><th class="text-right">Order Value</th><th>Status</th></tr>',
-                body, 380);
+        pane.innerHTML = header + shPeriodFilter()
+            + shStatCards([
+                { label: 'Scheme Requests', value: t.requests || 0 },
+                { label: 'Total Lines', value: t.lines || 0 },
+                { label: 'Total Free Qty', value: shNum(t.free_qty) },
+                { label: 'Total Value', value: shMoney(t.value), color: 'primary' },
+            ])
+            + shScrollTable(
+                '<tr><th>App Date</th><th>P Code</th><th class="text-right">PTS</th>'
+                + '<th class="text-right">Qty<br>bx/units</th><th class="text-right">Free<br>bx/units</th>'
+                + '<th class="text-right">Spl rate</th><th class="text-right">Value</th></tr>',
+                body, 400)
+            + '<small class="text-muted d-block mt-2">Value = Qty &times; (Special Rate or PTS). Free goods are not valued.</small>';
     }).catch(function () { pane.innerHTML = shEmpty('Error loading scheme history'); });
 }
 
-// ===================== SECONDARY SALES (statement level) =====================
+// ===================== SALES HISTORY — PAST 3 MONTHS (HQ, client Format 2) =====================
+// Product x month secondary-sales matrix (box qty) + latest closing, with an
+// H.Q Value header row in Rs. Lakhs.
 
-function shLoadSecondaryTab() {
+function shSetSalesEndMonth(v) { shSalesEndMonth = v; shLoadSalesHistoryTab(); }
+function shSetSalesMode(v) { shSalesMode = v; shLoadSalesHistoryTab(); }
+
+function shSalesFilter(resolvedEnd) {
+    return '<div class="d-flex align-items-center flex-wrap mb-3" style="gap:14px;">'
+        + '<div class="d-flex align-items-center" style="gap:8px;">'
+        + '<span class="text-muted" style="font-size:.8rem;font-weight:600;">Up to Month</span>'
+        + '<input type="month" class="form-control form-control-sm" style="width:auto;" value="' + shEsc(resolvedEnd || shSalesEndMonth) + '" onchange="shSetSalesEndMonth(this.value)">'
+        + '</div>'
+        + '<div class="d-flex align-items-center" style="gap:8px;">'
+        + '<span class="text-muted" style="font-size:.8rem;font-weight:600;">Sales</span>'
+        + '<select class="form-control form-control-sm" style="width:auto;" onchange="shSetSalesMode(this.value)">'
+        + '<option value="after_deduction"' + (shSalesMode === 'after_deduction' ? ' selected' : '') + '>After Deduction</option>'
+        + '<option value="before_deduction"' + (shSalesMode === 'before_deduction' ? ' selected' : '') + '>Before Deduction</option>'
+        + '</select></div></div>';
+}
+
+function shLoadSalesHistoryTab() {
     const pane = document.getElementById('sh-secondary');
-    if (!shCtx.stockist_code) { pane.innerHTML = shEmpty('Select a stockist to see secondary sales history'); return; }
-    shPost('get_stockist_statement_history', { stockist_code: shCtx.stockist_code, division: shDivision() })
-        .then(function (r) {
-            const rows = (r.message && r.message.success) ? (r.message.data || []) : [];
-            if (!rows.length) { pane.innerHTML = shEmpty('No statements found for this stockist'); return; }
+    if (!shCtx.hq) { pane.innerHTML = shEmpty('An HQ is required to show sales history'); return; }
+    pane.innerHTML = shSpinner();
+    shPost('get_hq_sales_history_3m', {
+        hq: shCtx.hq, division: shDivision(), end_month: shSalesEndMonth, sales_mode: shSalesMode, months: 3
+    }).then(function (r) {
+        const d = (r.message && r.message.success) ? r.message : null;
+        const months = d ? (d.months || []) : [];
+        const products = d ? (d.products || []) : [];
+        const hqVal = d ? (d.hq_value || {}) : {};
 
-            const latest = rows[0];
-            const avgSales = rows.reduce(function (a, s) { return a + (s.total_sales_value_pts || 0); }, 0) / rows.length;
+        const header = '<div class="mb-2"><strong><i class="fa fa-hospital text-muted"></i> H.Q : </strong>'
+            + '<span class="text-primary font-weight-bold">' + shEsc(d && d.hq_name ? d.hq_name : '-') + '</span>'
+            + (d && d.period_label ? ' <span class="text-muted">· Past 3 Months (' + shEsc(d.period_label) + ')</span>' : '') + '</div>';
 
-            let body = '';
-            rows.forEach(function (s) {
-                body += `<tr>
-                    <td><strong>${s.month_label || '-'}</strong></td>
-                    <td class="text-right">${shInt(s.sales_qty)}</td>
-                    <td class="text-right">${shInt(s.free_qty)}</td>
-                    <td class="text-right">${shInt(s.free_qty_scheme)}</td>
-                    <td class="text-right">${shMoney(s.total_opening_value)}</td>
-                    <td class="text-right">${shMoney(s.total_purchase_value)}</td>
-                    <td class="text-right">${shMoney(s.total_sales_value_pts)}</td>
-                    <td class="text-right">${shMoney(s.total_free_value)}</td>
-                    <td class="text-right">${shMoney(s.total_closing_value)}</td>
-                    <td class="text-center"><a href="/portal/statement-view?name=${encodeURIComponent(s.name)}" target="_blank" title="Open statement"><i class="fa fa-external-link-alt"></i></a></td>
-                </tr>`;
-            });
+        if (!months.length || !products.length) { pane.innerHTML = header + shSalesFilter(shSalesEndMonth) + shEmpty('No sales history for this HQ / period'); return; }
 
-            pane.innerHTML =
-                shStatCards([
-                    { label: 'Statements', value: rows.length },
-                    { label: 'Latest Month', value: latest.month_label || '-' },
-                    { label: 'Latest Closing', value: shMoney(latest.total_closing_value), color: 'primary' },
-                    { label: 'Avg Sales (PTS)', value: shMoney(avgSales) },
-                ]) +
-                shScrollTable(
-                    '<tr><th>Month</th><th class="text-right">Sales Qty</th><th class="text-right">Free Qty</th><th class="text-right">Scheme Free</th><th class="text-right">Opening</th><th class="text-right">Purchase</th><th class="text-right">Sales (PTS)</th><th class="text-right">Free Val</th><th class="text-right">Closing</th><th></th></tr>',
-                    body, 380) +
-                '<small class="text-muted d-block mt-2">Scheme Free = free goods added by scheme deductions. Values in ₹.</small>';
-        }).catch(function () { pane.innerHTML = shEmpty('Error loading secondary sales'); });
+        const resolvedEnd = shSalesEndMonth || months[months.length - 1].key;
+        const lastLbl = months[months.length - 1].label;
+        let head = '<tr><th>P Code</th>';
+        months.forEach(function (m) { head += '<th class="text-right">' + shEsc(m.label) + '<br>Sales</th>'; });
+        head += '<th class="text-right">' + shEsc(lastLbl) + '<br>Closing</th></tr>';
+
+        // H.Q Value row (Rs. Lakhs, fixed 2 decimals) — pinned first, matching the client sheet.
+        let hqRow = '<tr style="background:#eef2ff;font-weight:700;">'
+            + '<td>H.Q Value</td>';
+        (hqVal.monthly || []).forEach(function (v) { hqRow += '<td class="text-right">' + shFmt(v) + '</td>'; });
+        hqRow += '<td class="text-right">' + shFmt(hqVal.closing) + '</td></tr>';
+
+        let body = hqRow;
+        products.forEach(function (p) {
+            body += '<tr><td><strong>' + shEsc(p.product_code) + '</strong></td>';
+            (p.monthly || []).forEach(function (v) { body += '<td class="text-right">' + shNumBlank(v) + '</td>'; });
+            body += '<td class="text-right">' + shNum(p.closing) + '</td></tr>';
+        });
+
+        pane.innerHTML = header + shSalesFilter(resolvedEnd)
+            + shScrollTable(head, body, 420)
+            + '<small class="text-muted d-block mt-2">H.Q Value row in <strong>&#8377; Lakhs</strong>; product rows are secondary sales in <strong>boxes</strong>. '
+            + 'Closing = ' + shEsc(lastLbl) + ' closing stock.</small>';
+    }).catch(function () { pane.innerHTML = shEmpty('Error loading sales history'); });
 }
 
 // ===================== DOCTOR HISTORY =====================

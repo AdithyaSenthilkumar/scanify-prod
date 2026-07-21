@@ -6228,6 +6228,240 @@ def get_scheme_history_portal(doctor_code=None, stockist_code=None, hq=None, div
 
 
 @frappe.whitelist()
+def get_doctor_scheme_history(doctor_code=None, hq=None, division=None, period_months=3):
+    """Doctor Scheme History – product-line detail of a doctor's scheme requests.
+
+    Mirrors the client 'Doctor Scheme History' sheet, one row per scheme line:
+      App Date | P Code | PTS | Qty (bx/units) | Free (bx/units) | Spl Rate | Value
+    Value / PTS / Special Rate come straight from the stored Scheme Request Item
+    (Value = product_value; free goods are never valued). Ordered newest-first.
+
+    period_months: trailing window in months (default 3). 0 / None / 'all' = no limit.
+    """
+    try:
+        if not division:
+            division = get_user_division()
+        if not doctor_code:
+            return {"success": True, "rows": [], "doctor_name": "", "totals": {}}
+
+        conds = ["sr.docstatus != 2", "sr.division = %(division)s", "sr.doctor_code = %(doctor_code)s"]
+        params = {"division": division, "doctor_code": doctor_code}
+        if hq:
+            conds.append("sr.hq = %(hq)s")
+            params["hq"] = hq
+
+        # Trailing month window (calendar months, inclusive of the current month).
+        try:
+            pm_int = int(period_months)
+        except (TypeError, ValueError):
+            pm_int = 0
+        if pm_int and pm_int > 0:
+            from datetime import date as _date
+            t = _date.today()
+            y, mo = t.year, t.month - (pm_int - 1)
+            while mo <= 0:
+                mo += 12
+                y -= 1
+            conds.append("sr.application_date >= %(since)s")
+            params["since"] = f"{y:04d}-{mo:02d}-01"
+
+        where = " AND ".join(conds)
+        rows = frappe.db.sql(f"""
+            SELECT sr.name AS scheme, sr.application_date, sr.doctor_name,
+                   COALESCE(pm.product_code, sri.product_code) AS product_code,
+                   COALESCE(pm.product_name, sri.product_name, '') AS product_name,
+                   COALESCE(NULLIF(sri.pack, ''), pm.pack, '') AS pack,
+                   IFNULL(sri.product_rate, 0)   AS pts,
+                   IFNULL(sri.quantity, 0)       AS quantity,
+                   IFNULL(sri.free_quantity, 0)  AS free_quantity,
+                   IFNULL(sri.special_rate, 0)   AS special_rate,
+                   IFNULL(sri.product_value, 0)  AS value,
+                   sr.approval_status
+              FROM `tabScheme Request` sr
+        INNER JOIN `tabScheme Request Item` sri ON sri.parent = sr.name
+         LEFT JOIN `tabProduct Master` pm ON pm.name = sri.product_code
+             WHERE {where}
+          ORDER BY sr.application_date DESC, sr.creation DESC, sri.idx ASC
+        """, params, as_dict=True)
+
+        doctor_name = rows[0]["doctor_name"] if rows else (
+            frappe.db.get_value("Doctor Master", doctor_code, "doctor_name") or "")
+        # Qty / Free are entered in strips-units; the sheet shows them box-converted
+        # (÷ strips-per-box, the first number of an "NxM" pack) — mirrors the scheme
+        # order-value maths (Value = box-qty × rate). Free goods are never valued.
+        total_value = 0.0
+        total_free = 0.0
+        requests = set()
+        for r in rows:
+            conv = _scheme_pack_conversion(r.get("pack")) or 1
+            r["quantity"] = round(flt(r.get("quantity")) / conv, 2)
+            r["free_quantity"] = round(flt(r.get("free_quantity")) / conv, 2)
+            total_value += flt(r.get("value"))
+            total_free += flt(r["free_quantity"])
+            requests.add(r.get("scheme"))
+            ad = r.get("application_date")
+            r["application_date"] = frappe.utils.getdate(ad).strftime("%d/%m/%Y") if ad else ""
+            r.pop("doctor_name", None)
+            r.pop("pack", None)
+        return {"success": True, "doctor_name": doctor_name, "rows": rows,
+                "totals": {"value": total_value, "free_qty": round(total_free, 2),
+                           "lines": len(rows), "requests": len(requests)}}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get Doctor Scheme History Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_hq_sales_history_3m(hq=None, division=None, end_month=None, sales_mode="after_deduction",
+                            months=3, product_group=None, product_category=None):
+    """Sales History – Past N (default 3) Months for an HQ.
+
+    Product x month secondary-sales matrix (box quantities) plus the latest
+    month's closing stock, and an 'H.Q Value' header row in Rs. Lakhs. Mirrors
+    the client 'Sales History – Past 3 Months' sheet:
+      P Code | <m1>/Sales | <m2>/Sales | <m3>/Sales | <m3>/Closing
+
+    Box qty = raw statement qty / conversion_factor (strip -> box), summed per
+    HQ. H.Q Value = secondary sales value (after/before deduction toggle, same
+    semantics as Report 11). end_month (YYYY-MM) defaults to the latest statement
+    month on record for the HQ.
+    """
+    try:
+        if not division:
+            division = get_user_division()
+        if not hq:
+            return {"success": True, "products": [], "months": [], "hq_name": "", "hq_value": {}}
+
+        from datetime import date as _date, datetime as _datetime
+        import calendar
+
+        try:
+            n = int(months)
+        except (TypeError, ValueError):
+            n = 3
+        n = max(1, min(n, 12))
+
+        # Resolve the end month.
+        ey = em = None
+        if end_month:
+            try:
+                parts = str(end_month)[:7].split("-")
+                ey, em = int(parts[0]), int(parts[1])
+            except Exception:
+                ey = em = None
+        if not ey:
+            latest = frappe.db.sql(
+                """SELECT MAX(statement_month) FROM `tabStockist Statement`
+                    WHERE division=%s AND hq=%s AND docstatus IN (0, 1)""",
+                (division, hq))
+            latest = latest[0][0] if latest and latest[0] else None
+            if latest:
+                ey, em = latest.year, latest.month
+            else:
+                t = _date.today()
+                ey, em = t.year, t.month
+
+        # Build the month sequence (oldest -> newest), n months ending at em/ey.
+        months_seq = []
+        y, mo = ey, em
+        for _ in range(n):
+            months_seq.append({"year": y, "month": mo, "key": f"{y}-{mo:02d}",
+                               "label": _datetime(y, mo, 1).strftime("%b")})
+            mo -= 1
+            if mo == 0:
+                mo = 12
+                y -= 1
+        months_seq.reverse()
+        month_keys = [ms["key"] for ms in months_seq]
+        last_key = month_keys[-1]
+
+        first = months_seq[0]
+        last = months_seq[-1]
+        from_d = f"{first['year']}-{first['month']:02d}-01"
+        to_d = f"{last['year']}-{last['month']:02d}-{calendar.monthrange(last['year'], last['month'])[1]:02d}"
+
+        # Optional product group / category narrowing (intersection).
+        _pf = _resolve_product_filter(division, None, product_group, product_category)
+        prod_clause = ""
+        prod_params = []
+        if _pf is not None:
+            prod_clause = " AND si.product_code IN (" + ", ".join(["%s"] * len(_pf)) + ")"
+            prod_params = _pf
+
+        conv = "IFNULL(NULLIF(si.conversion_factor, 0), 1)"
+        pts = "IFNULL(si.pts, 0)"
+        if sales_mode == "before_deduction":
+            val_expr = f"((si.sales_qty + si.free_qty) / {conv}) * {pts}"
+        else:
+            val_expr = (f"(COALESCE(si.scheme_deducted_qty_calc, "
+                        f"(si.sales_qty + si.free_qty - IFNULL(si.free_qty_scheme, 0))) / {conv}) * {pts}")
+
+        rows = frappe.db.sql(f"""
+            SELECT COALESCE(pm.product_code, si.product_code) AS product_code,
+                   COALESCE(pm.product_name, si.product_name, si.raw_product_name, '') AS product_name,
+                   IFNULL(pm.sequence, 999999) AS seq,
+                   YEAR(ss.statement_month) AS y, MONTH(ss.statement_month) AS m,
+                   SUM(si.sales_qty / {conv})   AS sales_boxes,
+                   SUM(si.closing_qty / {conv}) AS closing_boxes,
+                   SUM({val_expr})              AS sales_value,
+                   SUM(IFNULL(si.closing_value, 0)) AS closing_value
+              FROM `tabStockist Statement` ss
+        INNER JOIN `tabStockist Statement Item` si
+                ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
+         LEFT JOIN `tabProduct Master` pm ON pm.name = si.product_code
+             WHERE ss.division = %s AND ss.hq = %s AND ss.docstatus IN (0, 1)
+               AND ss.statement_month BETWEEN %s AND %s{prod_clause}
+          GROUP BY product_code, product_name, seq, y, m
+        """, [division, hq, from_d, to_d] + prod_params, as_dict=True)
+
+        LAKH = 100000.0
+        prod_map = {}
+        hq_val = {k: 0.0 for k in month_keys}
+        hq_close_val = 0.0
+        for r in rows:
+            key = f"{int(r.y)}-{int(r.m):02d}"
+            p = prod_map.get(r.product_code)
+            if p is None:
+                p = {"product_code": r.product_code, "product_name": r.product_name or "",
+                     "seq": r.seq, "sales": {}, "closing": {}}
+                prod_map[r.product_code] = p
+            p["sales"][key] = flt(r.sales_boxes)
+            p["closing"][key] = flt(r.closing_boxes)
+            if key in hq_val:
+                hq_val[key] += flt(r.sales_value)
+            if key == last_key:
+                hq_close_val += flt(r.closing_value)
+
+        products = []
+        for code, p in prod_map.items():
+            products.append({
+                "product_code": code,
+                "product_name": p["product_name"],
+                "monthly": [round(p["sales"].get(k, 0.0), 2) for k in month_keys],
+                "closing": round(p["closing"].get(last_key, 0.0), 2),
+            })
+        products.sort(key=lambda x: (prod_map[x["product_code"]]["seq"], x["product_code"] or ""))
+
+        hq_name = frappe.db.get_value("HQ Master", hq, "hq_name") or hq
+        return {
+            "success": True,
+            "hq_name": hq_name,
+            "months": months_seq,
+            "products": products,
+            "hq_value": {
+                "monthly": [round(hq_val[k] / LAKH, 2) for k in month_keys],
+                "closing": round(hq_close_val / LAKH, 2),
+            },
+            "sales_mode": sales_mode,
+            "period_label": first["label"] + "-" + str(first["year"])[2:] + " to "
+                            + last["label"] + "-" + str(last["year"])[2:],
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Get HQ Sales History 3M Error")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
 def get_schemes_for_stockist(stockist_code, division=None):
     """Approved (not-yet-deducted) scheme requests for a given stockist."""
     try:
@@ -10720,7 +10954,10 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         else:
             ws.title = "Sec Sales Moving Trend"
             result = get_secondary_sales_moving_trend(division, entity_type, entity_name,
-                                                      financial_year, sales_mode)
+                                                      financial_year, sales_mode,
+                                                      product_codes or None,
+                                                      kwargs.get("product_group") or None,
+                                                      kwargs.get("product_category") or None)
             report_title_prefix = "Secondary Sales Moving Trend"
             sales_mode_label = "Before Deduction" if sales_mode == "before_deduction" else "After Deduction"
         ml = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
@@ -10789,7 +11026,10 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         financial_year = kwargs.get("financial_year", "")
         sales_mode = kwargs.get("sales_mode", "after_deduction")
         ws.title = "Region Stockist Trend"
-        result = get_region_wise_stockist_moving_trend(division, region, financial_year, sales_mode)
+        result = get_region_wise_stockist_moving_trend(division, region, financial_year, sales_mode,
+                                                       product_codes or None,
+                                                       kwargs.get("product_group") or None,
+                                                       kwargs.get("product_category") or None)
         ml = result.get("month_labels") or ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
         fy_label = result.get("fy_label", "")
         region_name = result.get("region_name", region)
@@ -11004,7 +11244,10 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         ws.title = "Sec Sales vs Closing Value"
         result = get_secondary_vs_closing_value_report(division, from_month or None,
                                                         to_month or None, region_codes or None,
-                                                        sales_mode)
+                                                        sales_mode,
+                                                        product_codes or None,
+                                                        kwargs.get("product_group") or None,
+                                                        kwargs.get("product_category") or None)
         months_seq = result.get("months", [])
         regions_out = result.get("regions", [])
         grand = result.get("grand_total", {}).get("monthly", [])
@@ -14587,6 +14830,21 @@ def get_target_vs_sales_report(division=None, from_month=None, to_month=None,
 # ═══════════════════════════════════════════════════════════════
 # Shared helper – resolve product-attribute filters → product codes
 # ═══════════════════════════════════════════════════════════════
+
+def _scheme_pack_conversion(pack_str):
+    """Strips-per-box for a pack string = first number of an 'NxM' pack, else 1.
+
+    Mirrors SchemeRequest._get_conversion_factor so box-converted scheme quantities
+    (Qty/Free) reconcile with the stored order value (Value = box-qty × rate).
+    """
+    if not pack_str:
+        return 1
+    pack_str = str(pack_str).strip().upper()
+    match = re.match(r'(\d+)\s*[xX]\s*(\d+)', pack_str)
+    if match:
+        return flt(match.group(1)) or 1
+    return 1
+
 
 def _resolve_product_filter(division, product_codes=None, product_group=None, product_category=None):
     """Return a list of Product Master codes matching the given filters.
