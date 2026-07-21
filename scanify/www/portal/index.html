@@ -49,13 +49,13 @@
             </div>
             <div class="stat-foot">Successfully processed this month</div>
         </div>
-        <div class="stat-card" style="--c: #f59e0b;">
-            <div class="stat-icon-wrapper"><i class="fa fa-file-invoice"></i></div>
+        <div class="stat-card" style="--c: #14b8a6;">
+            <div class="stat-icon-wrapper"><i class="fa fa-clipboard-check"></i></div>
             <div class="stat-info">
-                <h3 class="stat-value">{{ stats.pending_statements }}</h3>
-                <p class="stat-label">Pending Statements</p>
+                <h3 class="stat-value">{{ stats.completed_statements }}</h3>
+                <p class="stat-label">Statements Extracted</p>
             </div>
-            <div class="stat-foot">Waiting for AI extraction</div>
+            <div class="stat-foot">AI extraction completed</div>
         </div>
         <div class="stat-card" style="--c: #8b5cf6;">
             <div class="stat-icon-wrapper"><i class="fa fa-building"></i></div>
@@ -87,21 +87,23 @@
             </div>
         </div>
 
-        <!-- Chart 2: Stacked bar — Monthly Approval Funnel -->
+        <!-- Chart 2: Horizontal bar — Top HQs by Scheme Value -->
         <div class="chart-card">
             <div class="chart-header">
                 <div>
-                    <h5 class="chart-title">Approval Funnel</h5>
-                    <p class="chart-sub">Approved · Pending · Rejected — last 6 months</p>
+                    <h5 class="chart-title">Top HQs by Scheme Value</h5>
+                    <p class="chart-sub">Approved scheme value — last 6 months</p>
                 </div>
                 <div class="chart-legend-inline">
-                    <span class="lbadge" style="background:#10b981;"></span> Approved
-                    <span class="lbadge" style="background:#f59e0b;margin-left:10px;"></span> Pending
-                    <span class="lbadge" style="background:#ef4444;margin-left:10px;"></span> Rejected
+                    <span class="lbadge" style="background:#6366f1;"></span> Approved value (₹)
                 </div>
             </div>
             <div class="chart-body">
-                <canvas id="funnelChart"></canvas>
+                <canvas id="topHqChart"></canvas>
+                <div id="topHqEmpty" class="chart-empty" style="display:none;">
+                    <i class="fa fa-chart-bar"></i>
+                    <span>No approved schemes in the last 6 months</span>
+                </div>
             </div>
         </div>
 
@@ -456,6 +458,23 @@
         background: #14b8a6;
     }
 
+    .chart-empty {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        color: #cbd5e1;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .chart-empty i {
+        font-size: 26px;
+    }
+
     /* ── Bottom Grid ────────────────────────────────────────── */
     .dashboard-main-grid {
         display: grid;
@@ -693,7 +712,18 @@
         const schemeRaw = {{ stats.scheme_activity    | tojson | safe
     }};
     const stmtRaw = {{ stats.statement_activity | tojson | safe }};
-    const funnelRaw = {{ stats.monthly_funnel     | tojson | safe }};
+    const topHqRaw = {{ stats.top_hqs | tojson | safe }};
+
+    function fmtINR(v) {
+        v = Number(v) || 0;
+        if (v >= 1e7) return '₹' + (v / 1e7).toFixed(2).replace(/\.?0+$/, '') + 'Cr';
+        if (v >= 1e5) return '₹' + (v / 1e5).toFixed(2).replace(/\.?0+$/, '') + 'L';
+        if (v >= 1e3) return '₹' + (v / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+        return '₹' + Math.round(v);
+    }
+    function fmtINRFull(v) {
+        return '₹' + (Number(v) || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+    }
 
     /* Build a unified 14-day date spine */
     function buildSpine(days) {
@@ -788,62 +818,73 @@
         }
     });
 
-    // ── Chart 2 : Stacked Bar — Monthly Approval Funnel ─────
-    const months = funnelRaw.map(r => r.month);
-    const approved = funnelRaw.map(r => r.approved);
-    const pending = funnelRaw.map(r => r.pending);
-    const rejected = funnelRaw.map(r => r.rejected);
+    // ── Chart 2 : Horizontal Bar — Top HQs by Scheme Value ──
+    if (!topHqRaw.length) {
+        document.getElementById('topHqChart').style.display = 'none';
+        document.getElementById('topHqEmpty').style.display = 'flex';
+    } else {
+        const hqLabels = topHqRaw.map(r => r.hq || '—');
+        const hqValues = topHqRaw.map(r => Number(r.value) || 0);
+        const hqCounts = topHqRaw.map(r => Number(r.cnt) || 0);
+        const hqCtx = document.getElementById('topHqChart').getContext('2d');
 
-    new Chart(document.getElementById('funnelChart').getContext('2d'), {
-        type: 'bar',
-        data: {
-            labels: months.length ? months : ['No data'],
-            datasets: [
-                {
-                    label: 'Approved',
-                    data: approved,
-                    backgroundColor: '#10b981',
-                    borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 4, bottomRight: 4 },
-                    borderSkipped: false
-                },
-                {
-                    label: 'Pending',
-                    data: pending,
-                    backgroundColor: '#f59e0b',
-                    borderRadius: 0,
-                    borderSkipped: false
-                },
-                {
-                    label: 'Rejected',
-                    data: rejected,
-                    backgroundColor: '#ef4444',
-                    borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
-                    borderSkipped: false
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    backgroundColor: '#1e293b',
-                    titleColor: '#94a3b8',
-                    bodyColor: '#f1f5f9',
-                    padding: 12,
-                    cornerRadius: 10,
-                    borderColor: 'rgba(255,255,255,.05)',
-                    borderWidth: 1
-                }
+        // Horizontal indigo gradient for the bars
+        const barGrad = hqCtx.createLinearGradient(0, 0, hqCtx.canvas.width || 400, 0);
+        barGrad.addColorStop(0, '#6366f1');
+        barGrad.addColorStop(1, '#a5b4fc');
+
+        new Chart(hqCtx, {
+            type: 'bar',
+            data: {
+                labels: hqLabels,
+                datasets: [{
+                    label: 'Approved value',
+                    data: hqValues,
+                    backgroundColor: barGrad,
+                    hoverBackgroundColor: '#4f46e5',
+                    borderRadius: 6,
+                    borderSkipped: false,
+                    barThickness: 'flex',
+                    maxBarThickness: 26,
+                    categoryPercentage: 0.8
+                }]
             },
-            scales: {
-                x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 } } },
-                y: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9', borderDash: [4, 4] }, ticks: { color: '#94a3b8', font: { size: 11 }, stepSize: 1 } }
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#1e293b',
+                        titleColor: '#94a3b8',
+                        bodyColor: '#f1f5f9',
+                        padding: 12,
+                        cornerRadius: 10,
+                        borderColor: 'rgba(255,255,255,.05)',
+                        borderWidth: 1,
+                        callbacks: {
+                            label: (ctx) => {
+                                const n = hqCounts[ctx.dataIndex] || 0;
+                                return fmtINRFull(ctx.parsed.x) + ' · ' + n + ' scheme' + (n !== 1 ? 's' : '');
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        grid: { color: '#f1f5f9', borderDash: [4, 4] },
+                        ticks: { color: '#94a3b8', font: { size: 11 }, callback: (v) => fmtINR(v) }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { color: '#475569', font: { size: 11, weight: '600' } }
+                    }
+                }
             }
-        }
-    });
+        });
+    }
 }) ();
 </script>
 {% endblock %}

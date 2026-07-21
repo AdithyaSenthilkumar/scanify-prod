@@ -68,8 +68,13 @@ def get_dashboard_stats(user, division):
             AND sal.action_date >= %s
         """, (division, get_first_day(nowdate())))[0][0]
         
-        # Pending statements (filtered by division if stockist has division)
-        stats["pending_statements"] = frappe.db.count("Stockist Statement", {"docstatus": 0})
+        # Statements with completed OCR extraction (filtered by division).
+        # These are AI-extracted statements — measured by extraction status, not docstatus
+        # (all extracted statements sit in draft/docstatus 0 by design).
+        stats["completed_statements"] = frappe.db.count(
+            "Stockist Statement",
+            {"extracted_data_status": "Completed", "division": division}
+        )
         
         # Active HQ Count for this division
         stats["active_hqs"] = frappe.db.count("HQ Master", {"division": division, "status": "Active"})
@@ -102,31 +107,36 @@ def get_dashboard_stats(user, division):
             if d.get('date'): d['date'] = str(d['date'])
         stats["statement_activity"] = statement_activity
 
-        # Chart 2: Monthly approval funnel — last 6 months breakdown
-        monthly_funnel = frappe.db.sql("""
-            SELECT
-                DATE_FORMAT(creation, '%%b %%Y') as month,
-                DATE_FORMAT(creation, '%%Y-%%m') as sort_key,
-                SUM(CASE WHEN approval_status = 'Approved' THEN 1 ELSE 0 END) as approved,
-                SUM(CASE WHEN approval_status = 'Pending' THEN 1 ELSE 0 END) as pending,
-                SUM(CASE WHEN approval_status = 'Rejected' THEN 1 ELSE 0 END) as rejected
-            FROM `tabScheme Request`
-            WHERE division = %s AND creation >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
-            GROUP BY DATE_FORMAT(creation, '%%Y-%%m'), DATE_FORMAT(creation, '%%b %%Y')
-            ORDER BY sort_key ASC
+        # Chart 2: Top HQs by approved scheme value — last 6 months.
+        # hq stores the HQ Master PK, so resolve to the readable HQ name for labels.
+        top_hqs = frappe.db.sql("""
+            SELECT COALESCE(hm.hq_name, sr.hq) as hq,
+                   COALESCE(SUM(sr.total_scheme_value), 0) as value,
+                   COUNT(*) as cnt
+            FROM `tabScheme Request` sr
+            LEFT JOIN `tabHQ Master` hm ON hm.name = sr.hq
+            WHERE sr.division = %s
+              AND sr.approval_status = 'Approved'
+              AND sr.creation >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+              AND sr.hq IS NOT NULL AND sr.hq != ''
+            GROUP BY sr.hq, hm.hq_name
+            ORDER BY value DESC
+            LIMIT 8
         """, (division,), as_dict=1)
-        stats["monthly_funnel"] = monthly_funnel
+        for h in top_hqs:
+            h["value"] = float(h.get("value") or 0)
+        stats["top_hqs"] = top_hqs
 
     except Exception as e:
         frappe.log_error(f"Error getting dashboard stats: {str(e)}")
         stats = {
             "pending_schemes": 0,
             "approved_this_month": 0,
-            "pending_statements": 0,
+            "completed_statements": 0,
             "active_hqs": 0,
             "scheme_activity": [],
             "statement_activity": [],
-            "monthly_funnel": []
+            "top_hqs": []
         }
     
     return stats

@@ -26,9 +26,12 @@
                         <option value="Masters">Masters</option>
                         <option value="Stock Statements">Stock Statements</option>
                         <option value="Scheme Requests">Scheme Requests</option>
-                        <option value="Bulk Statement Upload">Bulk Statement Upload</option>
                         <option value="Scheme Deductions">Scheme Deductions</option>
                         <option value="Sales Targets">Sales Targets</option>
+                        <option value="Bulk Statement Upload">Bulk Statement Upload</option>
+                        <option value="Primary Sales">Primary Sales</option>
+                        <option value="Secondary Sales">Secondary Sales</option>
+                        <option value="Stockist Corrections">Stockist Corrections</option>
                     </select>
                 </div>
                 <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6" id="subTypeCol" style="display:none;">
@@ -46,12 +49,32 @@
                     </select>
                 </div>
                 <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6">
-                    <label><strong>Record ID</strong></label>
-                    <input type="text" id="recordFilter" class="form-control" placeholder="Search record...">
+                    <label><strong>Action</strong></label>
+                    <select id="actionFilter" class="form-control">
+                        <option value="">All Actions</option>
+                        <option value="Created">Created</option>
+                        <option value="Updated">Updated</option>
+                        <option value="Submitted">Submitted</option>
+                        <option value="Cancelled">Cancelled</option>
+                        <option value="Deleted">Deleted</option>
+                    </select>
                 </div>
                 <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6">
                     <label><strong>Changed By</strong></label>
-                    <input type="text" id="changedByFilter" class="form-control" placeholder="Name or email...">
+                    <select id="changedByFilter" class="form-control">
+                        <option value="">All Users</option>
+                    </select>
+                </div>
+                <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6">
+                    <label><strong>Role</strong></label>
+                    <select id="roleFilter" class="form-control">
+                        <option value="">All Roles</option>
+                    </select>
+                </div>
+                <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6">
+                    <label><strong>Record ID</strong></label>
+                    <input type="text" id="recordFilter" class="form-control" placeholder="Search record..."
+                           onkeydown="if(event.key==='Enter'){loadAuditTrail(1);}">
                 </div>
                 <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6">
                     <label><strong>From Date</strong></label>
@@ -84,7 +107,7 @@
     <!-- Results Table -->
     <div class="card" id="tableCard" style="display:none;">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <span><i class="fa fa-list"></i> Changes</span>
+            <span><i class="fa fa-list"></i> Activity <small class="text-muted" id="windowNote"></small></span>
             <span class="badge badge-info" id="totalCount">0</span>
         </div>
         <div class="card-body p-0">
@@ -94,6 +117,7 @@
                         <tr>
                             <th>Record</th>
                             <th>Category</th>
+                            <th>Action</th>
                             <th>Changed By</th>
                             <th>Date &amp; Time</th>
                             <th>Changes</th>
@@ -147,6 +171,28 @@
         background: #eff6ff;
         color: #1d4ed8;
         white-space: nowrap;
+    }
+    .audit-trail-page .action-badge {
+        padding: 3px 9px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .3px;
+        white-space: nowrap;
+    }
+    .audit-trail-page .act-created   { background: #eff6ff; color: #1d4ed8; }
+    .audit-trail-page .act-updated   { background: #fef3c7; color: #92400e; }
+    .audit-trail-page .act-submitted { background: #ecfdf5; color: #047857; }
+    .audit-trail-page .act-cancelled { background: #f1f5f9; color: #475569; }
+    .audit-trail-page .act-deleted   { background: #fee2e2; color: #991b1b; }
+    .audit-trail-page .user-cell {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.25;
+    }
+    .audit-trail-page .user-role {
+        font-size: 11px;
+        color: var(--color-text-muted);
     }
     .audit-trail-page .change-badge {
         padding: 2px 8px;
@@ -230,6 +276,8 @@
     let currentPage = 1;
     let totalPages = 1;
     let diffCache = {};
+    let rowMeta = {};              // per-row key -> event row (keeps the real, unescaped id)
+    let defaultWindowDays = 90;
 
     function getActiveDivision() {
         try {
@@ -249,6 +297,48 @@
         return date + ' ' + time;
     }
 
+    function fmtDateOnly(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d)) return iso;
+        return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
+    function loadFilterOptions() {
+        fetch('/api/method/scanify.api.get_audit_filter_options', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': frappe.csrf_token
+            },
+            body: '{}'
+        })
+        .then(r => r.json())
+        .then(r => {
+            const res = r.message;
+            if (!res || !res.success) return;
+            const uSel = $('#changedByFilter');
+            (res.users || []).forEach(u => {
+                const label = u.name + (u.role ? '  ·  ' + u.role : '');
+                uSel.append($('<option>').val(u.email).text(label));
+            });
+            const rSel = $('#roleFilter');
+            (res.roles || []).forEach(role => {
+                rSel.append($('<option>').val(role).text(role));
+            });
+            if (res.default_window_days) defaultWindowDays = res.default_window_days;
+        })
+        .catch(() => { });
+    }
+
+    function prefillFromDate() {
+        if (!$('#fromDate').val()) {
+            const d = new Date();
+            d.setDate(d.getDate() - defaultWindowDays);
+            $('#fromDate').val(d.toISOString().slice(0, 10));
+        }
+    }
+
     function onCategoryChange() {
         const cat = $('#categoryFilter').val();
         if (cat === 'Masters') {
@@ -263,10 +353,13 @@
         $('#categoryFilter').val('');
         $('#subTypeFilter').val('');
         $('#subTypeCol').hide();
-        $('#recordFilter').val('');
+        $('#actionFilter').val('');
         $('#changedByFilter').val('');
+        $('#roleFilter').val('');
+        $('#recordFilter').val('');
         $('#fromDate').val('');
         $('#toDate').val('');
+        prefillFromDate();
         diffCache = {};
         loadAuditTrail(1);
     }
@@ -279,8 +372,10 @@
         const payload = {
             category: $('#categoryFilter').val(),
             sub_type: $('#subTypeFilter').val(),
-            record_name: $('#recordFilter').val(),
+            action: $('#actionFilter').val(),
             changed_by: $('#changedByFilter').val(),
+            role: $('#roleFilter').val(),
+            record_name: $('#recordFilter').val(),
             from_date: $('#fromDate').val(),
             to_date: $('#toDate').val(),
             page: page,
@@ -303,6 +398,9 @@
         .then(r => {
             $('#loadingState').hide();
             const res = r.message;
+            if (res && res.window_from) {
+                $('#windowNote').text('· since ' + fmtDateOnly(res.window_from));
+            }
             if (!res || !res.success) {
                 $('#emptyState').show();
                 return;
@@ -321,28 +419,55 @@
         });
     }
 
+    function actionBadge(action) {
+        const cls = {
+            'Created': 'act-created',
+            'Updated': 'act-updated',
+            'Submitted': 'act-submitted',
+            'Cancelled': 'act-cancelled',
+            'Deleted': 'act-deleted'
+        }[action] || 'act-updated';
+        return `<span class="action-badge ${cls}">${escHtml(action || 'Updated')}</span>`;
+    }
+
+    function changeSummary(r) {
+        const fields = `${r.change_count} field${r.change_count !== 1 ? 's' : ''}`;
+        if (r.action === 'Created') return `<span class="change-badge has-changes">New record</span>`;
+        if (r.action === 'Deleted') return `<span class="change-badge no-changes">Removed</span>`;
+        if (r.action === 'Submitted' || r.action === 'Cancelled') {
+            return r.change_count > 0
+                ? `<span class="change-badge has-changes">${fields}</span>`
+                : `<span class="change-badge no-changes">Status change</span>`;
+        }
+        return r.change_count > 0
+            ? `<span class="change-badge has-changes">${fields}</span>`
+            : `<span class="change-badge no-changes">No changes</span>`;
+    }
+
     function renderTable(rows) {
-        const html = rows.map(r => {
-            const changeBadge = r.has_diff
-                ? `<span class="change-badge has-changes">${r.change_count} field${r.change_count !== 1 ? 's' : ''}</span>`
-                : `<span class="change-badge no-changes">No changes</span>`;
-            const detailBtn = r.has_diff
-                ? `<button class="btn btn-sm btn-outline-primary" onclick="toggleDiff('${r.id}', this)">
+        rowMeta = {};
+        const html = rows.map((r, i) => {
+            const k = 'e' + i;                 // safe DOM key; real id kept in rowMeta
+            rowMeta[k] = r;
+            const detailBtn =
+                `<button class="btn btn-sm btn-outline-primary" onclick="toggleDiff('${k}', this)">
                      <i class="fa fa-eye"></i> View
-                   </button>`
-                : `<span class="text-muted">-</span>`;
+                   </button>`;
+            const roleSub = (r.role && r.role !== '—')
+                ? `<span class="user-role">${escHtml(r.role)}</span>` : '';
             return `
-                <tr id="row-${r.id}">
+                <tr id="row-${k}">
                     <td><span class="record-id">${escHtml(r.record)}</span></td>
                     <td><span class="category-badge">${escHtml(r.category)}</span></td>
-                    <td>${escHtml(r.changed_by)}</td>
+                    <td>${actionBadge(r.action)}</td>
+                    <td><div class="user-cell"><span>${escHtml(r.changed_by)}</span>${roleSub}</div></td>
                     <td>${fmtTimestamp(r.timestamp)}</td>
-                    <td>${changeBadge}</td>
+                    <td>${changeSummary(r)}</td>
                     <td class="text-center">${detailBtn}</td>
                 </tr>
-                <tr id="diff-${r.id}" style="display:none;">
-                    <td colspan="6" class="p-0 diff-panel">
-                        <div class="p-3" id="diff-content-${r.id}">
+                <tr id="diff-${k}" style="display:none;">
+                    <td colspan="7" class="p-0 diff-panel">
+                        <div class="p-3" id="diff-content-${k}">
                             <i class="fa fa-spinner fa-spin"></i> Loading...
                         </div>
                     </td>
@@ -371,17 +496,17 @@
         loadAuditTrail(newPage);
     }
 
-    function toggleDiff(versionId, btnEl) {
-        const diffRow = document.getElementById('diff-' + versionId);
+    function toggleDiff(key, btnEl) {
+        const diffRow = document.getElementById('diff-' + key);
         if (!diffRow) return;
 
         if (diffRow.style.display === 'none') {
             diffRow.style.display = '';
             $(btnEl).html('<i class="fa fa-eye-slash"></i> Hide');
-            if (diffCache[versionId]) {
-                renderDiff(versionId, diffCache[versionId]);
+            if (diffCache[key]) {
+                renderDiff(key, diffCache[key].changes, diffCache[key].note);
             } else {
-                fetchDiff(versionId);
+                fetchDiff(key);
             }
         } else {
             diffRow.style.display = 'none';
@@ -389,39 +514,42 @@
         }
     }
 
-    function fetchDiff(versionId) {
+    function fetchDiff(key) {
+        const row = rowMeta[key];
+        if (!row) return;
         fetch('/api/method/scanify.api.get_audit_trail_detail', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-Frappe-CSRF-Token': frappe.csrf_token
             },
-            body: JSON.stringify({ version_name: versionId })
+            body: JSON.stringify({ event_id: row.id })
         })
         .then(r => r.json())
         .then(r => {
             const res = r.message;
             if (!res || !res.success) {
-                $('#diff-content-' + versionId).html(
+                $('#diff-content-' + key).html(
                     '<span class="text-danger">Could not load change details.</span>'
                 );
                 return;
             }
-            diffCache[versionId] = res.changes;
-            renderDiff(versionId, res.changes);
+            diffCache[key] = { changes: res.changes, note: res.note };
+            renderDiff(key, res.changes, res.note);
         })
         .catch(() => {
-            $('#diff-content-' + versionId).html(
+            $('#diff-content-' + key).html(
                 '<span class="text-danger">Error loading details.</span>'
             );
         });
     }
 
-    function renderDiff(versionId, changes) {
+    function renderDiff(key, changes, note) {
         if (!changes || !changes.length) {
-            $('#diff-content-' + versionId).html(
-                '<span class="text-muted">No detailed changes recorded.</span>'
-            );
+            const msg = note
+                ? escHtml(note)
+                : 'No detailed changes recorded.';
+            $('#diff-content-' + key).html('<span class="text-muted">' + msg + '</span>');
             return;
         }
 
@@ -450,7 +578,7 @@
             `;
         });
         html += '</tbody></table>';
-        $('#diff-content-' + versionId).html(html);
+        $('#diff-content-' + key).html(html);
     }
 
     function escHtml(str) {
@@ -461,6 +589,8 @@
     }
 
     $(document).ready(function () {
+        prefillFromDate();
+        loadFilterOptions();
         loadAuditTrail(1);
     });
 </script>

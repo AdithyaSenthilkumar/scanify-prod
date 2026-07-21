@@ -7718,7 +7718,8 @@ def update_user_image(file_url):
 # Audit Trail / Change History — Portal API
 # ───────────────────────────────────────────────────────────────
 
-# Category → internal doctype(s) mapping
+# Category → internal doctype(s) mapping. Order here drives the portal dropdown.
+# Keep this in sync with every track_changes doctype so nothing is silently missed.
 _AUDIT_CATEGORY_MAP = {
     "Masters": [
         "HQ Master", "Stockist Master", "Product Master",
@@ -7727,9 +7728,12 @@ _AUDIT_CATEGORY_MAP = {
     ],
     "Stock Statements": ["Stockist Statement"],
     "Scheme Requests": ["Scheme Request"],
-    "Bulk Statement Upload": ["Bulk Statement Upload"],
     "Scheme Deductions": ["Scheme Deduction"],
     "Sales Targets": ["HQ Yearly Target"],
+    "Bulk Statement Upload": ["Bulk Statement Upload"],
+    "Primary Sales": ["Primary Sales Upload"],
+    "Secondary Sales": ["Secondary Sales Upload"],
+    "Stockist Corrections": ["Stockist Product Correction"],
 }
 
 # Masters sub-type label → internal doctype
@@ -7756,9 +7760,12 @@ _DOCTYPE_LABEL_MAP = {
     "State Master": "State Master",
     "Stockist Statement": "Stock Statement",
     "Scheme Request": "Scheme Request",
-    "Bulk Statement Upload": "Bulk Upload",
     "Scheme Deduction": "Scheme Deduction",
     "HQ Yearly Target": "Sales Target",
+    "Bulk Statement Upload": "Bulk Upload",
+    "Primary Sales Upload": "Primary Sales",
+    "Secondary Sales Upload": "Secondary Sales",
+    "Stockist Product Correction": "Stockist Correction",
 }
 
 # Fields to hide from diffs (system / internal)
@@ -7768,6 +7775,110 @@ _SYSTEM_FIELDS = {
     "_liked_by", "_comments", "_assign", "_user_tags",
     "_seen", "amended_from",
 }
+
+# Every action the unified feed can surface.
+_AUDIT_ACTIONS = ["Created", "Updated", "Submitted", "Cancelled", "Deleted"]
+
+# How far back the feed looks when no explicit From date is chosen, and a hard
+# per-source row cap so a broad query can never pull the whole history at once.
+_AUDIT_DEFAULT_WINDOW_DAYS = 90
+_AUDIT_SOURCE_CAP = 3000
+
+
+def _all_audit_doctypes():
+    """Flat list of every doctype the audit feed tracks."""
+    out = []
+    for dts in _AUDIT_CATEGORY_MAP.values():
+        out.extend(dts)
+    return out
+
+
+def _doctype_has_division(dt):
+    """True if the doctype carries a `division` field (drives division scoping)."""
+    try:
+        return bool(frappe.get_meta(dt).has_field("division"))
+    except Exception:
+        return False
+
+
+def _in_clause(prefix, values, params):
+    """Build a parameterised `(%(p0)s, %(p1)s, ...)` IN clause and load params."""
+    keys = []
+    for i, v in enumerate(values):
+        k = f"{prefix}{i}"
+        params[k] = v
+        keys.append(f"%({k})s")
+    return "(" + ", ".join(keys) + ")" if keys else "(NULL)"
+
+
+def _humanize(s):
+    return (s or "").replace("_", " ").strip().title()
+
+
+def _fmt_val(v):
+    """Render a diff value as a short display string."""
+    if v is None:
+        return ""
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return str(v)
+
+
+def _audit_user_info(emails):
+    """{email: {'name': display, 'role': portal_role}} for a set of change authors."""
+    from scanify.permissions import get_portal_role
+    info = {}
+    emails = {e for e in emails if e}
+    if not emails:
+        return info
+    names = {}
+    for r in frappe.get_all("User", filters={"name": ["in", list(emails)]},
+                            fields=["name", "full_name"]):
+        names[r.name] = (r.full_name or "").strip()
+    for e in emails:
+        disp = names.get(e) or (e.split("@")[0].title() if "@" in e else e)
+        try:
+            role = get_portal_role(e) or "—"
+        except Exception:
+            role = "—"
+        info[e] = {"name": disp, "role": role}
+    return info
+
+
+def _division_allowed_names(names_by_dt, division):
+    """For each division-scoped doctype, the subset of the given record names that
+    belong to the active division (or 'Both'). Doctypes without a division field are
+    absent from the result and therefore never filtered out."""
+    allowed = {}
+    if not division:
+        return allowed
+    for dt, names in names_by_dt.items():
+        names = [n for n in names if n]
+        if not names or not _doctype_has_division(dt):
+            continue
+        params = {"div": division}
+        in_names = _in_clause("n", names, params)
+        try:
+            rows = frappe.db.sql(
+                f"SELECT name FROM `tab{dt}` WHERE name IN {in_names} "
+                f"AND (division IN (%(div)s, 'Both') OR COALESCE(division, '') = '')",
+                params, as_dict=True)
+            allowed[dt] = {x.name for x in rows}
+        except Exception:
+            # If the scope query fails, don't hide rows (fail-open, admin-only page).
+            continue
+    return allowed
+
+
+def _deleted_doc_division(data):
+    """Pull the `division` value out of a Deleted Document snapshot, if present."""
+    try:
+        d = json.loads(data) if isinstance(data, str) else (data or {})
+        if isinstance(d, dict):
+            return d.get("division")
+    except Exception:
+        pass
+    return None
 
 
 def _get_user_display(email):
@@ -7781,15 +7892,100 @@ def _get_user_display(email):
 
 
 def _parse_version_data(data_str):
-    """Parse a Version record's data JSON, return (changed, added, removed)."""
+    """Parse a Version record's data JSON into its four diff buckets. Frappe stores
+    field edits in `changed`, child-row additions/removals in `added`/`removed`, and
+    child-row field edits in `row_changed` (previously ignored — a real blind spot)."""
     try:
-        data = json.loads(data_str) if isinstance(data_str, str) else data_str
+        data = json.loads(data_str) if isinstance(data_str, str) else (data_str or {})
     except Exception:
-        return [], [], []
-    changed = data.get("changed", [])
-    added = data.get("added", [])
-    removed = data.get("removed", [])
-    return changed, added, removed
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        "changed": data.get("changed") or [],
+        "added": data.get("added") or [],
+        "removed": data.get("removed") or [],
+        "row_changed": data.get("row_changed") or [],
+    }
+
+
+def _version_action(parsed):
+    """Classify a Version as Submitted / Cancelled (docstatus moved) or Updated."""
+    for ch in parsed.get("changed", []):
+        if ch and ch[0] == "docstatus":
+            try:
+                new = int(ch[2])
+            except Exception:
+                new = None
+            if new == 1:
+                return "Submitted"
+            if new == 2:
+                return "Cancelled"
+    return "Updated"
+
+
+def _version_change_count(parsed):
+    """Number of user-visible changes in a Version (system fields excluded)."""
+    n = 0
+    for ch in parsed.get("changed", []):
+        if ch and ch[0] not in _SYSTEM_FIELDS:
+            n += 1
+    n += len(parsed.get("added", []))
+    n += len(parsed.get("removed", []))
+    for rc in parsed.get("row_changed", []):
+        try:
+            child = rc[3] or []
+        except Exception:
+            child = []
+        meaningful = len([c for c in child if c and c[0] not in _SYSTEM_FIELDS])
+        n += meaningful or 1
+    return n
+
+
+def _child_doctype(parent_dt, table_field):
+    """Resolve a child table field's target doctype for nicer child-field labels."""
+    try:
+        df = frappe.get_meta(parent_dt).get_field(table_field)
+        return df.options if df else None
+    except Exception:
+        return None
+
+
+def _row_change_entry(row, kind):
+    """Diff entry for a whole child row being added or removed."""
+    table_field = row[0] if isinstance(row, (list, tuple)) and row else ""
+    row_data = row[1] if isinstance(row, (list, tuple)) and len(row) > 1 and isinstance(row[1], dict) else {}
+    summary = ", ".join(
+        f"{k}: {v}" for k, v in row_data.items()
+        if k not in _SYSTEM_FIELDS and not k.startswith("_") and v not in (None, "", 0)
+    )
+    return {
+        "label": f"{_humanize(table_field)} — row {'added' if kind == 'added' else 'removed'}",
+        "old_value": (summary[:250] if kind == "removed" else ""),
+        "new_value": (summary[:250] if kind == "added" else ""),
+        "type": kind,
+    }
+
+
+def _row_changed_entries(parent_dt, rc):
+    """Diff entries for field-level edits inside an existing child row."""
+    out = []
+    try:
+        table_field = rc[0]
+        child_dt = _child_doctype(parent_dt, table_field)
+        for c in (rc[3] or []):
+            if not c or c[0] in _SYSTEM_FIELDS:
+                continue
+            child_label = _field_label(child_dt, c[0]) if child_dt else _humanize(c[0])
+            out.append({
+                "label": f"{_humanize(table_field)} · {child_label}",
+                "old_value": _fmt_val(c[1]),
+                "new_value": _fmt_val(c[2]),
+                "type": "changed",
+            })
+    except Exception:
+        pass
+    return out
 
 
 def _field_label(doctype, fieldname):
@@ -7804,123 +8000,206 @@ def _field_label(doctype, fieldname):
     return fieldname.replace("_", " ").title()
 
 
+def _collect_version_events(doctypes, record_name, changed_by, dt_from, dt_to, division):
+    """Updated / Submitted / Cancelled events from `tabVersion`."""
+    params = {"f": dt_from, "t": dt_to}
+    conds = [
+        f"v.ref_doctype IN {_in_clause('vd', doctypes, params)}",
+        "v.creation BETWEEN %(f)s AND %(t)s",
+    ]
+    if record_name:
+        conds.append("v.docname LIKE %(rec)s")
+        params["rec"] = f"%{record_name}%"
+    if changed_by:
+        conds.append("v.owner = %(cb)s")
+        params["cb"] = changed_by
+    where = " AND ".join(conds)
+    rows = frappe.db.sql(
+        f"SELECT v.name, v.ref_doctype, v.docname, v.owner, v.creation, v.data "
+        f"FROM `tabVersion` v WHERE {where} "
+        f"ORDER BY v.creation DESC LIMIT {int(_AUDIT_SOURCE_CAP)}",
+        params, as_dict=True) or []
+
+    # Division scope: keep only rows whose parent record is in the active division.
+    names_by_dt = {}
+    for r in rows:
+        names_by_dt.setdefault(r.ref_doctype, set()).add(r.docname)
+    allowed = _division_allowed_names(names_by_dt, division)
+
+    events = []
+    for r in rows:
+        if r.ref_doctype in allowed and r.docname not in allowed[r.ref_doctype]:
+            continue
+        parsed = _parse_version_data(r.data)
+        action = _version_action(parsed)
+        count = _version_change_count(parsed)
+        # An "Updated" version with no user-visible change is noise — drop it.
+        if action == "Updated" and count == 0:
+            continue
+        events.append({
+            "id": "ver:" + r.name,
+            "record": r.docname,
+            "doctype": r.ref_doctype,
+            "category": _DOCTYPE_LABEL_MAP.get(r.ref_doctype, r.ref_doctype),
+            "action": action,
+            "user": r.owner,
+            "timestamp": str(r.creation),
+            "change_count": count,
+            "has_diff": True,
+        })
+    return events
+
+
+def _collect_created_events(doctypes, record_name, changed_by, dt_from, dt_to, division):
+    """Creation events pulled from each doctype's own table (Version records none)."""
+    events = []
+    for dt in doctypes:
+        params = {"f": dt_from, "t": dt_to}
+        conds = ["creation BETWEEN %(f)s AND %(t)s"]
+        if record_name:
+            conds.append("name LIKE %(rec)s")
+            params["rec"] = f"%{record_name}%"
+        if changed_by:
+            conds.append("owner = %(cb)s")
+            params["cb"] = changed_by
+        if division and _doctype_has_division(dt):
+            conds.append("(division IN (%(div)s, 'Both') OR COALESCE(division, '') = '')")
+            params["div"] = division
+        where = " AND ".join(conds)
+        try:
+            rows = frappe.db.sql(
+                f"SELECT name, owner, creation FROM `tab{dt}` WHERE {where} "
+                f"ORDER BY creation DESC LIMIT {int(_AUDIT_SOURCE_CAP)}",
+                params, as_dict=True) or []
+        except Exception:
+            continue
+        label = _DOCTYPE_LABEL_MAP.get(dt, dt)
+        for r in rows:
+            events.append({
+                "id": f"new:{dt}::{r.name}",
+                "record": r.name,
+                "doctype": dt,
+                "category": label,
+                "action": "Created",
+                "user": r.owner,
+                "timestamp": str(r.creation),
+                "change_count": 0,
+                "has_diff": True,
+            })
+    return events
+
+
+def _collect_deleted_events(doctypes, record_name, changed_by, dt_from, dt_to, division):
+    """Deletion events from `tabDeleted Document` (the audited row itself is gone)."""
+    params = {"f": dt_from, "t": dt_to}
+    conds = [
+        f"deleted_doctype IN {_in_clause('dd', doctypes, params)}",
+        "creation BETWEEN %(f)s AND %(t)s",
+    ]
+    if record_name:
+        conds.append("deleted_name LIKE %(rec)s")
+        params["rec"] = f"%{record_name}%"
+    if changed_by:
+        conds.append("owner = %(cb)s")
+        params["cb"] = changed_by
+    where = " AND ".join(conds)
+    try:
+        rows = frappe.db.sql(
+            f"SELECT name, deleted_doctype, deleted_name, owner, creation, data "
+            f"FROM `tabDeleted Document` WHERE {where} "
+            f"ORDER BY creation DESC LIMIT {int(_AUDIT_SOURCE_CAP)}",
+            params, as_dict=True) or []
+    except Exception:
+        return []
+    events = []
+    for r in rows:
+        dt = r.deleted_doctype
+        # Division scope via the stored snapshot; keep rows whose division is unknown.
+        if division and _doctype_has_division(dt):
+            doc_div = _deleted_doc_division(r.data)
+            if doc_div and doc_div not in (division, "Both"):
+                continue
+        events.append({
+            "id": "del:" + r.name,
+            "record": r.deleted_name,
+            "doctype": dt,
+            "category": _DOCTYPE_LABEL_MAP.get(dt, dt),
+            "action": "Deleted",
+            "user": r.owner,
+            "timestamp": str(r.creation),
+            "change_count": 0,
+            "has_diff": True,
+        })
+    return events
+
+
 @frappe.whitelist()
+@require_process("audit")
 def get_audit_trail_portal(
     category=None, sub_type=None, record_name=None,
-    changed_by=None, from_date=None, to_date=None,
-    page=1, page_size=25
+    changed_by=None, role=None, action=None,
+    from_date=None, to_date=None, page=1, page_size=25
 ):
-    """Return paginated change-history entries for the portal."""
+    """Unified, paginated activity feed (create / update / submit / cancel / delete)
+    across every tracked doctype, scoped to the active division. Admin-only."""
     try:
-        roles = frappe.get_roles(frappe.session.user)
         page = max(int(page), 1)
         page_size = min(max(int(page_size), 5), 100)
-        offset = (page - 1) * page_size
 
-        # Determine which doctypes to query
+        # Which doctypes?
         if category and category in _AUDIT_CATEGORY_MAP:
             doctypes = list(_AUDIT_CATEGORY_MAP[category])
             if category == "Masters" and sub_type and sub_type in _MASTER_SUBTYPE_MAP:
                 doctypes = [_MASTER_SUBTYPE_MAP[sub_type]]
         else:
-            # All tracked doctypes
-            doctypes = []
-            for dts in _AUDIT_CATEGORY_MAP.values():
-                doctypes.extend(dts)
-
+            doctypes = _all_audit_doctypes()
         if not doctypes:
-            return {"success": True, "data": [], "total": 0, "page": page, "page_size": page_size}
+            return {"success": True, "data": [], "total": 0,
+                    "page": page, "page_size": page_size}
 
-        # Build SQL conditions
-        conditions = []
-        params = {}
+        # Date window — default to the recent window when no From date is supplied.
+        if not from_date:
+            from_date = frappe.utils.add_days(frappe.utils.nowdate(), -_AUDIT_DEFAULT_WINDOW_DAYS)
+        dt_from = str(from_date) + " 00:00:00"
+        dt_to = (str(to_date) + " 23:59:59") if to_date else frappe.utils.now()
 
-        dt_keys = ["dt%d" % i for i in range(len(doctypes))]
-        placeholders = ", ".join(["%%(%s)s" % k for k in dt_keys])
-        for i, dt in enumerate(doctypes):
-            params["dt%d" % i] = dt
-        conditions.append("v.ref_doctype IN (%s)" % placeholders)
-
-        if record_name:
-            conditions.append("v.docname LIKE %(record_name)s")
-            params["record_name"] = f"%{record_name}%"
-
-        if changed_by:
-            conditions.append("v.owner LIKE %(changed_by)s")
-            params["changed_by"] = f"%{changed_by}%"
-
-        if from_date:
-            conditions.append("v.creation >= %(from_date)s")
-            params["from_date"] = from_date
-
-        if to_date:
-            conditions.append("v.creation <= %(to_date)s")
-            params["to_date"] = to_date + " 23:59:59"
-
-        # Division filter for transactional docs
         division = get_user_division()
-        div_doctypes_with_field = {
-            "Stockist Statement", "Scheme Request",
-            "Scheme Deduction", "HQ Yearly Target", "Bulk Statement Upload",
-        }
-        # Masters also have a division field on most records
-        master_doctypes = set(_AUDIT_CATEGORY_MAP["Masters"])
-        div_all = div_doctypes_with_field | master_doctypes
-        # We'll filter via a LEFT JOIN approach — only if all requested doctypes support division
-        # For simplicity, we add a sub-select condition when the category is specific
-        if division and category and category != "Masters":
-            # For transactional categories, filter by division on the parent record
-            if len(doctypes) == 1 and doctypes[0] in div_doctypes_with_field:
-                dt = doctypes[0]
-                tab = f"tab{dt}"
-                conditions.append(
-                    f"EXISTS (SELECT 1 FROM `{tab}` dd WHERE dd.name = v.docname "
-                    f"AND dd.division IN (%(div)s, 'Both'))"
-                )
-                params["div"] = division
+        want = {action} if (action and action in _AUDIT_ACTIONS) else None
+        cb = changed_by or None
 
-        where = " AND ".join(conditions) if conditions else "1=1"
+        events = []
+        if want is None or want & {"Updated", "Submitted", "Cancelled"}:
+            events.extend(_collect_version_events(doctypes, record_name, cb, dt_from, dt_to, division))
+        if want is None or "Created" in want:
+            events.extend(_collect_created_events(doctypes, record_name, cb, dt_from, dt_to, division))
+        if want is None or "Deleted" in want:
+            events.extend(_collect_deleted_events(doctypes, record_name, cb, dt_from, dt_to, division))
 
-        # Count query
-        count_sql = f"SELECT COUNT(*) as cnt FROM `tabVersion` v WHERE {where}"
-        total = frappe.db.sql(count_sql, params, as_dict=True)[0].cnt
+        if want is not None:
+            events = [e for e in events if e["action"] in want]
 
-        # Data query
-        data_sql = f"""
-            SELECT v.name, v.ref_doctype, v.docname, v.owner, v.creation, v.data
-            FROM `tabVersion` v
-            WHERE {where}
-            ORDER BY v.creation DESC
-            LIMIT %(limit)s OFFSET %(offset)s
-        """
-        params["limit"] = page_size
-        params["offset"] = offset
+        # Resolve author display name + portal role, then apply the role filter.
+        uinfo = _audit_user_info({e["user"] for e in events})
+        for e in events:
+            u = uinfo.get(e["user"], {})
+            e["changed_by"] = u.get("name", e["user"])
+            e["role"] = u.get("role", "—")
+        if role:
+            events = [e for e in events if e["role"] == role]
 
-        rows = frappe.db.sql(data_sql, params, as_dict=True)
+        events.sort(key=lambda x: x["timestamp"], reverse=True)
 
-        result = []
-        for row in rows:
-            changed, added, removed = _parse_version_data(row.data)
-            # Filter out system fields
-            changed = [c for c in changed if c[0] not in _SYSTEM_FIELDS]
-            change_count = len(changed) + len(added) + len(removed)
-
-            result.append({
-                "id": row.name,
-                "record": row.docname,
-                "category": _DOCTYPE_LABEL_MAP.get(row.ref_doctype, row.ref_doctype),
-                "changed_by": _get_user_display(row.owner),
-                "timestamp": str(row.creation),
-                "change_count": change_count,
-                "has_diff": change_count > 0,
-            })
+        total = len(events)
+        start = (page - 1) * page_size
+        page_rows = events[start:start + page_size]
 
         return {
             "success": True,
-            "data": result,
+            "data": page_rows,
             "total": total,
             "page": page,
             "page_size": page_size,
+            "window_from": str(from_date),
         }
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Audit Trail Portal Error")
@@ -7928,75 +8207,162 @@ def get_audit_trail_portal(
 
 
 @frappe.whitelist()
-def get_audit_trail_detail(version_name):
-    """Return field-level diff for a single Version record."""
+@require_process("audit")
+def get_audit_filter_options():
+    """Dropdown data for the audit filters: portal users, roles, and actions."""
     try:
-        roles = frappe.get_roles(frappe.session.user)
-        if "System Manager" not in roles and "Sales Manager" not in roles:
-            return {"success": False, "message": "Insufficient permissions"}
-
-        ver = frappe.db.get_value(
-            "Version", version_name,
-            ["ref_doctype", "docname", "data", "owner", "creation"],
-            as_dict=True,
-        )
-        if not ver:
-            return {"success": False, "message": "Record not found"}
-
-        changed, added, removed = _parse_version_data(ver.data)
-        ref_dt = ver.ref_doctype
-
-        changes = []
-        for c in changed:
-            fname = c[0]
-            if fname in _SYSTEM_FIELDS:
-                continue
-            changes.append({
-                "label": _field_label(ref_dt, fname),
-                "old_value": str(c[1]) if c[1] is not None else "",
-                "new_value": str(c[2]) if c[2] is not None else "",
-                "type": "changed",
-            })
-
-        for a in added:
-            # added is a list of [row_doctype, {field: val, ...}]
-            if isinstance(a, list) and len(a) >= 2:
-                row_dt = a[0]
-                row_data = a[1] if isinstance(a[1], dict) else {}
-                summary = ", ".join(
-                    f"{k}: {v}" for k, v in row_data.items()
-                    if k not in _SYSTEM_FIELDS and v
-                )
-                changes.append({
-                    "label": f"Row added",
-                    "old_value": "",
-                    "new_value": summary[:200] if summary else "(new row)",
-                    "type": "added",
-                })
-
-        for r in removed:
-            if isinstance(r, list) and len(r) >= 2:
-                row_dt = r[0]
-                row_data = r[1] if isinstance(r[1], dict) else {}
-                summary = ", ".join(
-                    f"{k}: {v}" for k, v in row_data.items()
-                    if k not in _SYSTEM_FIELDS and v
-                )
-                changes.append({
-                    "label": f"Row removed",
-                    "old_value": summary[:200] if summary else "(removed row)",
-                    "new_value": "",
-                    "type": "removed",
-                })
-
+        users = frappe.get_all(
+            "User", filters={"enabled": 1, "portal_role": ["is", "set"]},
+            fields=["name", "full_name", "portal_role"], order_by="full_name asc")
+        out_users = [{
+            "email": u.name,
+            "name": (u.full_name or u.name.split("@")[0].title()).strip(),
+            "role": u.portal_role,
+        } for u in users]
+        if not any(u["email"] == "Administrator" for u in out_users):
+            out_users.insert(0, {"email": "Administrator", "name": "Administrator", "role": "Admin"})
+        from scanify.permissions import PORTAL_ROLES
         return {
             "success": True,
-            "record": ver.docname,
-            "category": _DOCTYPE_LABEL_MAP.get(ref_dt, ref_dt),
-            "changed_by": _get_user_display(ver.owner),
-            "timestamp": str(ver.creation),
-            "changes": changes,
+            "users": out_users,
+            "roles": list(PORTAL_ROLES),
+            "actions": list(_AUDIT_ACTIONS),
+            "default_window_days": _AUDIT_DEFAULT_WINDOW_DAYS,
         }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Audit Filter Options Error")
+        return {"success": False, "message": str(e)}
+
+
+_SNAPSHOT_SKIP_FIELDTYPES = {
+    "Section Break", "Column Break", "Tab Break", "HTML", "Button",
+    "Image", "Fold", "Heading", "Table", "Table MultiSelect",
+}
+
+
+def _detail_version(name):
+    """Field & child-row diff for an Updated / Submitted / Cancelled event."""
+    ver = frappe.db.get_value(
+        "Version", name, ["ref_doctype", "docname", "data", "owner", "creation"],
+        as_dict=True)
+    if not ver:
+        return {"success": False, "message": "Record not found"}
+    parsed = _parse_version_data(ver.data)
+    ref_dt = ver.ref_doctype
+    changes = []
+    for c in parsed["changed"]:
+        if not c or c[0] in _SYSTEM_FIELDS:
+            continue
+        changes.append({
+            "label": _field_label(ref_dt, c[0]),
+            "old_value": _fmt_val(c[1]),
+            "new_value": _fmt_val(c[2]),
+            "type": "changed",
+        })
+    for a in parsed["added"]:
+        if isinstance(a, list) and len(a) >= 2:
+            changes.append(_row_change_entry(a, "added"))
+    for r in parsed["removed"]:
+        if isinstance(r, list) and len(r) >= 2:
+            changes.append(_row_change_entry(r, "removed"))
+    for rc in parsed["row_changed"]:
+        changes.extend(_row_changed_entries(ref_dt, rc))
+    return {
+        "success": True,
+        "record": ver.docname,
+        "category": _DOCTYPE_LABEL_MAP.get(ref_dt, ref_dt),
+        "changed_by": _get_user_display(ver.owner),
+        "timestamp": str(ver.creation),
+        "changes": changes,
+    }
+
+
+def _detail_created(dt, name):
+    """Snapshot of the record as it stands now, for a Created event."""
+    if dt not in _all_audit_doctypes():
+        return {"success": False, "message": "Unknown type"}
+    if not frappe.db.exists(dt, name):
+        return {"success": True, "record": name,
+                "category": _DOCTYPE_LABEL_MAP.get(dt, dt), "changes": [],
+                "note": "This record has since been deleted."}
+    doc = frappe.get_doc(dt, name)
+    changes = []
+    for df in frappe.get_meta(dt).fields:
+        if df.fieldtype in _SNAPSHOT_SKIP_FIELDTYPES or df.fieldname in _SYSTEM_FIELDS:
+            continue
+        val = doc.get(df.fieldname)
+        if val in (None, "", 0):
+            continue
+        changes.append({
+            "label": df.label or _humanize(df.fieldname),
+            "old_value": "",
+            "new_value": _fmt_val(val),
+            "type": "added",
+        })
+    return {
+        "success": True,
+        "record": name,
+        "category": _DOCTYPE_LABEL_MAP.get(dt, dt),
+        "changed_by": _get_user_display(doc.owner),
+        "timestamp": str(doc.creation),
+        "changes": changes,
+    }
+
+
+def _detail_deleted(name):
+    """Snapshot of the record as it was, reconstructed from Deleted Document."""
+    dd = frappe.db.get_value(
+        "Deleted Document", name,
+        ["deleted_doctype", "deleted_name", "data", "owner", "creation"], as_dict=True)
+    if not dd:
+        return {"success": False, "message": "Record not found"}
+    try:
+        snap = json.loads(dd.data) if isinstance(dd.data, str) else (dd.data or {})
+    except Exception:
+        snap = {}
+    dt = dd.deleted_doctype
+    has_meta = frappe.db.exists("DocType", dt)
+    changes = []
+    if isinstance(snap, dict):
+        for k, v in snap.items():
+            if k in _SYSTEM_FIELDS or k.startswith("_"):
+                continue
+            if isinstance(v, (list, dict)) or v in (None, "", 0):
+                continue
+            changes.append({
+                "label": _field_label(dt, k) if has_meta else _humanize(k),
+                "old_value": _fmt_val(v),
+                "new_value": "",
+                "type": "removed",
+            })
+    return {
+        "success": True,
+        "record": dd.deleted_name,
+        "category": _DOCTYPE_LABEL_MAP.get(dt, dt),
+        "changed_by": _get_user_display(dd.owner),
+        "timestamp": str(dd.creation),
+        "changes": changes,
+    }
+
+
+@frappe.whitelist()
+@require_process("audit")
+def get_audit_trail_detail(event_id=None, version_name=None):
+    """Detail view for one feed event. `event_id` is prefixed by source:
+    `ver:` (Version diff), `new:` (created snapshot), `del:` (deleted snapshot)."""
+    try:
+        eid = event_id or version_name
+        if not eid:
+            return {"success": False, "message": "Missing event id"}
+        if eid.startswith("ver:"):
+            return _detail_version(eid[4:])
+        if eid.startswith("new:"):
+            dt, _, name = eid[4:].partition("::")
+            return _detail_created(dt, name)
+        if eid.startswith("del:"):
+            return _detail_deleted(eid[4:])
+        # Backward-compatibility: a bare Version name.
+        return _detail_version(eid)
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Audit Trail Detail Error")
         return {"success": False, "message": str(e)}
