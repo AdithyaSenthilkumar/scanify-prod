@@ -2801,6 +2801,10 @@ def reroute_scheme_request(doc_name, comments):
         from scanify.permissions import require_manager
         require_manager()
         doc = frappe.get_doc("Scheme Request", doc_name)
+        # Access already authorized by require_manager() (portal Admin/HO). Bypass Frappe
+        # doctype perms so the save/submit works regardless of the approver's Frappe
+        # role/user_type (a Website-User Admin/HO has no Sales Manager submit perm).
+        doc.flags.ignore_permissions = True
 
         if doc.approval_status == "Rerouted":
             frappe.throw("Scheme request already rerouted")
@@ -2831,6 +2835,10 @@ def approve_scheme_request(doc_name, comments):
         from scanify.permissions import require_manager
         require_manager()
         doc = frappe.get_doc("Scheme Request", doc_name)
+        # Access already authorized by require_manager() (portal Admin/HO). Bypass Frappe
+        # doctype perms so the save/submit works regardless of the approver's Frappe
+        # role/user_type (a Website-User Admin/HO has no Sales Manager submit perm).
+        doc.flags.ignore_permissions = True
 
         if doc.approval_status == "Approved":
             frappe.throw("Scheme request already approved")
@@ -2864,6 +2872,10 @@ def reject_scheme_request(doc_name, comments):
         from scanify.permissions import require_manager
         require_manager()
         doc = frappe.get_doc("Scheme Request", doc_name)
+        # Access already authorized by require_manager() (portal Admin/HO). Bypass Frappe
+        # doctype perms so the save works regardless of the approver's Frappe
+        # role/user_type (a Website-User Admin/HO has no Sales Manager write perm).
+        doc.flags.ignore_permissions = True
 
         if doc.approval_status == "Rejected":
             frappe.throw("Scheme request already rejected")
