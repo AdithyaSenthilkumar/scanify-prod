@@ -25,7 +25,7 @@
                     <option value="moving_trend">1. Moving Trend Report</option>
                     <option value="rupee_wise">2. Rupee Wise Report</option>
                     <option value="productwise_topn">3. Productwise Ranking (Top N)</option>
-                    <option value="productwise_all">4. Productwise Ranking ALL</option>
+                    <option value="productwise_all">4. Product Wise Ranking Sheet</option>
                     <option value="productwise_advanced">5. Productwise Ranking Advanced</option>
                     <option value="pcpm_tracker">6. PCPM Tracker</option>
                 </select>
@@ -93,11 +93,16 @@
                 <label class="sr-filter-label">No. of Products</label>
                 <input type="number" class="form-control form-control-sm sr-filter-select" id="f-top-n" value="5" min="1" max="100">
             </div>
-            <!-- Single Product (Report 4) -->
+            <!-- No. of Ranks (Report 4) -->
             <div class="sr-filter-item filter-field" data-reports="productwise_all">
-                <label class="sr-filter-label">Product</label>
+                <label class="sr-filter-label">No. of Ranks</label>
+                <input type="number" class="form-control form-control-sm sr-filter-select" id="f-ranksheet-topn" value="2" min="1" max="20">
+            </div>
+            <!-- Single Product (Report 4, optional) -->
+            <div class="sr-filter-item filter-field" data-reports="productwise_all">
+                <label class="sr-filter-label">Product (optional)</label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-single-product">
-                    <option value="">-- Select Product --</option>
+                    <option value="">-- All Products --</option>
                     {% for p in products %}
                     <option value="{{ p.code }}">{{ p.code }} – {{ p.name }}</option>
                     {% endfor %}
@@ -310,6 +315,9 @@
     .report-table .rank-1 td:first-child { color: #d4a017; }
     .report-table .rank-2 td:first-child { color: #8a8a8a; }
     .report-table .rank-3 td:first-child { color: #cd7f32; }
+    /* Product Wise Ranking Sheet — heavier rule between product groups */
+    .report-table tr.group-start td { border-top: 2px solid var(--color-primary, #1e293b); }
+    .report-table tr.ranksheet-row:hover td { background: #f8fafc; }
 
     /* ─── Empty / Loading ─── */
     .sr-empty-state { text-align: center; padding: 60px 20px; }
@@ -556,7 +564,9 @@ function buildParams() {
         if (selProds.length) p.product_codes = JSON.stringify(selProds);
     } else if (currentReportType === "productwise_all") {
         p.sales_type    = getRadio("sales-type");
-        p.product_code  = document.getElementById("f-single-product").value;
+        p.top_n         = document.getElementById("f-ranksheet-topn").value || 2;
+        var singleProd  = document.getElementById("f-single-product").value;
+        if (singleProd) p.product_code = singleProd;
         if (region)   p.region    = region;
         if (fromDate) p.from_date = fromDate;
         if (toDate)   p.to_date   = toDate;
@@ -608,7 +618,7 @@ function renderReport(result) {
 
     var titles = {
         moving_trend: "Moving Trend Report", rupee_wise: "Rupee Wise Report",
-        productwise_topn: "Productwise Ranking (Top N)", productwise_all: "Productwise Ranking ALL",
+        productwise_topn: "Productwise Ranking (Top N)", productwise_all: "Product Wise Ranking Sheet",
         productwise_advanced: "Productwise Ranking Advanced", pcpm_tracker: "PCPM Tracker"
     };
     var subtitle = buildSubtitle(result);
@@ -619,12 +629,44 @@ function renderReport(result) {
     document.getElementById("print-subtitle").textContent  = subtitle;
 }
 
+/* Resolve a region filter value (Master code) to its display name. */
+function regionDisplayName(code) {
+    if (!code) return "All Regions";
+    for (var i = 0; i < ALL_REGIONS.length; i++) {
+        if (ALL_REGIONS[i].name === code) return ALL_REGIONS[i].region_name || code;
+    }
+    return code;
+}
+
+/* Human period phrase from the From/To dates: single month → "Month of Jan '26",
+   otherwise "Period Jan '26 to Mar '26". */
+function rankingPeriodPhrase(capitalized) {
+    var from = document.getElementById("f-from-date").value;
+    var to   = document.getElementById("f-to-date").value;
+    if (!from || !to) return "";
+    var fd = new Date(from), td_ = new Date(to);
+    if (isNaN(fd.getTime()) || isNaN(td_.getTime())) return "";
+    var mo = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    var lead = (capitalized ? "For the " : "for the ");
+    var lbl = function(d) { return mo[d.getMonth()] + " '" + String(d.getFullYear()).slice(2); };
+    if (fd.getFullYear() === td_.getFullYear() && fd.getMonth() === td_.getMonth()) {
+        return lead + "Month of " + lbl(fd);
+    }
+    return lead + "Period " + lbl(fd) + " to " + lbl(td_);
+}
+
 function buildSubtitle(result) {
     var fromDate = document.getElementById("f-from-date").value;
     var toDate   = document.getElementById("f-to-date").value;
-    var region   = document.getElementById("f-region").value || "All Regions";
+    var region   = regionDisplayName(document.getElementById("f-region").value);
     var parts = [];
-    if (currentReportType === "moving_trend" || currentReportType === "pcpm_tracker") {
+    if (currentReportType === "productwise_all") {
+        var pp = rankingPeriodPhrase(true);
+        if (pp) parts.push(pp);
+        parts.push(getRadio("sales-type") === "primary" ? "Primary Sales" : "Secondary Sales");
+        if (region !== "All Regions") parts.push("Region: " + region);
+        if (result && result.top_n) parts.push("Top " + result.top_n + " Ranks");
+    } else if (currentReportType === "moving_trend" || currentReportType === "pcpm_tracker") {
         parts.push(result.fy_label || "");
         if (region !== "All Regions") parts.push("Region: " + region);
         if (result.sanctioned_strength) parts.push("Strength: " + result.sanctioned_strength);
@@ -698,22 +740,20 @@ function renderProductTopN(result, thead, tbody) {
         td(fmtLakhs(result.grand_total),"text-right") + td("100.00%","text-right") + "</tr>";
 }
 
-/* ── Report 4: Productwise ALL (+ Value ₹ Lakhs) ── */
+/* ── Report 4: Product Wise Ranking Sheet ── */
 function renderProductAll(result, thead, tbody) {
-    thead.innerHTML = "<tr>" + th("Rank") + th("HQ") + th("Product Code") + th("Product Name") +
-        th("Total Qty") + th("Total Value") + th("Value \u20b9 Lakhs") + th("Contribution %") + "</tr>";
+    thead.innerHTML = "<tr>" + th("Product Code") + th("Pack") + th("Rank") +
+        th("Headquarters") + th("Region") + th("Sales") + "</tr>";
 
     (result.data || []).forEach(function(r) {
-        var cls = r.rank <= 3 ? "rank-" + r.rank : "";
-        tbody.innerHTML += '<tr class="' + cls + '">' +
-            td(r.rank) + td(esc(r.hq)) + td(esc(r.product_code)) + td(esc(r.product_name)) +
-            td(fmtQty(r.total_qty),"text-right") + td(fmt(r.total_value),"text-right") +
-            td(fmtLakhs(r.total_value),"text-right") + td(fmtPct(r.contribution_pct),"text-right") + "</tr>";
+        // Product code is shown once per product group (backend blanks the repeats).
+        var groupStart = r.product_code ? " group-start" : "";
+        tbody.innerHTML += '<tr class="ranksheet-row' + groupStart + '">' +
+            td(esc(r.product_code), "font-weight-bold") + td(esc(r.pack)) +
+            td(esc(r.rank_roman), "text-center font-weight-bold") +
+            td(esc(r.hq)) + td(esc(r.region)) +
+            td(r.sales != null ? Number(r.sales).toLocaleString("en-IN") : "0", "text-right") + "</tr>";
     });
-    tbody.innerHTML += '<tr class="grand-total-row">' +
-        '<td colspan="4" class="text-right"><strong>Grand Total</strong></td>' +
-        "<td></td>" + td(fmt(result.grand_total),"text-right") +
-        td(fmtLakhs(result.grand_total),"text-right") + td("100.00%","text-right") + "</tr>";
 }
 
 /* ── Report 5: Productwise Advanced (+ Value ₹ Lakhs) ── */
@@ -781,12 +821,18 @@ function downloadExcel() {
 function rankingPdfTitle() {
     var titles = {
         moving_trend: "Moving Trend Report", rupee_wise: "Rupee Wise Report",
-        productwise_topn: "Productwise Ranking (Top N)", productwise_all: "Productwise Ranking ALL",
+        productwise_topn: "Productwise Ranking (Top N)", productwise_all: "Product Wise Ranking Sheet",
         productwise_advanced: "Productwise Ranking Advanced", pcpm_tracker: "PCPM Tracker"
     };
     var base = titles[currentReportType] || "Ranking Report";
     var st = currentReportType === "productwise_advanced" ? getRadio("sales-type-adv") : getRadio("sales-type");
     var stLabel = st === "primary" ? "Primary Sales" : (st === "closing" ? "Closing Stock" : "Secondary Sales");
+    // Product Wise Ranking Sheet mirrors the printed title, e.g.
+    // "Product Wise Ranking Sheet for the Month of Jan '26 (Secondary Sales)".
+    if (currentReportType === "productwise_all") {
+        var pp = rankingPeriodPhrase(false);
+        return base + (pp ? " " + pp : "") + " (" + stLabel + ")";
+    }
     return base + " (" + stLabel + ")";
 }
 
@@ -796,7 +842,14 @@ function downloadPDF() {
     if (!tableEl) return;
 
     var sub = DIVISION + " Division";
-    if (currentReportMeta.subtitle) sub += "  |  " + currentReportMeta.subtitle;
+    if (currentReportType === "productwise_all") {
+        // The sheet title already carries the period + sales type; keep the
+        // subtitle to just the region filter (if any), like the printed format.
+        var reg = regionDisplayName(document.getElementById("f-region").value);
+        if (reg && reg !== "All Regions") sub += "  |  Region: " + reg;
+    } else if (currentReportMeta.subtitle) {
+        sub += "  |  " + currentReportMeta.subtitle;
+    }
 
     ScanifyReportPDF.exportTable({
         tableEl: tableEl,

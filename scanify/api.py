@@ -13007,6 +13007,18 @@ def get_ranking_moving_trend_report(division=None, sales_type="secondary",
         d["average"] = round(d["total"] / 12, 2)
     data.sort(key=lambda x: x["total"], reverse=True)
 
+    # Region / HQ / Team are grouped by the Master id (code); the sheet shows names.
+    if criteria == "HQ":
+        hq_lut, team_lut = _name_lut("HQ Master", "hq_name"), _name_lut("Team Master", "team_name")
+        for d in data:
+            v = d["criteria_name"]
+            d["criteria_name"] = hq_lut.get(v) or team_lut.get(v) or v
+    elif criteria in ("Region", "Team"):
+        lut = _name_lut("Region Master", "region_name") if criteria == "Region" \
+            else _name_lut("Team Master", "team_name")
+        for d in data:
+            d["criteria_name"] = lut.get(d["criteria_name"], d["criteria_name"])
+
     return {"success": True, "data": data, "fy_label": fy_label,
             "month_labels": _MONTH_LABELS, "criteria": criteria}
 
@@ -13018,6 +13030,32 @@ def _pri_master_name(doctype, value, name_field):
     if not value:
         return value
     return frappe.db.get_value(doctype, value, name_field) or value
+
+
+def _name_lut(doctype, name_field):
+    """PK → display-name map for a hierarchy master (single query, fail-open).
+
+    Ranking rows store the Master's id (its internal code) for region / hq / team;
+    the printed sheets show only the human name. Callers do ``lut.get(value, value)``
+    so a value that is already a name (e.g. Primary Sales stores region by name)
+    passes straight through unchanged."""
+    rows = frappe.get_all(doctype, fields=["name", name_field])
+    return {r["name"]: (r.get(name_field) or r["name"]) for r in rows}
+
+
+def _to_roman(n):
+    """Small positive int → Roman numeral (rank labels I, II, III …)."""
+    if not n or n < 1:
+        return ""
+    table = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+             (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+             (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
+    out = []
+    for val, sym in table:
+        while n >= val:
+            out.append(sym)
+            n -= val
+    return "".join(out)
 
 
 def _moving_trend_primary(division, criteria, from_date, to_date, region, zone):
@@ -13161,6 +13199,12 @@ def get_ranking_rupee_wise_report(division=None, sales_type="secondary",
         # Statement items link by the Product Master id; show business codes.
         _apply_product_display_codes(rows)
 
+    # Region / HQ are stored as Master ids (codes); show their names only.
+    reg_lut, hq_lut = _name_lut("Region Master", "region_name"), _name_lut("HQ Master", "hq_name")
+    for r in rows:
+        r["region"] = reg_lut.get(r.get("region"), r.get("region"))
+        r["hq"] = hq_lut.get(r.get("hq"), r.get("hq"))
+
     # Add serial number
     for i, r in enumerate(rows, 1):
         r["sno"] = i
@@ -13252,21 +13296,36 @@ def get_ranking_productwise_topn(division=None, product_codes=None, top_n=5,
 
 
 # ─────────────────────────────────────────────────────────────
-# Report 4: Productwise Ranking ALL (single product across HQs)
+# Report 4: Product Wise Ranking Sheet
+#   For each product, dense-rank headquarters by sales quantity and keep the
+#   top-N ranks. Mirrors the printed Stedman sheet:
+#   Product Code | Pack | Rank | Headquarters | Region | Sales.
 # ─────────────────────────────────────────────────────────────
 @frappe.whitelist()
 def get_ranking_productwise_all(division=None, product_code=None, region=None,
-                                 sales_type="secondary", from_date=None, to_date=None):
-    """Rank HQs for a single product by total value, with contribution %."""
+                                 sales_type="secondary", from_date=None, to_date=None,
+                                 top_n=2):
+    """Product Wise Ranking Sheet — per product, dense-rank HQs by sales, keep top-N ranks.
+
+    ``top_n`` counts *distinct* ranks (default 2 → I & II); tied HQs share a rank,
+    so a product can have more rows than ``top_n``. ``product_code`` optionally
+    narrows to a single product; otherwise every product with sales is listed,
+    ordered by the Product Master sequence."""
     if not division:
         division = get_user_division()
-    if not product_code:
-        return {"success": False, "message": "Product code is required"}
+    try:
+        top_n = int(top_n or 2)
+    except (TypeError, ValueError):
+        top_n = 2
+    if top_n < 1:
+        top_n = 2
 
     if sales_type == "primary":
-        conditions = ["ps.division = %(division)s", "ps.iscancelled = 0",
-                       "ps.pcode = %(product_code)s"]
-        params = {"division": division, "product_code": product_code}
+        conditions = ["ps.division = %(division)s", "ps.iscancelled = 0"]
+        params = {"division": division}
+        if product_code:
+            conditions.append("ps.pcode = %(pcode)s")
+            params["pcode"] = product_code
         if region:
             conditions.append("ps.region = %(region)s")
             params["region"] = _pri_master_name("Region Master", region, "region_name")
@@ -13279,21 +13338,21 @@ def get_ranking_productwise_all(division=None, product_code=None, region=None,
         where = " AND ".join(conditions)
 
         rows = frappe.db.sql(f"""
-            SELECT IFNULL(sm.hq, ps.team) AS hq,
-                   ps.pcode AS product_code, ps.product AS product_name,
-                   SUM(ps.quantity) AS total_qty, SUM(ps.ptsvalue) AS total_value
+            SELECT ps.pcode AS product_code,
+                   IFNULL(sm.hq, ps.team) AS hq, ps.region AS region,
+                   SUM(ps.quantity) AS sales
             FROM `tabPrimary Sales Data` ps
             LEFT JOIN `tabStockist Master` sm ON sm.name = ps.stockist_code AND sm.status = 'Active'
             WHERE {where}
-            GROUP BY hq, ps.pcode, ps.product
-            ORDER BY total_value DESC
+            GROUP BY ps.pcode, hq, ps.region
         """, params, as_dict=True)
     else:
-        conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)",
-                       "si.product_code = %(product_code)s"]
-        # UI sends the business code; the item Link column stores the id.
-        params = {"division": division,
-                  "product_code": _resolve_product_pk(product_code, division) or product_code}
+        conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
+        params = {"division": division}
+        if product_code:
+            # UI sends the business code; the item Link column stores the id.
+            conditions.append("si.product_code = %(pcode)s")
+            params["pcode"] = _resolve_product_pk(product_code, division) or product_code
         if region:
             conditions.append("ss.region = %(region)s")
             params["region"] = region
@@ -13306,35 +13365,69 @@ def get_ranking_productwise_all(division=None, product_code=None, region=None,
         where = " AND ".join(conditions)
 
         rows = frappe.db.sql(f"""
-            SELECT IFNULL(sm.hq, ss.hq) AS hq,
-                   si.product_code, si.product_name,
-                     SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS total_qty,
-                   SUM(si.sales_value_pts) AS total_value
+            SELECT si.product_code, ss.hq AS hq, ss.region AS region,
+                   SUM(si.sales_qty / IFNULL(NULLIF(si.conversion_factor, 0), 1)) AS sales
             FROM `tabStockist Statement` ss
             INNER JOIN `tabStockist Statement Item` si
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
-            LEFT JOIN `tabStockist Master` sm ON sm.name = ss.stockist_code AND sm.status = 'Active'
             WHERE {where}
-            GROUP BY hq, si.product_code, si.product_name
-            ORDER BY total_value DESC
+            GROUP BY si.product_code, ss.hq, ss.region
         """, params, as_dict=True)
-        _apply_product_display_codes(rows)
+        _apply_product_display_codes(rows)   # item id → business product code
 
-    grand_total = sum(flt(r.total_value) for r in rows)
-    data = []
-    for rank, r in enumerate(rows, 1):
-        pct = round(flt(r.total_value) / grand_total * 100, 2) if grand_total else 0
-        data.append({
-            "rank": rank,
-            "hq": r.hq,
-            "product_code": r.product_code,
-            "product_name": r.product_name,
-            "total_qty": flt(r.total_qty),
-            "total_value": flt(r.total_value),
-            "contribution_pct": pct,
+    # Resolve HQ / Region ids to their names (only names on the printed sheet).
+    hq_lut, reg_lut = _name_lut("HQ Master", "hq_name"), _name_lut("Region Master", "region_name")
+
+    # Product display info (pack + sequence) keyed by business code.
+    prod_info = {}
+    for p in frappe.db.sql(
+            "SELECT product_code, pack, COALESCE(sequence, 9999) AS seq "
+            "FROM `tabProduct Master` WHERE division = %s", (division,), as_dict=True):
+        prod_info[p.product_code] = {"pack": p.pack or "", "seq": p.seq}
+
+    # Bucket HQ rows per product. Skip non-product statement lines (no code) and
+    # zero-sales rows — the printed sheet only ranks headquarters that actually sold.
+    buckets = {}
+    for r in rows:
+        if not r.product_code:
+            continue
+        sales = int(round(flt(r.sales)))   # rank/display on the same whole number
+        if sales <= 0:
+            continue
+        buckets.setdefault(r.product_code, []).append({
+            "hq": hq_lut.get(r.hq, r.hq) or "",
+            "region": reg_lut.get(r.region, r.region) or "",
+            "sales": sales,
         })
 
-    return {"success": True, "data": data, "grand_total": grand_total}
+    # Order products by the master sequence, dense-rank HQs, keep the top-N ranks.
+    ordered_codes = sorted(buckets.keys(),
+                           key=lambda c: (prod_info.get(c, {}).get("seq", 9999), c or ""))
+
+    data = []
+    for pc in ordered_codes:
+        hq_rows = sorted(buckets[pc], key=lambda x: x["sales"], reverse=True)
+        pack = prod_info.get(pc, {}).get("pack", "")
+        rank, prev_sales, first = 0, None, True
+        for hr in hq_rows:
+            # Dense rank on the displayed value so tied HQs share a rank (I, I, II …).
+            if prev_sales is None or hr["sales"] != prev_sales:
+                rank += 1
+                prev_sales = hr["sales"]
+            if rank > top_n:
+                break
+            data.append({
+                "product_code": pc if first else "",   # code shown once per product group
+                "pack": pack,
+                "rank": rank,
+                "rank_roman": _to_roman(rank),
+                "hq": hr["hq"],
+                "region": hr["region"],
+                "sales": hr["sales"],
+            })
+            first = False
+
+    return {"success": True, "data": data, "top_n": top_n}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -13470,12 +13563,18 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
         # Statement items link by the Product Master id; show business codes.
         _apply_product_display_codes(rows)
 
+    # Region (and the HQ group key, when grouping HQ-wise) are stored as Master
+    # ids; show names only. Stockist grouping already carries the readable name.
+    reg_lut = _name_lut("Region Master", "region_name")
+    hq_lut = _name_lut("HQ Master", "hq_name") if hq_wise else None
+
     data = []
     for rank, r in enumerate(rows, 1):
+        group_key = r.group_key or ""
         data.append({
             "rank": rank,
-            "region": r.region or "",
-            "group_key": r.group_key or "",
+            "region": reg_lut.get(r.region, r.region) or "",
+            "group_key": hq_lut.get(group_key, group_key) if hq_lut else group_key,
             "product_code": r.product_code,
             "product_name": r.product_name,
             "qty": flt(r.qty),
@@ -13674,7 +13773,7 @@ def export_ranking_report_excel(report_type, division=None, **kwargs):
         period_label = f"{from_d} to {to_d}" if from_d and to_d else ""
         row = write_title_rows(ws, f"Rupee Wise Report – {division}", period_label)
         headers = ["S.No", "Date", "Region", "HQ", "Stockist Code", "Stockist Name",
-                    "Product Code", "Product", "Qty", "Rate", "Value"]
+                    "Product Code", "Product", "Qty", "Rate", "Value", "Value ₹ Lakhs"]
         write_header_row(ws, row, headers)
         row += 1
         for d in data:
@@ -13682,7 +13781,8 @@ def export_ranking_report_excel(report_type, division=None, **kwargs):
                                       d.get("hq", ""), d.get("stockist_code", ""),
                                       d.get("stockist_name", ""), d.get("product_code", ""),
                                       d.get("product_name", ""), d.get("qty", 0),
-                                      d.get("rate", 0), d.get("value", 0)])
+                                      d.get("rate", 0), d.get("value", 0),
+                                      round(flt(d.get("value", 0)) / 100000, 2)])
             row += 1
 
     elif report_type == "productwise_topn":
@@ -13695,30 +13795,34 @@ def export_ranking_report_excel(report_type, division=None, **kwargs):
         data = result.get("data", [])
         row = write_title_rows(ws, f"Productwise Ranking (Top N) – {division}", "")
         headers = ["Rank", "Product Code", "Product Name", "Total Qty",
-                    "Total Value", "Contribution %"]
+                    "Total Value", "Value ₹ Lakhs", "Contribution %"]
         write_header_row(ws, row, headers)
         row += 1
         for d in data:
             write_data_row(ws, row, [d["rank"], d["product_code"], d["product_name"],
-                                      d["total_qty"], d["total_value"], d["contribution_pct"]])
+                                      d["total_qty"], d["total_value"],
+                                      round(flt(d["total_value"]) / 100000, 2),
+                                      d["contribution_pct"]])
             row += 1
 
     elif report_type == "productwise_all":
-        ws.title = "Product Ranking All"
+        ws.title = "Product Wise Ranking Sheet"
         result = get_ranking_productwise_all(
             division, kwargs.get("product_code"),
             kwargs.get("region"), kwargs.get("sales_type", "secondary"),
-            kwargs.get("from_date"), kwargs.get("to_date"))
+            kwargs.get("from_date"), kwargs.get("to_date"),
+            kwargs.get("top_n", 2))
         data = result.get("data", [])
-        row = write_title_rows(ws, f"Productwise Ranking ALL – {division}", "")
-        headers = ["Rank", "HQ", "Product Code", "Product Name",
-                    "Total Qty", "Total Value", "Contribution %"]
+        st = kwargs.get("sales_type", "secondary")
+        st_label = "Primary Sales" if st == "primary" else "Secondary Sales"
+        row = write_title_rows(ws, f"Product Wise Ranking Sheet – {division}", st_label)
+        headers = ["Product Code", "Pack", "Rank", "Headquarters", "Region", "Sales"]
         write_header_row(ws, row, headers)
         row += 1
         for d in data:
-            write_data_row(ws, row, [d["rank"], d["hq"], d["product_code"],
-                                      d["product_name"], d["total_qty"],
-                                      d["total_value"], d["contribution_pct"]])
+            write_data_row(ws, row, [d.get("product_code", ""), d.get("pack", ""),
+                                      d.get("rank_roman", ""), d.get("hq", ""),
+                                      d.get("region", ""), d.get("sales", 0)])
             row += 1
 
     elif report_type == "productwise_advanced":
@@ -13731,13 +13835,14 @@ def export_ranking_report_excel(report_type, division=None, **kwargs):
         data = result.get("data", [])
         gl = result.get("group_label", "HQ")
         row = write_title_rows(ws, f"Productwise Ranking Advanced – {division}", "")
-        headers = ["Rank", "Region", gl, "Product Code", "Product Name", "Qty", "Value"]
+        headers = ["Rank", "Region", gl, "Product Code", "Product Name", "Qty", "Value", "Value ₹ Lakhs"]
         write_header_row(ws, row, headers)
         row += 1
         for d in data:
             write_data_row(ws, row, [d["rank"], d["region"], d["group_key"],
                                       d["product_code"], d["product_name"],
-                                      d["qty"], d["value"]])
+                                      d["qty"], d["value"],
+                                      round(flt(d["value"]) / 100000, 2)])
             row += 1
 
     elif report_type == "pcpm_tracker":

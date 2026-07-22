@@ -103,6 +103,9 @@
         doc.setDrawColor(0);
     }
 
+    var SIGNATORY_NAME = "S Kapali";
+    var SIGNATORY_DESIGNATION = "Manager - Logistics";
+
     function drawClosing(doc, y) {
         var margin = 10;
         doc.setFont("helvetica", "normal");
@@ -110,6 +113,11 @@
         doc.setTextColor(0);
         doc.text("With our Best Wishes,", margin, y);
         doc.text("for Stedman Pharmaceuticals Pvt Ltd.,", margin, y + 5);
+        // Signatory block — space above the name leaves room for a scanned signature.
+        doc.setFont("helvetica", "bold");
+        doc.text(SIGNATORY_NAME, margin, y + 18);
+        doc.setFont("helvetica", "normal");
+        doc.text(SIGNATORY_DESIGNATION, margin, y + 23);
     }
 
     function drawFooters(doc, division) {
@@ -237,9 +245,10 @@
             }
         });
 
-        // Closing note on the last page (new page if there's no room).
+        // Closing note on the last page (new page if there's no room for the
+        // full signatory block, which now extends ~23mm below the anchor).
         var cy = (doc.lastAutoTable ? doc.lastAutoTable.finalY : HEADER_RESERVE) + 10;
-        if (cy > pageH - 18) {
+        if (cy > pageH - 32) {
             doc.addPage();
             drawHeader(doc, title, subtitle);
             cy = HEADER_RESERVE + 8;
