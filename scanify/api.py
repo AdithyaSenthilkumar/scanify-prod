@@ -2,7 +2,7 @@ import frappe
 import json
 from frappe import _
 from frappe.utils import flt, nowdate, add_months, get_first_day
-from scanify.permissions import require_process
+from scanify.permissions import require_process, require
 import requests
 import os
 import base64
@@ -6606,11 +6606,21 @@ def get_doctor_monthly_limit_info(doctor_code, application_date=None):
 
 @frappe.whitelist()
 def create_scheme_request_v2(data):
-    """Create a new scheme request from portal (robust version)"""
-    try:
-        if isinstance(data, str):
-            data = json.loads(data)
+    """Create a new scheme request from portal (robust version).
 
+    Serves BOTH scheme-new and scheme-repeat. Access is enforced by portal role here
+    (the endpoint had no guard before): repeats are open to every portal role, while
+    brand-new requests are limited to Admin / HO / Regional-Future per the process
+    matrix — so a Regional User may only create repeats. The scheme is then inserted
+    with ignore_permissions=True so it doesn't depend on the acting user's Frappe
+    role/user_type: a Regional User who is a Website User (no Sales User role) would
+    otherwise fail Frappe's doctype create permission. Business validations on Scheme
+    Request (monthly limits, etc.) still run — ignore_permissions skips only perms."""
+    if isinstance(data, str):
+        data = json.loads(data)
+    _is_repeat = str(data.get("repeated_request", 0)).lower() in ("1", "true", "yes")
+    require("scheme_repeat" if _is_repeat else "scheme_new")
+    try:
         doc = frappe.new_doc("Scheme Request")
         doc.application_date = data.get("application_date") or nowdate()
         doc.requested_by = frappe.session.user
@@ -6671,7 +6681,7 @@ def create_scheme_request_v2(data):
                 "product_value": product_value,
             })
 
-        doc.insert(ignore_permissions=False)
+        doc.insert(ignore_permissions=True)
 
         # Re-point uploaded proof files to this Scheme Request so private-file
         # access is granted through document permissions when viewing later.
