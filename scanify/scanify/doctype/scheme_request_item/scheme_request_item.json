@@ -42,14 +42,14 @@
   },
   {
    "fieldname": "quantity",
-   "fieldtype": "Int",
+   "fieldtype": "Float",
    "in_list_view": 1,
    "label": "Order Qty (strips/units)",
    "reqd": 1
   },
   {
    "fieldname": "free_quantity",
-   "fieldtype": "Int",
+   "fieldtype": "Float",
    "in_list_view": 1,
    "label": "Free Qty (strips/units)",
    "default": "0"
