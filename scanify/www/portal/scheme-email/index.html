@@ -26,10 +26,18 @@
         <div class="card-body">
             <div class="row align-items-end">
                 <div class="col-md-3">
+                    <label><strong>Email type</strong></label>
+                    <select id="filterMailType" class="form-control" onchange="loadPending()">
+                        <option value="Approved">Approved → CFA (billing)</option>
+                        <option value="Rejected">Rejected → requestor notice</option>
+                        <option value="Rerouted">Rerouted → requestor notice</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
                     <label><strong>Month <span class="text-danger">*</span></strong></label>
                     <input type="month" id="filterMonth" class="form-control">
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label><strong>Region</strong></label>
                     <select id="filterRegion" class="form-control">
                         <option value="">All regions</option>
@@ -40,7 +48,7 @@
                         <i class="fa fa-search"></i> Load
                     </button>
                 </div>
-                <div class="col-md-3 text-right">
+                <div class="col-md-2 text-right">
                     <span class="text-muted small" id="pendingCount"></span>
                 </div>
             </div>
@@ -49,8 +57,11 @@
 
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <span><i class="fa fa-list"></i> Approved schemes pending email</span>
+            <span><i class="fa fa-list"></i> <span id="pendingHeading">Schemes pending email</span></span>
             <div>
+                <button class="btn btn-sm btn-outline-secondary" onclick="openEmailSettings()" title="Customise the email wording">
+                    <i class="fa fa-cog"></i> Email Settings
+                </button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="previewEmails()" id="previewBtn" disabled>
                     <i class="fa fa-eye"></i> Preview (<span id="selCount">0</span>)
                 </button>
@@ -105,6 +116,62 @@
     </div>
 </div>
 
+<!-- Email Settings Modal -->
+<div class="modal fade" id="emailSettingsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fa fa-cog"></i> Scheme Email Settings</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info small">
+                    <i class="fa fa-info-circle"></i> These control the wording of the
+                    <strong>Approved → CFA</strong> email. Leave any field <strong>blank</strong> to use the
+                    built-in default (shown as the placeholder). The signature is also used on
+                    reject/reroute notices. The data table columns are fixed.
+                </div>
+                <div class="form-group">
+                    <label><strong>Subject Template</strong></label>
+                    <input type="text" id="cfgSubject" class="form-control">
+                    <small class="text-muted">Placeholders: <code>{division}</code>, <code>{region}</code>, <code>{month}</code></small>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label><strong>Greeting</strong></label>
+                        <input type="text" id="cfgGreeting" class="form-control">
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label><strong>Intro Line</strong></label>
+                        <input type="text" id="cfgIntro" class="form-control">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label><strong>RSM Heading</strong></label>
+                    <input type="text" id="cfgRsmHeading" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label><strong>RSM Notes</strong> <span class="text-muted small">(one bullet per line)</span></label>
+                    <textarea id="cfgRsmNotes" class="form-control" rows="4"></textarea>
+                </div>
+                <div class="form-group">
+                    <label><strong>Signature</strong> <span class="text-muted small">(one line per row)</span></label>
+                    <textarea id="cfgSignature" class="form-control" rows="3"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary mr-auto" onclick="resetEmailSettings()">
+                    <i class="fa fa-undo"></i> Reset to defaults
+                </button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="cfgSaveBtn" onclick="saveEmailSettings()">
+                    <i class="fa fa-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <style>
     .scheme-email-page .no-recipient { color: #dc3545; }
     .scheme-email-page tr.row-unroutable { background: #fff5f5; }
@@ -126,6 +193,10 @@
 
     let pendingSchemes = [];
     let lastPreviewGroups = [];
+
+    function getMailType() {
+        return $('#filterMailType').val() || 'Approved';
+    }
 
     $(document).ready(function () {
         // Default month = current month (YYYY-MM)
@@ -157,13 +228,20 @@
     function loadPending() {
         const month = $('#filterMonth').val();
         if (!month) { showAlert('Please pick a month', 'warning'); return; }
+        const mt = getMailType();
+        const headings = {
+            Approved: 'Approved schemes pending CFA email',
+            Rejected: 'Rejected schemes pending requestor notice',
+            Rerouted: 'Rerouted schemes pending requestor notice'
+        };
+        $('#pendingHeading').text(headings[mt] || 'Schemes pending email');
         $('#pendingBody').html('<tr><td colspan="10" class="text-center text-muted py-4"><i class="fa fa-spinner fa-spin"></i> Loading...</td></tr>');
         $.ajax({
             url: '/api/method/scanify.api.get_pending_scheme_emails',
             type: 'POST',
             contentType: 'application/json',
             headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-            data: JSON.stringify({ division: getActiveDivision(), month: month, region: $('#filterRegion').val() || null }),
+            data: JSON.stringify({ division: getActiveDivision(), month: month, region: $('#filterRegion').val() || null, mail_type: mt }),
             success: function (r) {
                 if (r.message && r.message.success) {
                     pendingSchemes = r.message.schemes || [];
@@ -180,7 +258,7 @@
         $('#pendingCount').text(pendingSchemes.length + ' scheme(s) pending email');
         $('#selectAll').prop('checked', false);
         if (!pendingSchemes.length) {
-            $('#pendingBody').html('<tr><td colspan="10" class="text-center text-muted py-4">No approved schemes pending email for this month/region.</td></tr>');
+            $('#pendingBody').html('<tr><td colspan="10" class="text-center text-muted py-4">No schemes pending email for this type/month/region.</td></tr>');
             updateSelCount();
             return;
         }
@@ -189,7 +267,7 @@
             const routable = s.has_recipient;
             const recipients = routable
                 ? (s.to_emails || []).join(', ')
-                : '<span class="no-recipient"><i class="fa fa-exclamation-triangle"></i> No To email on Team/User</span>';
+                : '<span class="no-recipient"><i class="fa fa-exclamation-triangle"></i> No recipient email on file</span>';
             html += `<tr class="${routable ? '' : 'row-unroutable'}">
                 <td><input type="checkbox" class="scheme-check" value="${s.name}" ${routable ? '' : 'disabled'} onclick="updateSelCount()"></td>
                 <td><a href="/portal/scheme-detail?name=${s.name}" target="_blank">${s.name}</a></td>
@@ -234,7 +312,7 @@
             type: 'POST',
             contentType: 'application/json',
             headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-            data: JSON.stringify({ scheme_names: JSON.stringify(names), month: $('#filterMonth').val() }),
+            data: JSON.stringify({ scheme_names: JSON.stringify(names), month: $('#filterMonth').val(), mail_type: getMailType() }),
             success: function (r) {
                 if (r.message && r.message.success) {
                     lastPreviewGroups = r.message.groups || [];
@@ -290,7 +368,7 @@
             type: 'POST',
             contentType: 'application/json',
             headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
-            data: JSON.stringify({ scheme_names: JSON.stringify(names), month: $('#filterMonth').val() }),
+            data: JSON.stringify({ scheme_names: JSON.stringify(names), month: $('#filterMonth').val(), mail_type: getMailType() }),
             success: function (r) {
                 const d = r.message || {};
                 if (d.success) {
@@ -313,6 +391,76 @@
                 console.error(xhr.responseText);
                 $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Send');
                 showAlert('Error sending emails', 'danger');
+            }
+        });
+    }
+
+    // ===================== EMAIL SETTINGS =====================
+
+    let cfgDefaults = {};
+
+    function openEmailSettings() {
+        $('#emailSettingsModal').modal('show');
+        $.ajax({
+            url: '/api/method/scanify.api.get_scheme_email_config',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({}),
+            success: function (r) {
+                const d = r.message || {};
+                if (!d.success) { showAlert(d.message || 'Could not load settings', 'danger'); return; }
+                cfgDefaults = d.defaults || {};
+                const c = d.config || {};
+                // Show the effective value; placeholder shows the built-in default so a
+                // cleared field visibly falls back.
+                $('#cfgSubject').val(c.subject_template || '').attr('placeholder', cfgDefaults.subject_template || '');
+                $('#cfgGreeting').val(c.greeting || '').attr('placeholder', cfgDefaults.greeting || '');
+                $('#cfgIntro').val(c.intro || '').attr('placeholder', cfgDefaults.intro || '');
+                $('#cfgRsmHeading').val(c.rsm_heading || '').attr('placeholder', cfgDefaults.rsm_heading || '');
+                $('#cfgRsmNotes').val(c.rsm_notes || '').attr('placeholder', cfgDefaults.rsm_notes || '');
+                $('#cfgSignature').val(c.signature || '').attr('placeholder', cfgDefaults.signature || '');
+            },
+            error: function (xhr) { console.error(xhr.responseText); showAlert('Error loading email settings', 'danger'); }
+        });
+    }
+
+    function resetEmailSettings() {
+        // Clearing every field makes the renderer fall back to the built-in defaults.
+        $('#cfgSubject, #cfgGreeting, #cfgIntro, #cfgRsmHeading, #cfgRsmNotes, #cfgSignature').val('');
+        showAlert('Fields cleared — click Save to revert to the built-in defaults.', 'info');
+    }
+
+    function saveEmailSettings() {
+        const $btn = $('#cfgSaveBtn');
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Saving...');
+        $.ajax({
+            url: '/api/method/scanify.api.update_scheme_email_config',
+            type: 'POST',
+            contentType: 'application/json',
+            headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+            data: JSON.stringify({
+                subject_template: $('#cfgSubject').val(),
+                greeting: $('#cfgGreeting').val(),
+                intro: $('#cfgIntro').val(),
+                rsm_heading: $('#cfgRsmHeading').val(),
+                rsm_notes: $('#cfgRsmNotes').val(),
+                signature: $('#cfgSignature').val()
+            }),
+            success: function (r) {
+                $btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save');
+                const d = r.message || {};
+                if (d.success) {
+                    $('#emailSettingsModal').modal('hide');
+                    showAlert('Email settings saved. Use Preview to check the wording.', 'success');
+                } else {
+                    showAlert(d.message || 'Save failed', 'danger');
+                }
+            },
+            error: function (xhr) {
+                $btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save');
+                console.error(xhr.responseText);
+                showAlert('Error saving email settings', 'danger');
             }
         });
     }

@@ -12,7 +12,14 @@
     "gemini_api_key",
     "gemini_model_name",
     "features_section",
-    "enable_chatbot"
+    "enable_chatbot",
+    "scheme_email_section",
+    "scheme_email_subject_template",
+    "scheme_email_greeting",
+    "scheme_email_intro",
+    "scheme_email_rsm_heading",
+    "scheme_email_rsm_notes",
+    "scheme_email_signature"
   ],
   "fields": [
     {
@@ -68,6 +75,47 @@
       "fieldtype": "Check",
       "label": "Enable Chatbot",
       "description": "Enable or disable the AI Chatbot feature in the portal"
+    },
+    {
+      "fieldname": "scheme_email_section",
+      "fieldtype": "Section Break",
+      "label": "Scheme Email (Approved → CFA)"
+    },
+    {
+      "fieldname": "scheme_email_subject_template",
+      "fieldtype": "Data",
+      "label": "Subject Template",
+      "description": "Placeholders: {division}, {region}, {month}. Leave blank to use the built-in default."
+    },
+    {
+      "fieldname": "scheme_email_greeting",
+      "fieldtype": "Data",
+      "label": "Greeting",
+      "description": "First line, e.g. 'Dear CFA,'. Leave blank for the built-in default."
+    },
+    {
+      "fieldname": "scheme_email_intro",
+      "fieldtype": "Data",
+      "label": "Intro Line",
+      "description": "Bold line above the table, e.g. 'Approved for billing:'. Leave blank for default."
+    },
+    {
+      "fieldname": "scheme_email_rsm_heading",
+      "fieldtype": "Data",
+      "label": "RSM Heading",
+      "description": "Heading before the notes, e.g. 'Dear RSM,'. Leave blank for default."
+    },
+    {
+      "fieldname": "scheme_email_rsm_notes",
+      "fieldtype": "Small Text",
+      "label": "RSM Notes",
+      "description": "One bullet per line. Leave blank for the built-in default notes."
+    },
+    {
+      "fieldname": "scheme_email_signature",
+      "fieldtype": "Small Text",
+      "label": "Signature",
+      "description": "Closing signature block, one line per row. Leave blank for the built-in default. Also used on reject/reroute notices."
     }
   ],
   "index_web_pages_for_search": 1,

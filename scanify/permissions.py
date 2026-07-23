@@ -81,22 +81,44 @@ APP_MANAGED_ROLES = {"System Manager", "Sales Manager", "Sales User", "Stock Man
 def sync_frappe_roles(user, portal_role=None, prune=True):
     """Grant the Frappe roles a portal user's role needs (and optionally strip the
     app-managed roles it should no longer have). Never touches Administrator, and
-    never strips the acting user's own System Manager (avoids self-lockout)."""
+    never strips the acting user's own System Manager (avoids self-lockout).
+
+    A portal user's Frappe roles are managed here from portal_role, so any Role Profile
+    bound to the account is DETACHED first: Frappe's populate_role_profile_roles pins a
+    user's roles to exactly the profile's set on every save, which would otherwise strip
+    the desk-access roles we grant and — because user_type is derived from whether any
+    role has desk access — silently keep the account a Website User (no doctype perms,
+    no scheme-attachment download). The whole update is one save so validation sees the
+    detached profile and the granted roles together."""
     if user == "Administrator":
         return
     portal_role = portal_role or get_portal_role(user)
     desired = [r for r in PORTAL_FRAPPE_ROLES.get(portal_role, []) if frappe.db.exists("Role", r)]
     have = set(frappe.get_roles(user))
     doc = frappe.get_doc("User", user)
-    to_add = [r for r in desired if r not in have]
-    if to_add:
-        doc.add_roles(*to_add)
+    dirty = False
+
+    # Detach any Role Profile — it competes with portal-managed roles (see docstring).
+    if doc.get("role_profiles") or doc.get("role_profile_name"):
+        doc.role_profiles = []
+        doc.role_profile_name = None
+        dirty = True
+
+    for r in [r for r in desired if r not in have]:
+        doc.append("roles", {"role": r})
+        dirty = True
+
     if prune:
-        to_remove = [r for r in (APP_MANAGED_ROLES - set(desired)) if r in have]
+        to_remove = {r for r in (APP_MANAGED_ROLES - set(desired)) if r in have}
         if user == frappe.session.user:
-            to_remove = [r for r in to_remove if r != "System Manager"]
+            to_remove.discard("System Manager")  # never strip the acting admin's own SM
         if to_remove:
-            doc.remove_roles(*to_remove)
+            doc.roles = [r for r in doc.roles if r.role not in to_remove]
+            dirty = True
+
+    if dirty:
+        doc.flags.ignore_permissions = True
+        doc.save()
 
 
 def sync_user_frappe_roles(doc, method=None):
@@ -119,13 +141,22 @@ def sync_user_frappe_roles(doc, method=None):
         return
     if frappe.flags.get("in_sync_user_frappe_roles"):
         return
-    # Only act when the portal role actually changed (or on first insert), so unrelated
-    # profile saves (name, image, password, scheme emails, …) don't re-sync every time.
+    # Normally act only when the portal role actually changed (or on first insert), so
+    # unrelated profile saves (name, image, password, scheme emails, …) don't re-sync
+    # every time. But ALSO self-heal: if a portal user is missing the Frappe roles their
+    # role needs — e.g. an account created as a Website User before the sync existed, or
+    # one whose desk roles were stripped — re-sync on any save so it converges. Because a
+    # desk-access role flips user_type, the account then auto-becomes a System User; a
+    # Website User silently drops these roles (and so can't write or download attachments).
+    prune = True
     if method == "on_update" and not doc.has_value_changed("portal_role"):
-        return
+        desired = set(PORTAL_FRAPPE_ROLES.get(doc.portal_role, []))
+        if desired.issubset(set(frappe.get_roles(user))):
+            return  # already correct — nothing to do
+        prune = False  # self-heal is add-only; don't strip legacy roles on an unrelated save
     frappe.flags.in_sync_user_frappe_roles = True
     try:
-        sync_frappe_roles(user, doc.portal_role, prune=True)
+        sync_frappe_roles(user, doc.portal_role, prune=prune)
     except Exception:
         # A role-sync problem must never block the User save itself (login-critical).
         frappe.log_error(frappe.get_traceback(), "sync_user_frappe_roles failed")

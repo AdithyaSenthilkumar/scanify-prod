@@ -30,7 +30,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Action",
-   "options": "Approved\nRejected\nRerouted"
+   "options": "Approved\nRejected\nRerouted\nReopened"
   },
   {
    "fieldname": "action_date",

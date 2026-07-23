@@ -275,6 +275,33 @@
         </div>
     </div>
 
+    <!-- Reopen Modal -->
+    <div class="modal fade" id="reopenModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="fa fa-undo"></i> Reopen Request</h5>
+                    <button type="button" class="close" style="color:white;" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-2">This returns the request to <strong>Pending</strong> so it can be
+                        edited and re-submitted for approval.</p>
+                    <div class="form-group">
+                        <label><strong>Reason / Note</strong> <span class="text-muted small">(optional)</span></label>
+                        <textarea id="reopenComments" class="form-control" rows="3"
+                            placeholder="Why is this being reopened?"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="confirmReopen()">
+                        <i class="fa fa-undo"></i> Reopen Request
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Remap Stockist Modal -->
     <div class="modal fade" id="remapStockistModal" tabindex="-1" role="dialog">
         <div class="modal-dialog" role="document">
@@ -672,6 +699,15 @@
         </button>`;
         }
 
+        // Reopen — revert a Rejected/Rerouted scheme back to Pending for revision.
+        // Both are drafts (docstatus 0), so this is safe. Manager-only.
+        if (IS_MANAGER && (d.approval_status === 'Rejected' || d.approval_status === 'Rerouted') && d.docstatus !== 1) {
+            html += `
+        <button class="btn btn-outline-primary ml-1" onclick="$('#reopenModal').modal('show')">
+            <i class="fa fa-undo"></i> Reopen Request
+        </button>`;
+        }
+
         $('#actionButtons').html(html);
     }
 
@@ -696,6 +732,12 @@
         if (!comments) { showAlert('Please enter reroute reason', 'warning'); return; }
         callAction('scanify.api.reroute_scheme_request', { doc_name: SCHEME_NAME, comments: comments }, 'Scheme rerouted for revision', 'warning');
         $('#rerouteModal').modal('hide');
+    }
+
+    function confirmReopen() {
+        const comments = $('#reopenComments').val().trim();
+        callAction('scanify.api.reopen_scheme_request', { doc_name: SCHEME_NAME, comments: comments }, 'Scheme reopened — now Pending for revision', 'info');
+        $('#reopenModal').modal('hide');
     }
 
     function callAction(method, args, successMsg, type) {

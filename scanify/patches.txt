@@ -14,3 +14,4 @@ scanify.patches.add_portal_role_fields_to_user
 scanify.patches.sync_portal_frappe_roles
 scanify.patches.set_default_app_to_portal
 scanify.patches.resync_portal_frappe_roles
+scanify.patches.promote_portal_users_to_system_user

@@ -18,7 +18,145 @@ import time
 from frappe.utils import flt, cstr
 from frappe.utils.background_jobs import enqueue
 import re
+import math
 from difflib import SequenceMatcher
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Report scoping — confine non-admins to their mapped division(s) and region(s).
+#
+# Role behaviour (via scanify.permissions):
+#   • Admin                 → get_allowed_region_codes() returns None = NO restriction
+#                             (sees every region; an explicitly picked region still filters).
+#   • HO / Regional / RF    → confined to the user's allowed_regions (∩ any picked region).
+# These helpers are the single place reports apply that rule, mirroring the pattern
+# already used by get_scheme_list_portal / get_pending_scheme_emails.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _effective_division(division=None, user=None):
+    """The division a report must query, forced within the caller's allowed set.
+    Admin: the requested/active division as-is. Non-admin: if the requested division
+    isn't one they're mapped to, fall back to their first allowed division so a direct
+    API call can never read another division's data."""
+    from scanify.permissions import is_portal_admin, get_allowed_divisions
+    if not division:
+        division = get_user_division()
+    if is_portal_admin(user):
+        return division
+    allowed = get_allowed_divisions(user)
+    if allowed and division not in allowed:
+        return allowed[0]
+    return division
+
+
+def _region_match_values(codes, include_names=False):
+    """The values a region column may hold for the given region codes. Most tables store
+    the Region Master id/code (R0467), but Primary Sales Data stores the region NAME
+    ("Nagpur") — see _pri_master_name. Passing include_names=True matches BOTH, so the
+    same scope works on either storage (codes and names never collide)."""
+    vals = list(codes)
+    if include_names and codes:
+        vals += [n for n in frappe.get_all(
+            "Region Master", filters={"name": ["in", list(codes)]}, pluck="region_name") if n]
+    return vals
+
+
+def _scope_region_sql(conditions, params, column, division, requested_region=None,
+                      key="rgnscope", user=None, include_names=False):
+    """Append the caller's region restriction to a (conditions, params) SQL pair.
+
+    - Admin: filter by `requested_region` when one was picked, else add nothing.
+    - Non-admin: restrict `column` to (allowed_regions ∩ requested_region); when that
+      intersection is empty (user allowed no region here) append an always-false
+      condition so the query naturally returns zero rows — the report's own aggregation
+      then produces its normal empty shape, no special-casing needed at each call site.
+
+    `column` is a qualified SQL column (e.g. "ss.region"); `key` must be unique within
+    the query's params. Set include_names=True for region columns that store the region
+    NAME rather than the code (Primary Sales Data). Assumes `conditions` is AND-combined."""
+    from scanify.permissions import get_allowed_region_codes, clamp_region_codes
+    allowed = get_allowed_region_codes(user, division)
+    if allowed is None:  # admin — unrestricted
+        if requested_region:
+            conditions.append(f"{column} IN %({key})s")
+            params[key] = tuple(_region_match_values([requested_region], include_names))
+        return
+    codes = clamp_region_codes(requested_region, division=division, user=user)
+    if not codes:
+        conditions.append("1=0")  # locked out of every region → no rows
+        return
+    conditions.append(f"{column} IN %({key})s")
+    params[key] = tuple(_region_match_values(codes, include_names))
+
+
+def _scope_region_sql_pos(conditions, values, column, division, requested_region=None,
+                          user=None, include_names=False):
+    """Positional-parameter (%s) variant of _scope_region_sql, for queries that collect a
+    `values` list instead of a params dict. Call it exactly where the original region
+    condition was appended so the value ordering still lines up."""
+    from scanify.permissions import get_allowed_region_codes, clamp_region_codes
+    allowed = get_allowed_region_codes(user, division)
+    if allowed is None:  # admin — unrestricted
+        if requested_region:
+            vals = _region_match_values([requested_region], include_names)
+            conditions.append(f"{column} IN ({', '.join(['%s'] * len(vals))})")
+            values.extend(vals)
+        return
+    codes = clamp_region_codes(requested_region, division=division, user=user)
+    if not codes:
+        conditions.append("1=0")  # locked out of every region → no rows
+        return
+    vals = _region_match_values(codes, include_names)
+    conditions.append(f"{column} IN ({', '.join(['%s'] * len(vals))})")
+    values.extend(vals)
+
+
+def _allowed_region_codes_or_all(division=None, user=None):
+    """Region codes the caller may see in a division, or None for admin (= all).
+    Used to scope filter-option dropdowns so non-admins can't even pick a foreign region."""
+    from scanify.permissions import get_allowed_region_codes
+    return get_allowed_region_codes(user, division)
+
+
+def _clamp_hqs_to_allowed_regions(hq_list, division=None, user=None):
+    """Restrict a resolved HQ list to those inside the caller's mapped regions (admin
+    gets it back unchanged). Lets entity-scoped reports keep an 'Organization'/'Zone'
+    scope from spanning regions the user may not see."""
+    from scanify.permissions import get_allowed_region_codes
+    allowed = get_allowed_region_codes(user, division)
+    if allowed is None:
+        return hq_list
+    if not allowed or not hq_list:
+        return []
+    keep = set(frappe.get_all(
+        "HQ Master", filters={"name": ["in", list(hq_list)], "region": ["in", allowed]},
+        pluck="name"))
+    return [h for h in hq_list if h in keep]
+
+
+def _bulk_job_region_scope(doc):
+    """Region scope for a bulk OCR job's stockist matching: the job's explicitly chosen
+    region when set, otherwise the creating user's mapped regions (None = unrestricted,
+    i.e. admin). Stops a non-admin's ZIP from matching stockists in regions they are not
+    mapped to, even when they left the region toggle off. Resolved from doc.owner because
+    the extraction runs as a background job."""
+    from scanify.permissions import get_allowed_region_codes
+    if doc.region:
+        return doc.region
+    return get_allowed_region_codes(doc.owner, doc.division)
+
+
+def _stockist_region_allowed(stockist_pk, division=None, user=None):
+    """Whether the caller may see a single stockist's data: admin always; otherwise the
+    stockist's region must be in the user's allowed_regions. Used by single-stockist
+    reports that have no region column to clamp on."""
+    from scanify.permissions import get_allowed_region_codes
+    allowed = get_allowed_region_codes(user, division)
+    if allowed is None:
+        return True
+    if not allowed:
+        return False
+    return frappe.db.get_value("Stockist Master", stockist_pk, "region") in allowed
 
 # Retired / superseded Gemini model IDs mapped to their current replacements.
 # A value saved in Scanify Settings before a model was shut down would otherwise
@@ -1808,6 +1946,14 @@ def create_bulk_ocr_job(statement_month, zip_file_url, division=None, job_name=N
         if not division:
             division = frappe.db.get_value("User", frappe.session.user, "division") or "Prima"
 
+        # A non-admin may only restrict to a region they're mapped to. When they pick
+        # none, extraction still confines matching to their regions (see
+        # _bulk_job_region_scope), so a ZIP can never create statements out of scope.
+        _allowed = _allowed_region_codes_or_all(division)
+        if region and _allowed is not None and region not in set(_allowed):
+            return {"success": False,
+                    "message": "You are not permitted to upload for that region."}
+
         doc = frappe.get_doc({
             "doctype": "Bulk Statement Upload",
             "statement_month": statement_month,
@@ -2014,15 +2160,19 @@ def process_bulk_extraction(docname, month, zip_file_url):
 
             # --- STEP 1: Batch filename -> stockist mapping via Gemini (single call) ---
             all_filenames = [f for f, _, _ in all_files]
+            job_region_scope = _bulk_job_region_scope(doc)
             gemini_mapping = {}
             try:
                 filters = {"status": "Active"}
                 if doc.division:
                     filters["division"] = doc.division
-                # Optional region scoping: when set, only stockists in this region
-                # are offered to the matcher, preventing cross-region name collisions.
-                if doc.region:
-                    filters["region"] = doc.region
+                # Region scoping: the chosen region when set, else the job owner's mapped
+                # regions. Prevents cross-region name collisions AND stops a non-admin
+                # uploading statements for regions they aren't mapped to.
+                if job_region_scope:
+                    filters["region"] = (["in", list(job_region_scope)]
+                                         if isinstance(job_region_scope, (list, tuple, set))
+                                         else job_region_scope)
 
                 stockists_cat = frappe.get_all(
                     "Stockist Master",
@@ -2075,7 +2225,7 @@ def process_bulk_extraction(docname, month, zip_file_url):
                     stockist_code = gemini_mapping.get(file) if gemini_mapping else None
                     if not stockist_code:
                         stockist_code = identify_stockist_from_filename(
-                            file, division=doc.division, region=doc.region
+                            file, division=doc.division, region=job_region_scope
                         )
                     
                     if not stockist_code:
@@ -2556,7 +2706,9 @@ def identify_stockist_from_filename(filename, division=None, region=None):
     """
     Identify stockist code from filename using robust fuzzy matching.
     When `division` and/or `region` are provided, the candidate stockist pool is
-    narrowed accordingly so a filename only matches stockists in that scope —
+    narrowed accordingly so a filename only matches stockists in that scope.
+    `region` accepts a single region code or a list of codes (e.g. a user's mapped
+    regions) —
     this prevents cross-region name collisions (e.g. "Vijay Pharma" being matched
     to "Vijaya Pharma" from a different region).
     """
@@ -2595,7 +2747,9 @@ def identify_stockist_from_filename(filename, division=None, region=None):
     if division:
         stockist_filters["division"] = division
     if region:
-        stockist_filters["region"] = region
+        # `region` may be a single code or a list of codes (a user's mapped regions).
+        stockist_filters["region"] = (["in", list(region)]
+                                      if isinstance(region, (list, tuple, set)) else region)
     stockists = frappe.get_all("Stockist Master",
         fields=["name", "stockist_code", "stockist_name", "city"],
         filters=stockist_filters)
@@ -2821,7 +2975,9 @@ def reroute_scheme_request(doc_name, comments):
         doc.save()
         frappe.db.commit()
 
-        send_scheme_notification(doc, "Rerouted", comments)
+        # Auto-notification email removed (2026-07-23): rerouting no longer emails
+        # anyone. Approved-scheme mails are sent manually from the "Send Emails"
+        # page (/portal/scheme-email).
 
         return True
     except Exception as e:
@@ -2857,8 +3013,9 @@ def approve_scheme_request(doc_name, comments):
         doc.submit()
         frappe.db.commit()
 
-        # Send notification
-        send_scheme_notification(doc, "Approved", comments)
+        # Auto-notification email removed (2026-07-23): approval no longer emails
+        # automatically. HO triggers the consolidated approved-scheme mail manually
+        # from the "Send Emails" page (/portal/scheme-email).
 
         return True
     except Exception as e:
@@ -2892,35 +3049,60 @@ def reject_scheme_request(doc_name, comments):
         doc.save()
         frappe.db.commit()
 
-        # Send notification
-        send_scheme_notification(doc, "Rejected", comments)
+        # Auto-notification email removed (2026-07-23): rejection no longer emails
+        # the requestor.
 
         return True
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Reject Scheme Error")
         frappe.throw(str(e))
 
-def send_scheme_notification(doc, action, comments):
-    """Send email notification for scheme request approval/rejection"""
+@frappe.whitelist()
+def reopen_scheme_request(doc_name, comments=None):
+    """Reopen a Rejected or Rerouted scheme request back to Pending so it can be
+    revised and re-submitted for approval. Only these two states are reopenable —
+    both are drafts (docstatus 0), so this is a plain status flip with no cancel.
+    Approved schemes are submitted (and may have deductions) and are intentionally
+    NOT reopenable here. Manager-only, mirroring approve/reject/reroute."""
     try:
-        subject = f"Scheme Request {doc.name} - {action}"
-        message = f"""
-        <p>Dear {doc.requested_by},</p>
-        <p>Your scheme request {doc.name} has been <strong>{action}</strong>.</p>
-        <p><strong>Doctor:</strong> {doc.doctor_name or 'N/A'} ({doc.doctor_code or 'N/A'})</p>
-        <p><strong>Stockist:</strong> {doc.stockist_name or 'N/A'}</p>
-        <p><strong>Total Value:</strong> ₹{flt(doc.total_scheme_value or 0):,.2f}</p>
-        <p><strong>Comments:</strong> {comments or 'None'}</p>
-        <p>Please check the system for more details.</p>
-        """
+        from scanify.permissions import require_manager
+        require_manager()
+        doc = frappe.get_doc("Scheme Request", doc_name)
+        # Access already authorized by require_manager() (portal Admin/HO). Bypass Frappe
+        # doctype perms so the save works regardless of the approver's role/user_type.
+        doc.flags.ignore_permissions = True
 
-        frappe.sendmail(
-            recipients=[doc.requested_by],
-            subject=subject,
-            message=message
-        )
+        if doc.approval_status not in ("Rejected", "Rerouted"):
+            frappe.throw("Only Rejected or Rerouted scheme requests can be reopened")
+        if doc.docstatus == 1:
+            frappe.throw("A submitted scheme request cannot be reopened")
+
+        previous = doc.approval_status
+        doc.approval_status = "Pending"
+        # Fresh decision cycle → allow the new outcome to be emailed again.
+        doc.email_sent = 0
+        doc.email_sent_on = None
+        doc.email_sent_to = None
+        doc.append("approval_log", {
+            "approver": frappe.session.user,
+            "approval_level": "Manager",
+            "action": "Reopened",
+            "action_date": nowdate(),
+            "comments": comments or f"Reopened from {previous} for revision"
+        })
+
+        doc.save()
+        frappe.db.commit()
+
+        return True
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "Send Notification Error")
+        frappe.log_error(frappe.get_traceback(), "Reopen Scheme Error")
+        frappe.throw(str(e))
+
+# NOTE (2026-07-23): send_scheme_notification() was removed. Approve / reject /
+# reroute no longer send any automatic email to the requestor. The only scheme
+# email path is the manual, HO-triggered consolidated mail on the "Send Emails"
+# page (/portal/scheme-email → send_scheme_emails()), which is unaffected.
 
 
 # ───────────────────────────────────────────────────────────────
@@ -2933,6 +3115,48 @@ _SCHEME_EMAIL_RSM_NOTES = [
     "Ensure monthly repeat orders.",
     "Submit proof of supply for any offer above 20%.",
 ]
+
+# Built-in defaults for the approved-scheme (CFA) mail. Each is used verbatim when
+# the matching Scanify Settings field is blank — so a fresh migrate / clear-cache /
+# restart reproduces the exact email that was hardcoded before, with zero change.
+_SCHEME_EMAIL_DEFAULTS = {
+    "subject_template": "Scheme order: {division}/{region} Region/{month}",
+    "greeting": "Dear CFA,",
+    "intro": "Approved for billing:",
+    "rsm_heading": "Dear RSM,",
+    "rsm_notes": "\n".join(_SCHEME_EMAIL_RSM_NOTES),
+    "signature": "Regards,\nMarketing Admin Team,\nMobile No. 98406 14334",
+}
+
+
+def _scheme_email_cfg():
+    """Effective approved-mail config: each Scanify Settings value if set, else the
+    built-in default. Never raises — a missing/failed lookup falls back to defaults."""
+    fields = {
+        "subject_template": "scheme_email_subject_template",
+        "greeting": "scheme_email_greeting",
+        "intro": "scheme_email_intro",
+        "rsm_heading": "scheme_email_rsm_heading",
+        "rsm_notes": "scheme_email_rsm_notes",
+        "signature": "scheme_email_signature",
+    }
+    cfg = {}
+    for key, fieldname in fields.items():
+        val = None
+        try:
+            val = frappe.db.get_single_value("Scanify Settings", fieldname)
+        except Exception:
+            val = None
+        cfg[key] = val if (val is not None and str(val).strip() != "") else _SCHEME_EMAIL_DEFAULTS[key]
+    return cfg
+
+
+def _signature_html(sig_text):
+    """Turn a plain-text signature (one line per row) into <br>-joined HTML, escaping
+    each line. Blank falls back to the default signature."""
+    text = sig_text if (sig_text and str(sig_text).strip()) else _SCHEME_EMAIL_DEFAULTS["signature"]
+    lines = [frappe.utils.escape_html(ln.strip()) for ln in str(text).splitlines() if ln.strip()]
+    return "<br>".join(lines)
 
 
 def _split_emails(raw):
@@ -2988,17 +3212,23 @@ def _scheme_email_month_bounds(month):
 
 
 @frappe.whitelist()
-def get_pending_scheme_emails(division=None, month=None, region=None):
-    """Approved scheme requests in a month (+ optional region) not yet emailed."""
+def get_pending_scheme_emails(division=None, month=None, region=None, mail_type="Approved"):
+    """Scheme requests in a month (+ optional region) not yet emailed, for the given
+    mail_type: 'Approved' → CFA "approved for billing" mail; 'Rejected'/'Rerouted' →
+    a notice back to the requestor. The email_sent flag is shared across types (a
+    scheme is only ever in one of these states; reopening resets the flag)."""
     try:
+        if mail_type not in ("Approved", "Rejected", "Rerouted"):
+            mail_type = "Approved"
         if not division:
             division = get_user_division()
         first_day, last_day, _ = _scheme_email_month_bounds(month)
 
-        conds = ["sr.approval_status = 'Approved'", "COALESCE(sr.email_sent,0) = 0",
+        conds = ["sr.approval_status = %(status)s", "COALESCE(sr.email_sent,0) = 0",
                  "sr.division = %(division)s",
                  "sr.application_date BETWEEN %(from_date)s AND %(to_date)s"]
-        params = {"division": division, "from_date": first_day, "to_date": last_day}
+        params = {"division": division, "from_date": first_day, "to_date": last_day,
+                  "status": mail_type}
 
         # Region scoping: non-admins (incl. HO) only email schemes in their mapped regions.
         from scanify.permissions import get_allowed_region_codes, clamp_region_codes
@@ -3028,11 +3258,15 @@ def get_pending_scheme_emails(division=None, month=None, region=None):
         """, params, as_dict=True)
 
         for r in rows:
-            to, cc = _resolve_scheme_recipients(r.team, r.requested_by)
+            if mail_type == "Approved":
+                to, cc = _resolve_scheme_recipients(r.team, r.requested_by)
+            else:
+                # Reject/reroute notice goes to the requestor, not the CFA.
+                to, cc = _scheme_notice_recipient(r.requested_by), []
             r["to_emails"] = to
             r["cc_emails"] = cc
             r["has_recipient"] = bool(to)
-        return {"success": True, "schemes": rows, "count": len(rows)}
+        return {"success": True, "schemes": rows, "count": len(rows), "mail_type": mail_type}
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Get Pending Scheme Emails Error")
         return {"success": False, "message": str(e)}
@@ -3071,16 +3305,20 @@ def _render_scheme_email_html(rows):
             f'<td style="{tdc}">{esc(str(spl))}</td>'
             "</tr>"
         )
-    notes = "".join(f"<li>{n}</li>" for n in _SCHEME_EMAIL_RSM_NOTES)
+    # Configurable prose (greeting / intro / RSM heading / notes / signature); each
+    # falls back to the built-in default when its Scanify Settings field is blank.
+    cfg = _scheme_email_cfg()
+    note_lines = [ln.strip() for ln in str(cfg["rsm_notes"]).splitlines() if ln.strip()]
+    notes = "".join(f"<li>{esc(n)}</li>" for n in note_lines)
     return (
         '<div style="font-family:Arial,sans-serif;font-size:13px;color:#000;">'
-        "<p>Dear CFA,</p>"
-        "<p><b>Approved for billing:</b></p>"
+        f"<p>{esc(cfg['greeting'])}</p>"
+        f"<p><b>{esc(cfg['intro'])}</b></p>"
         '<table style="border-collapse:collapse;border:1px solid #333;">'
         f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
-        "<br><p>Dear RSM,</p>"
+        f"<br><p>{esc(cfg['rsm_heading'])}</p>"
         f"<ul>{notes}</ul>"
-        "<br><p>Regards,<br>Marketing Admin Team,<br>Mobile No. 98406 14334</p>"
+        f"<br><p>{_signature_html(cfg['signature'])}</p>"
         "</div>"
     )
 
@@ -3136,23 +3374,160 @@ def _build_scheme_email_groups(scheme_names, month=None):
                     "sch_no": sr.name, "region": rname, "team": tname, "hq": hname,
                     "doctor": sr.doctor_name or "", "hospital": sr.hospital_address or "",
                     "stockist": sr.stockist_name or "", "product_code": it.product_code or "",
-                    "pack": it.pack or "", "order_qty": it.quantity or 0,
+                    # Order Qty is rounded UP to a whole strip/unit for the mail —
+                    # CFA billing must never see fractional order quantities.
+                    "pack": it.pack or "", "order_qty": int(math.ceil(flt(it.quantity or 0))),
                     "free_qty": it.free_quantity or 0, "special_rate": it.special_rate or 0,
                 })
         division_label = "/".join(divisions) if divisions else (get_user_division() or "")
         region_label = "/".join(region_names) if region_names else ""
         g["rows"] = rows
-        g["subject"] = f"Scheme order: {division_label}/{region_label} Region/{month_label}"
+        subj_tmpl = _scheme_email_cfg()["subject_template"]
+        g["subject"] = (subj_tmpl.replace("{division}", division_label)
+                                 .replace("{region}", region_label)
+                                 .replace("{month}", month_label))
         g["html"] = _render_scheme_email_html(rows)
         out.append(g)
     return out, unroutable
 
 
+# ───────────────────────────────────────────────────────────────
+# Reject / Reroute notices — manually sent to the requestor from the
+# same "Send Emails" page, grouped by requestor, with the action reason.
+# ───────────────────────────────────────────────────────────────
+
+_SCHEME_NOTICE_CONFIG = {
+    "Rejected": {
+        "intro": "The following scheme request(s) you raised have been <b>rejected</b>.",
+        "closing": "No further action is required unless you wish to raise a fresh request.",
+        "accent": "#dc3545",
+    },
+    "Rerouted": {
+        "intro": "The following scheme request(s) you raised have been <b>sent back for revision</b>.",
+        "closing": "Please revise the request(s) and re-submit them for approval.",
+        "accent": "#fd7e14",
+    },
+}
+
+
+def _scheme_notice_recipient(requested_by):
+    """To-list for a reject/reroute notice = the requestor's login email."""
+    if not requested_by:
+        return []
+    email = frappe.db.get_value("User", requested_by, "email") or requested_by
+    return _split_emails(email)
+
+
+def _latest_log_comment(scheme_name, action):
+    """Most recent approval-log comment for a given action on a scheme (the reason)."""
+    row = frappe.db.sql(
+        "SELECT comments FROM `tabScheme Approval Log` "
+        "WHERE parent=%s AND action=%s ORDER BY idx DESC LIMIT 1",
+        (scheme_name, action), as_dict=True)
+    return (row[0].comments if row else "") or ""
+
+
+def _render_scheme_notice_html(rows, mail_type):
+    """Render the requestor-facing reject/reroute notice: intro + table + closing +
+    signature. Styles inlined for email-client compatibility."""
+    cfg = _SCHEME_NOTICE_CONFIG[mail_type]
+    esc = frappe.utils.escape_html
+    th = "padding:4px 8px;border:1px solid #333;background:#f0f0f0;font-size:12px;text-align:center;"
+    td = "padding:4px 8px;border:1px solid #333;font-size:12px;"
+    tdc = td + "text-align:center;"
+    headers = ["S.No", "Sch. No", "Date", "Doctor", "Stockist", "Items", "Reason"]
+    head = "".join(f'<th style="{th}">{h}</th>' for h in headers)
+    body = []
+    for i, r in enumerate(rows, start=1):
+        body.append(
+            "<tr>"
+            f'<td style="{tdc}">{i}</td>'
+            f'<td style="{td}">{esc(str(r["sch_no"]))}</td>'
+            f'<td style="{tdc}">{esc(str(r["date"]))}</td>'
+            f'<td style="{td}">{esc(str(r["doctor"]))}</td>'
+            f'<td style="{td}">{esc(str(r["stockist"]))}</td>'
+            f'<td style="{tdc}">{r["item_count"]}</td>'
+            f'<td style="{td}">{esc(str(r["reason"]))}</td>'
+            "</tr>"
+        )
+    return (
+        '<div style="font-family:Arial,sans-serif;font-size:13px;color:#000;">'
+        "<p>Dear Sir/Madam,</p>"
+        f'<p style="border-left:4px solid {cfg["accent"]};padding-left:10px;">{cfg["intro"]}</p>'
+        '<table style="border-collapse:collapse;border:1px solid #333;">'
+        f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+        f"<br><p>{cfg['closing']}</p>"
+        f"<br><p>{_signature_html(_scheme_email_cfg()['signature'])}</p>"
+        "</div>"
+    )
+
+
+def _build_scheme_notice_groups(scheme_names, mail_type, month=None):
+    """Group Rejected/Rerouted schemes by requestor and build the notice email per
+    group. Returns (groups, unroutable_scheme_names). Same group shape as the approved
+    builder so preview/send handle both uniformly."""
+    if isinstance(scheme_names, str):
+        scheme_names = json.loads(scheme_names)
+
+    _, _, month_label = _scheme_email_month_bounds(month)
+    groups = {}
+    unroutable = []
+
+    for name in (scheme_names or []):
+        sr = frappe.db.get_value("Scheme Request", name,
+            ["name", "division", "region", "team", "hq", "doctor_name", "stockist_name",
+             "requested_by", "application_date", "approval_status", "email_sent"],
+            as_dict=True)
+        if not sr:
+            continue
+        to = _scheme_notice_recipient(sr.requested_by)
+        if not to:
+            unroutable.append(name)
+            continue
+        key = tuple(sorted({e.lower() for e in to}))
+        g = groups.get(key)
+        if not g:
+            g = {"to": to, "cc": [], "schemes": []}
+            groups[key] = g
+        g["schemes"].append(sr)
+
+    out = []
+    for g in groups.values():
+        rows, divisions = [], []
+        for sr in sorted(g["schemes"], key=lambda s: s["name"]):
+            if sr.division and sr.division not in divisions:
+                divisions.append(sr.division)
+            item_count = frappe.db.count("Scheme Request Item", {"parent": sr.name})
+            rows.append({
+                "sch_no": sr.name,
+                "date": str(sr.application_date) if sr.application_date else "",
+                "doctor": sr.doctor_name or "",
+                "stockist": sr.stockist_name or "",
+                "item_count": item_count,
+                "reason": _latest_log_comment(sr.name, mail_type),
+            })
+        division_label = "/".join(divisions) if divisions else (get_user_division() or "")
+        g["rows"] = rows
+        g["subject"] = f"Scheme request {mail_type.lower()} — {division_label} / {month_label}"
+        g["html"] = _render_scheme_notice_html(rows, mail_type)
+        out.append(g)
+    return out, unroutable
+
+
+def _build_scheme_mail_groups(scheme_names, mail_type, month=None):
+    """Dispatch to the approved (CFA) builder or the reject/reroute notice builder."""
+    if mail_type in ("Rejected", "Rerouted"):
+        return _build_scheme_notice_groups(scheme_names, mail_type, month)
+    return _build_scheme_email_groups(scheme_names, month)
+
+
 @frappe.whitelist()
-def preview_scheme_emails(scheme_names, month=None):
+def preview_scheme_emails(scheme_names, month=None, mail_type="Approved"):
     """Build the consolidated email(s) for the selected schemes WITHOUT sending."""
     try:
-        groups, unroutable = _build_scheme_email_groups(scheme_names, month)
+        if mail_type not in ("Approved", "Rejected", "Rerouted"):
+            mail_type = "Approved"
+        groups, unroutable = _build_scheme_mail_groups(scheme_names, mail_type, month)
         return {
             "success": True,
             "groups": [{
@@ -3168,24 +3543,27 @@ def preview_scheme_emails(scheme_names, month=None):
 
 
 @frappe.whitelist()
-def send_scheme_emails(scheme_names, month=None):
-    """Send the consolidated approved-scheme email(s) and stamp each scheme as emailed.
+def send_scheme_emails(scheme_names, month=None, mail_type="Approved"):
+    """Send the consolidated scheme email(s) and stamp each scheme as emailed.
+    mail_type 'Approved' → CFA billing mail; 'Rejected'/'Rerouted' → requestor notice.
     Restricted to Sales/System Manager (HO)."""
     try:
         from frappe.utils import now_datetime, cint
+        if mail_type not in ("Approved", "Rejected", "Rerouted"):
+            mail_type = "Approved"
         roles = frappe.get_roles(frappe.session.user)
         if "Sales Manager" not in roles and "System Manager" not in roles:
             frappe.throw("Not permitted to send scheme emails", frappe.PermissionError)
 
-        groups, unroutable = _build_scheme_email_groups(scheme_names, month)
+        groups, unroutable = _build_scheme_mail_groups(scheme_names, mail_type, month)
         now = now_datetime()
         groups_sent = schemes_sent = 0
         errors = []
 
         for g in groups:
-            # Re-verify each scheme is still Approved and not already emailed.
+            # Re-verify each scheme is still in the expected state and not already emailed.
             valid = [s for s in g["schemes"]
-                     if s.approval_status == "Approved" and not cint(s.email_sent)]
+                     if s.approval_status == mail_type and not cint(s.email_sent)]
             if not valid:
                 continue
             try:
@@ -3211,6 +3589,45 @@ def send_scheme_emails(scheme_names, month=None):
                 "unroutable": unroutable, "errors": errors}
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Send Scheme Emails Error")
+        return {"success": False, "message": str(e)}
+
+
+def _require_scheme_email_manager():
+    roles = frappe.get_roles(frappe.session.user)
+    if "Sales Manager" not in roles and "System Manager" not in roles:
+        frappe.throw("Not permitted to manage scheme email settings", frappe.PermissionError)
+
+
+@frappe.whitelist()
+def get_scheme_email_config():
+    """Effective approved-mail config (setting value or built-in default) for the Send
+    Emails page editor, plus the defaults so the UI can show placeholders. HO only."""
+    _require_scheme_email_manager()
+    return {"success": True, "config": _scheme_email_cfg(), "defaults": dict(_SCHEME_EMAIL_DEFAULTS)}
+
+
+@frappe.whitelist()
+def update_scheme_email_config(subject_template=None, greeting=None, intro=None,
+                               rsm_heading=None, rsm_notes=None, signature=None):
+    """Save approved-mail prose to Scanify Settings. Storing a blank field reverts it to
+    the built-in default (the renderer falls back on blank). HO only."""
+    _require_scheme_email_manager()
+    try:
+        mapping = {
+            "scheme_email_subject_template": subject_template,
+            "scheme_email_greeting": greeting,
+            "scheme_email_intro": intro,
+            "scheme_email_rsm_heading": rsm_heading,
+            "scheme_email_rsm_notes": rsm_notes,
+            "scheme_email_signature": signature,
+        }
+        for fieldname, val in mapping.items():
+            frappe.db.set_single_value("Scanify Settings", fieldname, (val or "").strip())
+        frappe.db.commit()
+        frappe.clear_cache(doctype="Scanify Settings")
+        return {"success": True, "config": _scheme_email_cfg()}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Update Scheme Email Config Error")
         return {"success": False, "message": str(e)}
 
 
@@ -4093,6 +4510,12 @@ def get_stockists_by_hq(hq, division=None):
     filters = {"hq": hq, "status": "Active"}
     if division and division != "Both":
         filters["division"] = ["in", [division, "Both"]]
+    # Non-admins may only list stockists inside their mapped regions.
+    _allowed = _allowed_region_codes_or_all(division)
+    if _allowed is not None:
+        if not _allowed:
+            return []
+        filters["region"] = ["in", _allowed]
 
     stockists = frappe.get_all(
         "Stockist Master",
@@ -5357,6 +5780,13 @@ def searchstockists(searchterm=None, division=None, limit=20):
     filters = {"status": "Active"}
     if division:
         filters["division"] = ["in", [division, "Both"]]
+
+    # Non-admins may only pick stockists inside their mapped regions.
+    _allowed = _allowed_region_codes_or_all(division)
+    if _allowed is not None:
+        if not _allowed:
+            return []
+        filters["region"] = ["in", _allowed]
 
     # Match by code or name
     # NOTE: adapt fieldnames if your doctype uses stockist_code/stockist_name exactly
@@ -6906,27 +7336,30 @@ def get_insights_filter_options(division=None):
     if not division:
         division = get_user_division()
 
-    regions = frappe.db.sql(
-        "SELECT DISTINCT name FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
-        (division,), as_list=1,
-    )
-    teams = frappe.db.sql(
-        "SELECT DISTINCT name FROM `tabTeam Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
-        (division,), as_list=1,
-    )
-    hqs = frappe.db.sql(
-        "SELECT DISTINCT name FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
-        (division,), as_list=1
-    )
+    # Confine a non-admin's pickers to their mapped regions (and the teams/HQs inside
+    # them). Admin (allowed is None) sees everything.
+    allowed = _allowed_region_codes_or_all(division)
+    region_filters = {"status": "Active", "division": ["in", [division, "Both"]]}
+    team_filters = {"status": "Active", "division": ["in", [division, "Both"]]}
+    hq_filters = {"status": "Active", "division": division}
+    if allowed is not None:
+        codes = allowed or ["__no_region__"]
+        region_filters["name"] = ["in", codes]
+        team_filters["region"] = ["in", codes]
+        hq_filters["region"] = ["in", codes]
+
+    regions = frappe.get_all("Region Master", filters=region_filters, pluck="name", order_by="name")
+    teams = frappe.get_all("Team Master", filters=team_filters, pluck="name", order_by="name")
+    hqs = frappe.get_all("HQ Master", filters=hq_filters, pluck="name", order_by="name")
     financial_years = frappe.db.sql(
         "SELECT DISTINCT financial_year FROM `tabHQ Yearly Target` WHERE division=%s ORDER BY financial_year DESC",
         (division,), as_list=1
     )
 
     return {
-        "regions": [r[0] for r in regions],
-        "teams": [t[0] for t in teams],
-        "hqs": [h[0] for h in hqs],
+        "regions": regions,
+        "teams": teams,
+        "hqs": hqs,
         "financial_years": [f[0] for f in financial_years],
     }
 
@@ -6945,9 +7378,7 @@ def _build_insights_conditions(division, from_date=None, to_date=None, region=No
     if to_date:
         conditions.append(f"{date_field} <= %s")
         values.append(to_date)
-    if region:
-        conditions.append("region = %s")
-        values.append(region)
+    _scope_region_sql_pos(conditions, values, "region", division, region)
     if team:
         conditions.append("team = %s")
         values.append(team)
@@ -7104,9 +7535,7 @@ def get_insights_deduction_data(division=None, from_date=None, to_date=None, reg
     if to_date:
         base_cond.append("sd.deduction_date <= %s")
         base_vals.append(to_date)
-    if region:
-        base_cond.append("sr.region = %s")
-        base_vals.append(region)
+    _scope_region_sql_pos(base_cond, base_vals, "sr.region", division, region)
     if team:
         base_cond.append("sr.team = %s")
         base_vals.append(team)
@@ -7341,9 +7770,7 @@ def get_insights_products_data(division=None, from_date=None, to_date=None, regi
     if to_date:
         stmt_cond.append("ss.statement_month <= %s")
         stmt_vals.append(to_date)
-    if region:
-        stmt_cond.append("ss.region = %s")
-        stmt_vals.append(region)
+    _scope_region_sql_pos(stmt_cond, stmt_vals, "ss.region", division, region)
     if team:
         stmt_cond.append("ss.team = %s")
         stmt_vals.append(team)
@@ -7375,9 +7802,7 @@ def get_insights_products_data(division=None, from_date=None, to_date=None, regi
     if to_date:
         sch_cond.append("sr.application_date <= %s")
         sch_vals.append(to_date)
-    if region:
-        sch_cond.append("sr.region = %s")
-        sch_vals.append(region)
+    _scope_region_sql_pos(sch_cond, sch_vals, "sr.region", division, region)
     if team:
         sch_cond.append("sr.team = %s")
         sch_vals.append(team)
@@ -8904,6 +9329,11 @@ def get_stockists_by_region(region, division=None):
     if not division:
         division = get_user_division()
 
+    # Non-admins may only list stockists in regions they're mapped to.
+    _allowed = _allowed_region_codes_or_all(division)
+    if _allowed is not None and region not in set(_allowed):
+        return []
+
     filters = {"region": region, "status": "Active"}
     if division and division != "Both":
         filters["division"] = ["in", [division, "Both"]]
@@ -8936,6 +9366,12 @@ def get_stockists_for_hq(hq, division=None):
     filters = {"hq": hq, "status": "Active"}
     if division and division != "Both":
         filters["division"] = ["in", [division, "Both"]]
+    # Non-admins may only list stockists inside their mapped regions.
+    _allowed = _allowed_region_codes_or_all(division)
+    if _allowed is not None:
+        if not _allowed:
+            return []
+        filters["region"] = ["in", _allowed]
 
     stockists = frappe.get_all(
         "Stockist Master",
@@ -9322,6 +9758,11 @@ def create_ocr_statement(stockist_code, statement_month, uploaded_file=None, div
 
         if frappe.db.get_value("Stockist Master", stockist_pk, "status") != "Active":
             return {"success": False, "message": f"Stockist '{stockist_code}' is inactive. Statement upload is not allowed."}
+
+        # Non-admins may only enter statements for stockists in their mapped regions.
+        if not _stockist_region_allowed(stockist_pk, division):
+            return {"success": False,
+                    "message": f"Stockist '{stockist_code}' is outside the regions you are mapped to."}
 
         if len(statement_month) == 7:
             statement_month = statement_month + "-01"
@@ -10079,6 +10520,9 @@ def get_stockist_report_filter_options(division=None):
     if not division:
         division = get_user_division()
 
+    # None for admin (= all regions); a list confines a non-admin's pickers below.
+    allowed = _allowed_region_codes_or_all(division)
+
     regions = frappe.db.sql(
         "SELECT DISTINCT name, region_name, IFNULL(zone, '') AS zone FROM `tabRegion Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_dict=True,
@@ -10102,7 +10546,7 @@ def get_stockist_report_filter_options(division=None):
         (division,), as_dict=True,
     )
     stockists = frappe.db.sql(
-        "SELECT name, stockist_name FROM `tabStockist Master` WHERE division=%s AND status='Active' ORDER BY stockist_name",
+        "SELECT name, stockist_name, IFNULL(region, '') AS region FROM `tabStockist Master` WHERE division=%s AND status='Active' ORDER BY stockist_name",
         (division,), as_dict=True,
     )
     products = frappe.db.sql(
@@ -10130,6 +10574,15 @@ def get_stockist_report_filter_options(division=None):
         "SELECT DISTINCT DATE_FORMAT(statement_month, '%%Y-%%m-%%d') as m FROM `tabStockist Statement` WHERE division=%s AND docstatus=1 ORDER BY statement_month DESC",
         (division,), as_list=1,
     )
+
+    # Confine a non-admin's pickers to their mapped regions (and the teams/HQs/stockists
+    # inside them). Admin (allowed is None) sees everything.
+    if allowed is not None:
+        aset = set(allowed)
+        regions = [r for r in regions if r.name in aset]
+        teams = [t for t in teams if (t.region or "") in aset]
+        hqs = [h for h in hqs if (h.region or "") in aset]
+        stockists = [s for s in stockists if (s.region or "") in aset]
 
     return {
         "regions": [{"code": r.name, "name": r.region_name, "zone": r.zone} for r in regions],
@@ -10167,9 +10620,8 @@ def get_stockist_primary_sales_report(division=None, sales_type="primary", regio
     conditions = ["psd.division = %(division)s", "psd.iscancelled = %(is_cancelled)s"]
     params = {"division": division, "is_cancelled": is_cancelled}
 
-    if region:
-        conditions.append("psd.region = %(region)s")
-        params["region"] = region
+    # Primary Sales Data stores the region NAME, so match code-or-name.
+    _scope_region_sql(conditions, params, "psd.region", division, region, include_names=True)
     if team:
         conditions.append("psd.team = %(team)s")
         params["team"] = team
@@ -10290,9 +10742,7 @@ def get_stockist_secondary_sales_report(division=None, region=None,
     conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
     params = {"division": division}
 
-    if region:
-        conditions.append("ss.region = %(region)s")
-        params["region"] = region
+    _scope_region_sql(conditions, params, "ss.region", division, region)
     if team:
         conditions.append("ss.team = %(team)s")
         params["team"] = team
@@ -10434,6 +10884,11 @@ def get_stockist_moving_trend_report(division=None, sales_type="secondary",
         division = get_user_division()
     if not stockist_code:
         return {"success": False, "message": "Stockist code is required"}
+
+    # Non-admins may only view stockists in their mapped regions — a stockist outside
+    # scope yields no rows (the query below is keyed on this code).
+    if not _stockist_region_allowed(stockist_code, division):
+        stockist_code = "__region_denied__"
 
     month_labels = ["apr", "may", "jun", "jul", "aug", "sep",
                     "oct", "nov", "dec", "jan", "feb", "mar"]
@@ -10577,9 +11032,7 @@ def get_stockist_closing_stock_report(division=None, region=None,
     conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
     params = {"division": division}
 
-    if region:
-        conditions.append("ss.region = %(region)s")
-        params["region"] = region
+    _scope_region_sql(conditions, params, "ss.region", division, region)
     if team:
         conditions.append("ss.team = %(team)s")
         params["team"] = team
@@ -10668,9 +11121,9 @@ def get_region_product_closing_stock(division=None, region=None, from_date=None,
 
     conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
     params = {"division": division}
-    if not is_org:
-        conditions.append("ss.region = %(region)s")
-        params["region"] = region
+    # Org (all-regions) view: admins span every region; non-admins are limited to their
+    # mapped regions. A specific region is validated against the user's allowed set.
+    _scope_region_sql(conditions, params, "ss.region", division, None if is_org else region)
 
     if from_date:
         conditions.append("ss.statement_month >= %(from_date)s")
@@ -10924,9 +11377,7 @@ def get_hq_wise_stockist_report(division=None, region=None, team=None, hq=None):
     conditions = ["sm.division = %(division)s", "sm.status = 'Active'"]
     params = {"division": division}
 
-    if region:
-        conditions.append("COALESCE(hm.region, sm.region) = %(region)s")
-        params["region"] = region
+    _scope_region_sql(conditions, params, "COALESCE(hm.region, sm.region)", division, region)
     if team:
         conditions.append("COALESCE(hm.team, sm.team) = %(team)s")
         params["team"] = team
@@ -10982,9 +11433,7 @@ def get_stockist_address_report(division=None, region=None, criteria="ALL", team
     conditions = ["sm.division = %(division)s", "sm.status = 'Active'"]
     params = {"division": division}
 
-    if region:
-        conditions.append("sm.region = %(region)s")
-        params["region"] = region
+    _scope_region_sql(conditions, params, "sm.region", division, region)
     if team:
         conditions.append("sm.team = %(team)s")
         params["team"] = team
@@ -12118,6 +12567,9 @@ def get_scheme_report_filter_options(division=None):
     if not division:
         division = get_user_division()
 
+    # None for admin (= all regions); a list confines a non-admin's pickers below.
+    allowed = _allowed_region_codes_or_all(division)
+
     zones = frappe.db.sql(
         "SELECT name, zone_name FROM `tabZone Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_dict=True,
@@ -12139,7 +12591,7 @@ def get_scheme_report_filter_options(division=None):
         (division,), as_dict=True,
     )
     stockists = frappe.db.sql(
-        "SELECT name, stockist_name FROM `tabStockist Master` WHERE division=%s AND status='Active' ORDER BY stockist_name",
+        "SELECT name, stockist_name, IFNULL(region, '') AS region FROM `tabStockist Master` WHERE division=%s AND status='Active' ORDER BY stockist_name",
         (division,), as_dict=True,
     )
     doctors = frappe.db.sql(
@@ -12155,6 +12607,16 @@ def get_scheme_report_filter_options(division=None):
     )
     product_groups = sorted(set(p.product_group for p in products if p.product_group))
     product_categories = sorted(set(p.category for p in products if p.category))
+
+    # Confine a non-admin's pickers to their mapped regions (and the teams/HQs/doctors/
+    # stockists inside them). Admin (allowed is None) sees everything.
+    if allowed is not None:
+        aset = set(allowed)
+        regions = [r for r in regions if r.name in aset]
+        teams = [t for t in teams if (t.region or "") in aset]
+        hqs = [h for h in hqs if (h.region or "") in aset]
+        doctors = [d for d in doctors if (d.region or "") in aset]
+        stockists = [s for s in stockists if (s.region or "") in aset]
 
     return {
         "zones": [{"code": z.name, "name": z.zone_name or z.name} for z in zones],
@@ -12172,15 +12634,16 @@ def get_scheme_report_filter_options(division=None):
     }
 
 
-def _scheme_geo_conditions(alias, params, zone=None, region=None, team=None, hq=None, doctor=None):
+def _scheme_geo_conditions(alias, params, zone=None, region=None, team=None, hq=None, doctor=None, division=None):
     """Build WHERE fragments for the shared cascade filters against a Doctor Master
     alias (dm). Each dimension is optional; the cascade sends only what is selected.
-    Returns a list of SQL condition strings and mutates `params` in place."""
+    Returns a list of SQL condition strings and mutates `params` in place. `division`
+    enables per-user region scoping: a non-admin is confined to their allowed regions
+    here (admin unrestricted); a picked region is validated against that set."""
     conds = []
     if zone:
         conds.append(f"{alias}.zone = %(g_zone)s"); params["g_zone"] = zone
-    if region:
-        conds.append(f"{alias}.region = %(g_region)s"); params["g_region"] = region
+    _scope_region_sql(conds, params, f"{alias}.region", division, region, key="g_region")
     if team:
         conds.append(f"{alias}.team = %(g_team)s"); params["g_team"] = team
     if hq:
@@ -12226,7 +12689,7 @@ def get_scheme_activity_trend_report(division=None, from_date=None, to_date=None
             params["pc_" + str(i)] = pc
 
     # Shared cascade scope (Zone→Region→Team→HQ→Doctor)
-    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor)
+    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor, division=division)
 
     where = " AND ".join(conditions)
 
@@ -12310,7 +12773,7 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
         for i, pc in enumerate(resolved_pks):
             params["pc_" + str(i)] = pc
 
-    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor)
+    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor, division=division)
 
     where = " AND ".join(conditions)
 
@@ -12318,7 +12781,7 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
         SELECT sr.application_date AS date, dm.region, dm.hq,
                dm.doctor_name, COALESCE(pm.product_code, sri.product_code) AS product_code,
                COALESCE(pm.product_name, sri.product_name) AS product_name,
-               sri.quantity, sri.free_quantity, sri.product_rate AS rate,
+               sri.quantity, sri.free_quantity, sri.pack, sri.product_rate AS rate,
                sri.special_rate, sri.product_value AS value,
                sr.stockist_code, COALESCE(sm.stockist_name, '') AS stockist_name,
                dm.team
@@ -12336,8 +12799,11 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
     total_qty = total_free = total_value = total_discount = 0
     for i, r in enumerate(rows, 1):
         special_rate = flt(r.special_rate)
-        # Discount value = order qty * (PTS − special price), only when a special price is set
-        discount_value = flt(r.quantity) * (flt(r.rate) - special_rate) if special_rate > 0 else 0
+        # Discount value = (order qty ÷ strips-per-box) × (PTS − special price), only
+        # when a special price is set. The ÷conv is essential: order value (product_value)
+        # is per-box, so without it the discount is inflated by the pack size for NxM packs.
+        _conv = _scheme_pack_conversion(r.pack)
+        discount_value = (flt(r.quantity) / _conv) * (flt(r.rate) - special_rate) if special_rate > 0 else 0
         data.append({
             "sno": i,
             "date": str(r.date) if r.date else "",
@@ -12386,7 +12852,7 @@ def get_new_approval_doctors_report(division=None, from_date=None, to_date=None,
     # Subquery: first ever approved date per doctor in this division
     # Then filter doctors whose first date falls in the range
     hierarchy_conds = ["dm.status = 'Active'"]
-    hierarchy_conds += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor)
+    hierarchy_conds += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor, division=division)
 
     # Product filter on scheme items (optional) — resolve codes/group/category to ids
     product_join = ""
@@ -12465,7 +12931,7 @@ def get_scheme_periodic_report(division=None, from_date=None, to_date=None,
     ]
     params = {"division": division, "from_date": from_date, "to_date": to_date}
 
-    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor)
+    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor, division=division)
 
     resolved_pks = _resolve_product_filter(division, product_codes=product_codes,
                                            product_group=product_group, product_category=product_category)
@@ -12477,9 +12943,13 @@ def get_scheme_periodic_report(division=None, from_date=None, to_date=None,
 
     where = " AND ".join(conditions)
 
-    # Discount value aggregate: order qty * (PTS − special price) where a special price is set
+    # Discount value aggregate: (order qty ÷ strips-per-box) × (PTS − special price)
+    # where a special price is set. The ÷conv keeps discount per-box so it reconciles
+    # with SUM(product_value) below (order value is already per-box).
+    _conv_sql = _sql_pack_conversion("sri.pack")
     disc_expr = ("SUM(CASE WHEN sri.special_rate > 0 "
-                 "THEN sri.quantity * (sri.product_rate - sri.special_rate) ELSE 0 END) AS discount_value")
+                 f"THEN (sri.quantity / {_conv_sql}) * (sri.product_rate - sri.special_rate) "
+                 "ELSE 0 END) AS discount_value")
 
     # Reporting Criteria → GROUP BY mapping
     group_map = {
@@ -12600,7 +13070,7 @@ def get_pending_scheme_deduction_report(division=None, month=None,
     else:
         conditions.append("(sri.free_quantity > 0 OR sri.special_rate > 0)")
 
-    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor)
+    conditions += _scheme_geo_conditions("dm", params, zone, region, team, hq, doctor, division=division)
 
     resolved_pks = _resolve_product_filter(division, product_codes=product_codes,
                                            product_group=product_group, product_category=product_category)
@@ -12664,7 +13134,10 @@ def get_pending_scheme_deduction_report(division=None, month=None,
     tot_free = tot_disc = tot_value = 0
     for i, r in enumerate(rows, 1):
         special_rate = flt(r.special_rate)
-        discount_value = flt(r.quantity) * (flt(r.product_rate) - special_rate) if special_rate > 0 else 0
+        # (order qty ÷ strips-per-box) × (PTS − special); ÷conv keeps it per-box so it
+        # reconciles with the order value (product_value) below.
+        _conv = _scheme_pack_conversion(r.pack)
+        discount_value = (flt(r.quantity) / _conv) * (flt(r.product_rate) - special_rate) if special_rate > 0 else 0
         schemes_seen.add(r.scheme_name)
         data.append({
             "sno": i,
@@ -12952,6 +13425,9 @@ def get_ranking_report_filter_options(division=None):
     if not division:
         division = get_user_division()
 
+    # None for admin (= all regions); a list confines a non-admin's pickers below.
+    allowed = _allowed_region_codes_or_all(division)
+
     zones = frappe.db.sql(
         "SELECT name FROM `tabZone Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_list=1)
@@ -12962,10 +13438,10 @@ def get_ranking_report_filter_options(division=None):
         "SELECT name, region FROM `tabTeam Master` WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_dict=True)
     hqs = frappe.db.sql(
-        "SELECT name, hq_name, team FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
+        "SELECT name, hq_name, team, IFNULL(region, '') AS region FROM `tabHQ Master` WHERE division=%s AND status='Active' ORDER BY name",
         (division,), as_dict=True)
     stockists = frappe.db.sql(
-        "SELECT name, stockist_name, hq FROM `tabStockist Master` WHERE division=%s AND status='Active' ORDER BY stockist_name",
+        "SELECT name, stockist_name, hq, IFNULL(region, '') AS region FROM `tabStockist Master` WHERE division=%s AND status='Active' ORDER BY stockist_name",
         (division,), as_dict=True)
     products = frappe.db.sql(
         "SELECT product_code, product_name, category, product_group, pack, sequence "
@@ -12975,6 +13451,16 @@ def get_ranking_report_filter_options(division=None):
         "SELECT name, doctor_code, doctor_name, hq, region "
         "FROM `tabDoctor Master` WHERE division=%s AND status='Active' ORDER BY doctor_name",
         (division,), as_dict=True)
+
+    # Confine a non-admin's pickers to their mapped regions (and the teams/HQs/stockists/
+    # doctors inside them). Admin (allowed is None) sees everything.
+    if allowed is not None:
+        aset = set(allowed)
+        regions = [r for r in regions if r.name in aset]
+        teams = [t for t in teams if (t.region or "") in aset]
+        hqs = [h for h in hqs if (h.region or "") in aset]
+        stockists = [s for s in stockists if (s.region or "") in aset]
+        doctors = [d for d in doctors if (d.region or "") in aset]
 
     return {
         "zones": [z[0] for z in zones],
@@ -13098,9 +13584,8 @@ def _moving_trend_primary(division, criteria, from_date, to_date, region, zone):
     join_sm = ""
     if criteria == "HQ":
         join_sm = " LEFT JOIN `tabStockist Master` sm ON sm.name = ps.stockist_code AND sm.status = 'Active'"
-    if region:
-        conditions.append("ps.region = %(region)s")
-        params["region"] = _pri_master_name("Region Master", region, "region_name")
+    # Primary Sales Data stores the region NAME, so match code-or-name.
+    _scope_region_sql(conditions, params, "ps.region", division, region, include_names=True)
     if zone:
         conditions.append("ps.zonee = %(zone)s")
         params["zone"] = _pri_master_name("Zone Master", zone, "zone_name")
@@ -13138,9 +13623,7 @@ def _moving_trend_secondary(division, criteria, from_date, to_date, region, zone
         join_sm = " LEFT JOIN `tabStockist Master` sm ON sm.name = ss.stockist_code AND sm.status = 'Active'"
     if criteria == "Product":
         join_sm += " LEFT JOIN `tabProduct Master` pm ON pm.name = si.product_code"
-    if region:
-        conditions.append("ss.region = %(region)s")
-        params["region"] = region
+    _scope_region_sql(conditions, params, "ss.region", division, region)
     if zone:
         conditions.append("ss.zone = %(zone)s")
         params["zone"] = zone
@@ -13176,6 +13659,8 @@ def get_ranking_rupee_wise_report(division=None, sales_type="secondary",
         conditions = ["ps.division = %(division)s", "ps.iscancelled = 0",
                        f"ps.ptsvalue {val_op} %(sale_value)s"]
         params = {"division": division, "sale_value": sale_value}
+        # No region filter on this report — still confine non-admins to their regions.
+        _scope_region_sql(conditions, params, "ps.region", division, None, include_names=True)
         if from_date:
             conditions.append("ps.invoicedate >= %(from_date)s")
             params["from_date"] = from_date
@@ -13198,6 +13683,8 @@ def get_ranking_rupee_wise_report(division=None, sales_type="secondary",
         conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)",
                        f"si.sales_value_pts {val_op} %(sale_value)s"]
         params = {"division": division, "sale_value": sale_value}
+        # No region filter on this report — still confine non-admins to their regions.
+        _scope_region_sql(conditions, params, "ss.region", division, None)
         if from_date:
             conditions.append("ss.statement_month >= %(from_date)s")
             params["from_date"] = from_date
@@ -13254,6 +13741,8 @@ def get_ranking_productwise_topn(division=None, product_codes=None, top_n=5,
     if sales_type == "primary":
         conditions = ["ps.division = %(division)s", "ps.iscancelled = 0"]
         params = {"division": division}
+        # No region filter on this report — still confine non-admins to their regions.
+        _scope_region_sql(conditions, params, "ps.region", division, None, include_names=True)
         if from_date:
             conditions.append("ps.invoicedate >= %(from_date)s")
             params["from_date"] = from_date
@@ -13276,6 +13765,8 @@ def get_ranking_productwise_topn(division=None, product_codes=None, top_n=5,
     else:
         conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
         params = {"division": division}
+        # No region filter on this report — still confine non-admins to their regions.
+        _scope_region_sql(conditions, params, "ss.region", division, None)
         if from_date:
             conditions.append("ss.statement_month >= %(from_date)s")
             params["from_date"] = from_date
@@ -13348,9 +13839,8 @@ def get_ranking_productwise_all(division=None, product_code=None, region=None,
         if product_code:
             conditions.append("ps.pcode = %(pcode)s")
             params["pcode"] = product_code
-        if region:
-            conditions.append("ps.region = %(region)s")
-            params["region"] = _pri_master_name("Region Master", region, "region_name")
+        # Primary Sales Data stores the region NAME, so match code-or-name.
+        _scope_region_sql(conditions, params, "ps.region", division, region, include_names=True)
         if from_date:
             conditions.append("ps.invoicedate >= %(from_date)s")
             params["from_date"] = from_date
@@ -13375,9 +13865,7 @@ def get_ranking_productwise_all(division=None, product_code=None, region=None,
             # UI sends the business code; the item Link column stores the id.
             conditions.append("si.product_code = %(pcode)s")
             params["pcode"] = _resolve_product_pk(product_code, division) or product_code
-        if region:
-            conditions.append("ss.region = %(region)s")
-            params["region"] = region
+        _scope_region_sql(conditions, params, "ss.region", division, region)
         if from_date:
             conditions.append("ss.statement_month >= %(from_date)s")
             params["from_date"] = from_date
@@ -13474,9 +13962,7 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
         # Closing stock from statement items
         conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
         params = {"division": division}
-        if region:
-            conditions.append("ss.region = %(region)s")
-            params["region"] = region
+        _scope_region_sql(conditions, params, "ss.region", division, region)
         if from_date:
             conditions.append("ss.statement_month >= %(from_date)s")
             params["from_date"] = from_date
@@ -13510,9 +13996,8 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
     elif sales_type == "primary":
         conditions = ["ps.division = %(division)s", "ps.iscancelled = 0"]
         params = {"division": division}
-        if region:
-            conditions.append("ps.region = %(region)s")
-            params["region"] = _pri_master_name("Region Master", region, "region_name")
+        # Primary Sales Data stores the region NAME, so match code-or-name.
+        _scope_region_sql(conditions, params, "ps.region", division, region, include_names=True)
         if from_date:
             conditions.append("ps.invoicedate >= %(from_date)s")
             params["from_date"] = from_date
@@ -13548,9 +14033,7 @@ def get_ranking_productwise_advanced(division=None, sales_type="secondary",
     else:  # secondary
         conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)"]
         params = {"division": division}
-        if region:
-            conditions.append("ss.region = %(region)s")
-            params["region"] = region
+        _scope_region_sql(conditions, params, "ss.region", division, region)
         if from_date:
             conditions.append("ss.statement_month >= %(from_date)s")
             params["from_date"] = from_date
@@ -13625,11 +14108,15 @@ def get_ranking_pcpm_tracker(division=None, sales_type="secondary",
     # Get sanctioned strength = sum of per_capita from active HQ Masters in the region
     strength_conditions = ["hm.division = %(division)s", "hm.status = 'Active'"]
     strength_params = {"division": division}
-    if region:
+    # Sanctioned strength must span only the regions the caller may see (empty for an
+    # admin with no region picked = every region, as before).
+    _strength_rgn = []
+    _scope_region_sql(_strength_rgn, strength_params, "tm.region", division, region,
+                      key="g_strength_rgn")
+    if _strength_rgn:
         strength_conditions.append("""hm.team IN (
             SELECT tm.name FROM `tabTeam Master` tm
-            WHERE tm.region = %(region)s AND tm.status = 'Active')""")
-        strength_params["region"] = region
+            WHERE %s AND tm.status = 'Active')""" % " AND ".join(_strength_rgn))
     strength_where = " AND ".join(strength_conditions)
 
     strength_row = frappe.db.sql(f"""
@@ -13644,9 +14131,8 @@ def get_ranking_pcpm_tracker(division=None, sales_type="secondary",
         conditions = ["ps.division = %(division)s", "ps.iscancelled = 0",
                        "ps.invoicedate >= %(from_date)s", "ps.invoicedate <= %(to_date)s"]
         params = {"division": division, "from_date": fy_start, "to_date": fy_end}
-        if region:
-            conditions.append("ps.region = %(region)s")
-            params["region"] = _pri_master_name("Region Master", region, "region_name")
+        # Primary Sales Data stores the region NAME, so match code-or-name.
+        _scope_region_sql(conditions, params, "ps.region", division, region, include_names=True)
         if codes:
             conditions.append("ps.pcode IN %(codes)s")
             params["codes"] = codes
@@ -13664,9 +14150,7 @@ def get_ranking_pcpm_tracker(division=None, sales_type="secondary",
         conditions = ["ss.division = %(division)s", "ss.docstatus IN (0, 1)",
                        "ss.statement_month >= %(from_date)s", "ss.statement_month <= %(to_date)s"]
         params = {"division": division, "from_date": fy_start, "to_date": fy_end}
-        if region:
-            conditions.append("ss.region = %(region)s")
-            params["region"] = region
+        _scope_region_sql(conditions, params, "ss.region", division, region)
         if codes:
             # UI sends business codes; the item Link column stores ids.
             conditions.append("si.product_code IN %(codes)s")
@@ -13987,6 +14471,20 @@ def _resolve_entity_hqs(division, entity_type, entity_name):
             "WHERE rm.zone=%s AND hm.status='Active' AND hm.division=%s", (entity_name, division))
         sanctioned_strength = flt(total_pc[0][0]) if total_pc else 0
         entity_display = frappe.db.get_value("Zone Master", entity_name, "zone_name") or entity_name
+
+    # Confine non-admins to HQs inside their mapped regions, whatever entity was asked
+    # for — an Organization/Zone scope must not span regions the user may not see. The
+    # sanctioned strength is recomputed over the visible HQs so totals stay consistent.
+    clamped = _clamp_hqs_to_allowed_regions(hq_list, division)
+    if len(clamped) != len(hq_list):
+        hq_list = clamped
+        if hq_list:
+            row = frappe.db.sql(
+                "SELECT COALESCE(SUM(per_capita), 0) FROM `tabHQ Master` WHERE name IN %s",
+                (tuple(hq_list),))
+            sanctioned_strength = flt(row[0][0]) if row else 0.0
+        else:
+            sanctioned_strength = 0.0
 
     return hq_list, sanctioned_strength, entity_display
 
@@ -14435,6 +14933,13 @@ def get_organizational_sales_report(division=None, sales_type="primary",
         "WHERE status='Active' AND division IN (%s, 'Both') ORDER BY name",
         (division,), as_dict=True)
 
+    # Confine non-admins to their mapped regions — every column/total below derives
+    # from region_rows, so filtering here scopes the whole report.
+    _allowed = _allowed_region_codes_or_all(division)
+    if _allowed is not None:
+        _aset = set(_allowed)
+        region_rows = [r for r in region_rows if r.name in _aset]
+
     zone_name_map = {z.name: (z.zone_name or z.name) for z in zone_rows}
 
     # Region value resolver: sales tables are inconsistent — Stockist Statement
@@ -14774,6 +15279,10 @@ def get_region_wise_stockist_moving_trend(division=None, region=None, financial_
         division = get_user_division()
     if not region:
         return {"success": False, "message": "Region is required"}
+    # Non-admins may only run this for a region they are mapped to.
+    _allowed = _allowed_region_codes_or_all(division)
+    if _allowed is not None and region not in set(_allowed):
+        return {"success": False, "message": "You are not permitted to view this region."}
 
     from datetime import date
     today = date.today()
@@ -15043,6 +15552,14 @@ def get_secondary_vs_closing_value_report(division=None, from_month=None, to_mon
 
     # ── Resolve regions ──
     region_codes_n = _normalise_code_list(region_codes)
+    # Confine non-admins to their mapped regions: intersect an explicit selection, or
+    # default to exactly their regions when nothing was picked.
+    _allowed = _allowed_region_codes_or_all(division)
+    if _allowed is not None:
+        _aset = set(_allowed)
+        region_codes_n = [c for c in region_codes_n if c in _aset] if region_codes_n else list(_allowed)
+        if not region_codes_n:
+            return {"success": True, "regions": [], "months": months_seq, "grand_total": {}}
     region_filter_sql = ""
     region_params = []
     if region_codes_n:
@@ -15234,6 +15751,14 @@ def get_target_vs_sales_report(division=None, from_month=None, to_month=None,
 
     # ── Resolve regions & HQs (active, like Report 11) ──
     region_codes_n = _normalise_code_list(region_codes)
+    # Confine non-admins to their mapped regions: intersect an explicit selection, or
+    # default to exactly their regions when nothing was picked.
+    _allowed = _allowed_region_codes_or_all(division)
+    if _allowed is not None:
+        _aset = set(_allowed)
+        region_codes_n = [c for c in region_codes_n if c in _aset] if region_codes_n else list(_allowed)
+        if not region_codes_n:
+            return {"success": True, "regions": [], "months": months_seq, "grand_total": {}}
     region_filter_sql = ""
     region_params = []
     if region_codes_n:
@@ -15415,6 +15940,17 @@ def _scheme_pack_conversion(pack_str):
     return 1
 
 
+def _sql_pack_conversion(pack_col):
+    """SQL expression mirroring _scheme_pack_conversion(): strips-per-box = the first
+    number of an 'NxM' pack (e.g. 10x15 -> 10), else 1. Used inside aggregate report
+    SQL so discount value stays per-box and reconciles with the stored order value.
+    Guards against a 0 factor to avoid divide-by-zero."""
+    p = f"LOWER(TRIM({pack_col}))"
+    n = f"CAST(SUBSTRING_INDEX({p}, 'x', 1) AS DECIMAL(20,6))"
+    return (f"(CASE WHEN {p} REGEXP '^[0-9]+[[:space:]]*x[[:space:]]*[0-9]+' "
+            f"AND {n} > 0 THEN {n} ELSE 1 END)")
+
+
 def _resolve_product_filter(division, product_codes=None, product_group=None, product_category=None):
     """Return a list of Product Master codes matching the given filters.
 
@@ -15488,6 +16024,8 @@ def get_monthly_organizational_report(division=None, month=None, team=None, hq=N
     conds = ["ss.division = %s", "ss.docstatus IN (0, 1)",
              "ss.statement_month BETWEEN %s AND %s"]
     params = [division, first_day, last_day]
+    # No region filter on this report — still confine non-admins to their regions.
+    _scope_region_sql_pos(conds, params, "ss.region", division, None)
     if team:
         conds.append("ss.team = %s")
         params.append(team)
@@ -16562,8 +17100,7 @@ def get_secondary_sales_count(month, division=None, zone=None, region=None, team
     params = {"division": division, "first_day": first_day, "last_day": last_day}
     if zone:
         conditions.append("ss.zone = %(zone)s"); params["zone"] = zone
-    if region:
-        conditions.append("ss.region = %(region)s"); params["region"] = region
+    _scope_region_sql(conditions, params, "ss.region", division, region)
     if team:
         conditions.append("ss.team = %(team)s"); params["team"] = team
     if hq:
@@ -16571,7 +17108,7 @@ def get_secondary_sales_count(month, division=None, zone=None, region=None, team
 
     where = " AND ".join(conditions)
     res = frappe.db.sql(f"""
-        SELECT COUNT(DISTINCT ss.name) AS statements, COUNT(si.name) AS rows
+        SELECT COUNT(DISTINCT ss.name) AS statements, COUNT(si.name) AS `rows`
         FROM `tabStockist Statement` ss
         LEFT JOIN `tabStockist Statement Item` si
             ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
@@ -16950,8 +17487,7 @@ def export_secondary_sales_data(month, division=None, zone=None, region=None,
 
     if zone:
         conditions.append("ss.zone = %(zone)s"); params["zone"] = zone
-    if region:
-        conditions.append("ss.region = %(region)s"); params["region"] = region
+    _scope_region_sql(conditions, params, "ss.region", division, region)
     if team:
         conditions.append("ss.team = %(team)s"); params["team"] = team
     if hq:
