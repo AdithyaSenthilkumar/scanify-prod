@@ -625,18 +625,27 @@
         $('#d-totalValue').text('₹ ' + formatCurrency(d.total_scheme_value));
 
         // Attachments
-        const attachments = [d.proof_attachment_1, d.proof_attachment_2, d.proof_attachment_3, d.proof_attachment_4].filter(Boolean);
+        // Keep each file's ORIGINAL slot number — the download endpoint addresses
+        // attachments by proof_attachment_<idx>, so a filtered index would fetch the
+        // wrong document when an earlier slot is empty.
+        const attachments = [];
+        [d.proof_attachment_1, d.proof_attachment_2, d.proof_attachment_3, d.proof_attachment_4]
+            .forEach(function (url, i) { if (url) attachments.push({ url: url, idx: i + 1 }); });
         if (attachments.length > 0) {
             let attHtml = '<div class="row">';
-            attachments.forEach(function (url, i) {
-                const isImg = /\.(jpg|jpeg|png|gif)$/i.test(url);
-                const filename = url.split('/').pop();
+            attachments.forEach(function (a, i) {
+                const isImg = /\.(jpg|jpeg|png|gif)$/i.test(a.url);
+                const filename = a.url.split('/').pop();
+                // Served through the portal-authorised endpoint, not /private/files/…,
+                // which 403s unless the File row happens to be linked to this scheme.
+                const src = '/api/method/scanify.api.download_scheme_attachment'
+                    + '?scheme_request=' + encodeURIComponent(SCHEME_NAME) + '&idx=' + a.idx;
                 attHtml += `<div class="col-md-3 mb-2">
                 <div class="attachment-card">
                     <div class="mb-1"><i class="fa fa-${isImg ? 'image' : 'file'} fa-2x text-muted"></i></div>
-                    <div class="small text-muted mb-2">Document ${i + 1}: ${filename}</div>
-                    ${isImg ? `<img src="${url}" class="img-fluid rounded mb-2" style="max-height:100px;cursor:pointer;" onclick="window.open('${url}','_blank')">` : ''}
-                    <a href="${url}" target="_blank" class="btn btn-sm btn-outline-primary d-block">
+                    <div class="small text-muted mb-2">Document ${a.idx}: ${filename}</div>
+                    ${isImg ? `<img src="${src}" class="img-fluid rounded mb-2" style="max-height:100px;cursor:pointer;" onclick="window.open('${src}','_blank')">` : ''}
+                    <a href="${src}" target="_blank" class="btn btn-sm btn-outline-primary d-block">
                         <i class="fa fa-external-link-alt"></i> View/Download
                     </a>
                 </div>

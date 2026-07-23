@@ -1902,6 +1902,107 @@ def upload_scheme_attachment():
     return {"file_url": file_doc.file_url, "file_name": file_doc.name}
 
 
+def _assert_scheme_attachment_access(sr):
+    """Portal-level read check for a scheme's documents.
+
+    Deliberately mirrors how get_scheme_list_portal scopes data (division + mapped
+    regions), so ANY role that can see the scheme in the portal — Admin, HO, Regional
+    User, Regional Future — can also open its attachments. Plus the requestor, who
+    uploaded the file, always gets their own regardless of current scope.
+    """
+    from scanify.permissions import (is_portal_admin, get_allowed_divisions,
+                                     get_allowed_region_codes)
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw("Authentication required", frappe.AuthenticationError)
+
+    # Administrator / portal Admin: unrestricted.
+    if user == "Administrator" or is_portal_admin(user):
+        return
+
+    # The requestor uploaded this document — always allow, even if the scheme now sits
+    # outside their current division/region mapping.
+    if sr.get("requested_by") == user:
+        return
+
+    # Division: check every division the user may use, NOT just the one the switcher is
+    # currently on. The download is a separate GET and must not depend on that state.
+    division = sr.get("division")
+    if division and division not in set(get_allowed_divisions(user) or []):
+        frappe.throw("Not permitted to access this scheme's documents", frappe.PermissionError)
+
+    # Region: same rule as the scheme list — None means unrestricted; otherwise the
+    # scheme's region must be in the user's mapped regions.
+    allowed = get_allowed_region_codes(user, division)
+    if allowed is not None and sr.get("region") not in set(allowed):
+        frappe.throw("Not permitted to access this scheme's documents", frappe.PermissionError)
+
+
+@frappe.whitelist(methods=["GET"])
+def download_scheme_attachment(scheme_request, idx):
+    """Stream a Scheme Request proof attachment, authorised by the PORTAL's own rules.
+
+    Proof files are uploaded BEFORE the scheme exists and are only linked to it
+    afterwards. Whenever that link is missing (legacy rows, an interrupted submit),
+    Frappe's File.has_permission falls through to its final `return False`, so
+    /private/files/<name> 403s for everyone except the uploader and Administrator —
+    including a portal Admin holding System Manager. That is why "View/Download" failed
+    even though the page itself rendered. Serving through here removes the dependency on
+    File.attached_to entirely, and we re-link the File on the way out so Desk and any
+    existing direct links start working too."""
+    from frappe.utils import cint, get_site_path
+    idx = cint(idx)
+    if idx not in (1, 2, 3, 4):
+        frappe.throw("Invalid attachment number")
+
+    sr = frappe.db.get_value("Scheme Request", scheme_request,
+        ["name", "division", "region", "requested_by", "proof_attachment_1",
+         "proof_attachment_2", "proof_attachment_3", "proof_attachment_4"], as_dict=True)
+    if not sr:
+        frappe.throw("Scheme request not found", frappe.DoesNotExistError)
+
+    _assert_scheme_attachment_access(sr)
+
+    url = sr.get("proof_attachment_%d" % idx)
+    if not url:
+        frappe.throw("No document attached at position %d" % idx)
+
+    filename = os.path.basename(str(url).split("?")[0])
+    if not filename or filename in (".", ".."):
+        frappe.throw("Invalid attachment")
+    sub = "private" if str(url).startswith("/private/") else "public"
+    path = get_site_path(sub, "files", filename)
+    if not os.path.exists(path):
+        frappe.throw("The attached file is missing on the server")
+
+    # Best-effort re-link so Desk / direct links heal too. Never blocks the download.
+    try:
+        # "is / not set" -> IFNULL(field,'')='' so it matches BOTH NULL and ''.
+        # (An IN [None, ''] filter would never match NULL rows.)
+        orphan = frappe.db.get_value(
+            "File", {"file_url": url, "attached_to_name": ["is", "not set"]}, "name")
+        if orphan:
+            frappe.db.set_value("File", orphan, {
+                "attached_to_doctype": "Scheme Request",
+                "attached_to_name": sr.name,
+                "attached_to_field": "proof_attachment_%d" % idx,
+            }, update_modified=False)
+            frappe.db.commit()
+    except Exception:
+        frappe.clear_last_message()
+
+    with open(path, "rb") as f:
+        content = f.read()
+
+    ext = os.path.splitext(filename)[1].lower()
+    frappe.local.response.filename = filename
+    frappe.local.response.filecontent = content
+    frappe.local.response.type = "download"
+    # Render images/PDFs in the tab, matching the old direct-link behaviour.
+    frappe.local.response.display_content_as = (
+        "inline" if ext in (".pdf", ".jpg", ".jpeg", ".png", ".gif") else "attachment")
+
+
 @frappe.whitelist()
 def get_bulk_jobs_list(division=None):
     """
@@ -7131,8 +7232,14 @@ def create_scheme_request_v2(data):
             url = getattr(doc, "proof_attachment_%d" % i, None)
             if not url:
                 continue
-            file_name = frappe.db.get_value("File", {"file_url": url}, "name")
-            if file_name:
+            # Claim every still-unattached File row for this URL (uploads can produce more
+            # than one). Never re-point a file already attached elsewhere — that would
+            # steal it from another document. If this link is missed the attachment is
+            # still downloadable via download_scheme_attachment(), which re-links it.
+            for file_name in frappe.db.get_all(
+                    "File",
+                    filters={"file_url": url, "attached_to_name": ["is", "not set"]},
+                    pluck="name"):
                 frappe.db.set_value("File", file_name, {
                     "attached_to_doctype": "Scheme Request",
                     "attached_to_name": doc.name,
