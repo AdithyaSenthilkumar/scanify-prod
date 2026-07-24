@@ -180,6 +180,20 @@ def is_portal_admin(user=None):
     return get_portal_role(user) == ROLE_ADMIN
 
 
+def is_regional_role(user=None):
+    """True for the two region-mapped field roles (Regional User and Regional User
+    (Future)) — i.e. users who work within their own regions rather than across the
+    whole division."""
+    return get_portal_role(user) in (ROLE_R, ROLE_RF)
+
+
+def scheme_list_label(user=None):
+    """Heading for the scheme list page and its sidebar entry. Regional roles track the
+    status of requests in their own regions rather than browsing every request, so the
+    page reads as 'Scheme Status' for them. Exposed to Jinja for portal_base.html."""
+    return "Scheme Status" if is_regional_role(user) else "Scheme Requests"
+
+
 def has_app_access(user=None):
     """Apps-screen visibility for the Scanify Portal entry — any logged-in user."""
     return frappe.session.user not in (None, "", "Guest")

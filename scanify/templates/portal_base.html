@@ -98,7 +98,7 @@
                             <i class="fa fa-user-circle mr-2"></i> My Profile
                         </a>
                         <div class="dropdown-divider"></div>
-                        <a class="dropdown-item" href="/logout">
+                        <a class="dropdown-item" href="/logout" onclick="portalLogout(event)">
                             <i class="fa fa-sign-out-alt mr-2 text-danger"></i> Logout
                         </a>
                     </div>
@@ -247,7 +247,7 @@
                     <div class="nav-group-links" id="grp-schemes">
                         {% if nav.scheme_list %}
                         <a href="/portal/scheme-list" class="nav-link">
-                            <i class="fa fa-list"></i> <span>Scheme Requests</span>
+                            <i class="fa fa-list"></i> <span>{{ scheme_list_label() }}</span>
                         </a>
                         {% endif %}
                         {% if nav.scheme_new %}
@@ -587,6 +587,28 @@
         function toggleUserMenu(event) {
             event.stopPropagation();
             $('.user-dropdown').toggleClass('show');
+        }
+
+        // Log out from inside the portal instead of navigating to /logout, which lands
+        // on a framework page the portal doesn't own. Post to the logout endpoint and
+        // send the user straight to /login. The href stays as a no-JS fallback.
+        function portalLogout(event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            $('.user-dropdown').removeClass('show');
+            showLoadingOverlay('Signing out...');
+            $.ajax({
+                url: '/api/method/logout',
+                type: 'POST',
+                headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+                // Either way /login is where the user belongs: on success the session
+                // is gone, on failure it was already gone or unusable.
+                complete: function () {
+                    window.location.href = '/login';
+                }
+            });
         }
     </script>
 {% block scripts %}{% endblock %}

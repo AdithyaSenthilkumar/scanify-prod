@@ -1,0 +1,4 @@
+{% extends "templates/web.html" %}
+{# Never rendered — logout.py redirects to /login from get_context.
+   This file exists only so the /logout route resolves to that module. #}
+{% block page_content %}{% endblock %}

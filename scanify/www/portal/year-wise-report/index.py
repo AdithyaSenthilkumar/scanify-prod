@@ -38,12 +38,26 @@ def get_context(context):
         # (docstatus 1) before Draft (0), then most recently modified. We then keep
         # only the first row per HQ, so a Draft + Approved pair for the same FY never
         # double-counts and the Approved figure always wins.
+        # Non-admins only see HQs inside the regions they are mapped to.
+        from scanify.permissions import get_allowed_region_codes
+        allowed_regions = get_allowed_region_codes(division=user_division)
+        region_cond, region_params = "", []
+        if allowed_regions is not None:
+            if allowed_regions:
+                region_cond = " AND hm.region IN ({})".format(
+                    ", ".join(["%s"] * len(allowed_regions)))
+                region_params = list(allowed_regions)
+            else:
+                region_cond = " AND 1=0"
+
+        # Resolve Region/Team/HQ codes to their display names here, so the report shows
+        # readable names (e.g. "Chennai" / "Team South") instead of R0xxx / T0xxx codes.
         rows = frappe.db.sql("""
             SELECT
                 ti.hq,
                 COALESCE(ti.hq_name, hm.hq_name, ti.hq) AS hq_name,
-                COALESCE(hm.team, ti.team) AS team,
-                hm.region AS region,
+                COALESCE(tm.team_name, hm.team, ti.team) AS team,
+                COALESCE(rm.region_name, hm.region) AS region,
                 ti.apr, ti.may, ti.jun, ti.jul, ti.aug, ti.sep,
                 ti.oct, ti.nov, ti.`dec`, ti.jan, ti.feb, ti.mar,
                 ti.yearly_total,
@@ -53,11 +67,14 @@ def get_context(context):
             INNER JOIN `tabHQ Target Item` ti
                 ON ti.parent = yt.name AND ti.parenttype = 'HQ Yearly Target'
             LEFT JOIN `tabHQ Master` hm ON hm.name = ti.hq
+            LEFT JOIN `tabTeam Master` tm ON tm.name = COALESCE(hm.team, ti.team)
+            LEFT JOIN `tabRegion Master` rm ON rm.name = hm.region
             WHERE yt.docstatus < 2
               AND yt.financial_year = %s
               AND yt.division = %s
+        """ + region_cond + """
             ORDER BY ti.hq, yt.docstatus DESC, yt.modified DESC
-        """, (financial_year, user_division), as_dict=True)
+        """, tuple([financial_year, user_division] + region_params), as_dict=True)
 
         # Deduplicate per HQ (first wins = Approved > latest Draft).
         seen = set()

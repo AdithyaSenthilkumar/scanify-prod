@@ -193,13 +193,14 @@
                             <tr>
                                 <th style="min-width:220px;">Product <span class="text-danger">*</span></th>
                                 <th style="min-width:80px;">Pack</th>
-                                <th style="min-width:110px;">Order Qty (strips/units) <span class="text-danger">*</span></th>
-                                <th style="min-width:100px;">Free Qty (strips/units)
+                                <th style="min-width:110px;">Order Qty (box/units) <span class="text-danger">*</span>
+                                    <i class="fa fa-info-circle text-muted" title="Enter the quantity in boxes (or units for unit packs) - the same level as the Rate. Value = Order Qty x Rate (special rate when set); free goods are not valued."></i></th>
+                                <th style="min-width:100px;">Free Qty (box/units)
                                     <i class="fa fa-info-circle text-muted" title="Free Qty and Special Price are mutually exclusive — set one or the other."></i>
                                 </th>
                                 <th style="min-width:100px;">Rate (PTS)</th>
                                 <th style="min-width:110px;">Special Rate (PTS)
-                                    <i class="fa fa-info-circle text-muted" title="Free Qty and Special Price are mutually exclusive — set one or the other."></i>
+                                    <i class="fa fa-info-circle text-muted" title="Special price per box/unit - the same level as Order Qty. Free Qty and Special Price are mutually exclusive — set one or the other."></i>
                                 </th>
                                 <th style="min-width:90px;">Scheme %</th>
                                 <th style="min-width:120px;">Value (&#8377;)</th>
@@ -291,5 +292,5 @@
 {% block scripts %}
 {% include "templates/includes/scheme_history_modal.html" %}
 <script src="/assets/scanify/js/scheme-history.js?v=20260722a"></script>
-<script src="/assets/scanify/js/scheme-repeat.js?v=20260714"></script>
+<script src="/assets/scanify/js/scheme-repeat.js?v=20260724"></script>
 {% endblock %}

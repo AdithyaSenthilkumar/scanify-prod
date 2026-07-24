@@ -1,13 +1,13 @@
 {% extends "templates/portal_base.html" %}
 
-{% block title %}Scheme Requests{% endblock %}
+{% block title %}{{ page_title }}{% endblock %}
 
 {% block portal_content %}
 <div class="portal-page scheme-list-page">
     <div class="page-header d-flex justify-content-between align-items-center">
         <div>
-            <h1 class="page-title"><i class="fa fa-file-alt"></i> Scheme Requests</h1>
-            <p class="page-subtitle">All scheme requests for <strong>{{ division }}</strong> division</p>
+            <h1 class="page-title"><i class="fa fa-file-alt"></i> {{ page_title }}</h1>
+            <p class="page-subtitle">{{ page_subtitle }} <strong>{{ division }}</strong> division</p>
         </div>
         <div class="d-flex gap-2">
             <a href="/portal/scheme-repeat" class="btn btn-secondary">

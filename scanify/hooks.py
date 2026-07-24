@@ -33,6 +33,7 @@ jinja = {
         "scanify.permissions.nav_access",
         "scanify.permissions.get_portal_role",
         "scanify.permissions.get_allowed_divisions",
+        "scanify.permissions.scheme_list_label",
     ]
 }
 

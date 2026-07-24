@@ -18,6 +18,13 @@ def get_context(context):
 
     context.division = user_division
 
+    # Regional roles work inside their own regions, so this page reads as a status view
+    # for them ("Scheme Status") rather than the full request list.
+    from scanify.permissions import scheme_list_label, is_regional_role
+    context.page_title = scheme_list_label(user)
+    context.page_subtitle = ("Status of scheme requests in your regions for"
+                             if is_regional_role(user) else "All scheme requests for")
+
     # Get user role
     roles = frappe.get_roles(user)
     if "System Manager" in roles:

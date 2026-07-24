@@ -17,9 +17,9 @@ def get_context(context):
     # Get user role
     context.user_role = get_user_role(user)
     
-    # Get dashboard stats filtered by division
+    # Get dashboard stats filtered by division (and, for non-admins, their regions)
     context.stats = get_dashboard_stats(user, context.division)
-    
+
     # Get recent scheme requests for this division
     context.recent_requests = get_recent_requests(context.division)
     
@@ -48,17 +48,38 @@ def get_user_role(user):
 
 
 def get_dashboard_stats(user, division):
-    """Get dashboard statistics filtered by division"""
+    """Get dashboard statistics filtered by division and, for non-admins, by the
+    regions they are mapped to (Admin sees the whole division)."""
     stats = {}
-    
+
     try:
-        # Pending schemes count (filtered by division)
+        # None for admin (= every region); a list confines every figure below.
+        from scanify.permissions import get_allowed_region_codes
+        regions = get_allowed_region_codes(user, division)
+        # SQL fragment + params for the region restriction. An empty allowed list means
+        # the user may see nothing, so force a no-rows condition.
+        def _rgn(col):
+            if regions is None:
+                return "", []
+            if not regions:
+                return " AND 1=0", []
+            return " AND {} IN ({})".format(col, ", ".join(["%s"] * len(regions))), list(regions)
+
+        def _rgn_filter(base):
+            if regions is None:
+                return base
+            base = dict(base)
+            base["region"] = ["in", regions or ["__none__"]]
+            return base
+
+        # Pending schemes count (division + region scoped)
         stats["pending_schemes"] = frappe.db.count(
             "Scheme Request",
-            {"approval_status": "Pending", "docstatus": 0, "division": division}
+            _rgn_filter({"approval_status": "Pending", "docstatus": 0, "division": division})
         )
-        
-        # Approved this month (filtered by division)
+
+        # Approved this month (division + region scoped)
+        _c, _p = _rgn("sr.region")
         stats["approved_this_month"] = frappe.db.sql("""
             SELECT COUNT(DISTINCT sr.name)
             FROM `tabScheme Request` sr
@@ -66,49 +87,56 @@ def get_dashboard_stats(user, division):
             WHERE sr.division = %s
             AND sal.action = 'Approved'
             AND sal.action_date >= %s
-        """, (division, get_first_day(nowdate())))[0][0]
-        
-        # Statements with completed OCR extraction (filtered by division).
+        """ + _c, tuple([division, get_first_day(nowdate())] + _p))[0][0]
+
+        # Statements with completed OCR extraction (division + region scoped).
         # These are AI-extracted statements — measured by extraction status, not docstatus
         # (all extracted statements sit in draft/docstatus 0 by design).
         stats["completed_statements"] = frappe.db.count(
             "Stockist Statement",
-            {"extracted_data_status": "Completed", "division": division}
+            _rgn_filter({"extracted_data_status": "Completed", "division": division})
         )
-        
-        # Active HQ Count for this division
-        stats["active_hqs"] = frappe.db.count("HQ Master", {"division": division, "status": "Active"})
-        
+
+        # Active HQ Count for this division (region scoped)
+        stats["active_hqs"] = frappe.db.count(
+            "HQ Master", _rgn_filter({"division": division, "status": "Active"}))
+
         # Chart 1 & 2 shared: build last 14 day date series
         from frappe.utils import add_days, getdate
         start_date = add_days(nowdate(), -13)
 
         # Scheme requests per day (last 14 days)
+        _c, _p = _rgn("region")
         scheme_activity = frappe.db.sql("""
             SELECT DATE(creation) as date, COUNT(*) as count
             FROM `tabScheme Request`
             WHERE division = %s AND creation >= %s
+        """ + _c + """
             GROUP BY DATE(creation)
             ORDER BY DATE(creation) ASC
-        """, (division, start_date), as_dict=1)
+        """, tuple([division, start_date] + _p), as_dict=1)
         for d in scheme_activity:
             if d.get('date'): d['date'] = str(d['date'])
         stats["scheme_activity"] = scheme_activity
 
-        # Stock statements per day (last 14 days)
+        # Stock statements per day (last 14 days). Division-scoped too — without it this
+        # chart counted every division's statements.
+        _c, _p = _rgn("region")
         statement_activity = frappe.db.sql("""
             SELECT DATE(creation) as date, COUNT(*) as count
             FROM `tabStockist Statement`
-            WHERE creation >= %s
+            WHERE division = %s AND creation >= %s
+        """ + _c + """
             GROUP BY DATE(creation)
             ORDER BY DATE(creation) ASC
-        """, (start_date,), as_dict=1)
+        """, tuple([division, start_date] + _p), as_dict=1)
         for d in statement_activity:
             if d.get('date'): d['date'] = str(d['date'])
         stats["statement_activity"] = statement_activity
 
         # Chart 2: Top HQs by approved scheme value — last 6 months.
         # hq stores the HQ Master PK, so resolve to the readable HQ name for labels.
+        _c, _p = _rgn("sr.region")
         top_hqs = frappe.db.sql("""
             SELECT COALESCE(hm.hq_name, sr.hq) as hq,
                    COALESCE(SUM(sr.total_scheme_value), 0) as value,
@@ -119,10 +147,11 @@ def get_dashboard_stats(user, division):
               AND sr.approval_status = 'Approved'
               AND sr.creation >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
               AND sr.hq IS NOT NULL AND sr.hq != ''
+        """ + _c + """
             GROUP BY sr.hq, hm.hq_name
             ORDER BY value DESC
             LIMIT 8
-        """, (division,), as_dict=1)
+        """, tuple([division] + _p), as_dict=1)
         for h in top_hqs:
             h["value"] = float(h.get("value") or 0)
         stats["top_hqs"] = top_hqs
@@ -143,11 +172,17 @@ def get_dashboard_stats(user, division):
 
 
 def get_recent_requests(division, limit=5):
-    """Get recent scheme requests for the division"""
+    """Get recent scheme requests for the division, confined for non-admins to the
+    regions they are mapped to."""
+    from scanify.permissions import get_allowed_region_codes
+    filters = {"division": division}
+    regions = get_allowed_region_codes(division=division)
+    if regions is not None:
+        filters["region"] = ["in", regions or ["__none__"]]
     return frappe.get_all(
         "Scheme Request",
         fields=["name", "creation", "doctor_name", "approval_status", "total_scheme_value"],
-        filters={"division": division},
+        filters=filters,
         order_by="creation desc",
         limit=limit
     )

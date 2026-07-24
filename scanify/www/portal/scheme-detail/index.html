@@ -120,8 +120,8 @@
                             <tr>
                                 <th>Product</th>
                                 <th>Pack</th>
-                                <th>Order Qty (strips/units)</th>
-                                <th>Free Qty (strips/units)</th>
+                                <th>Order Qty (box/units)</th>
+                                <th>Free Qty (box/units)</th>
                                 <th>Rate (PTS)</th>
                                 <th>Special Rate (PTS)</th>
                                 <th>Scheme %</th>
@@ -361,13 +361,14 @@
                                 <tr>
                                     <th style="min-width:220px;">Product <span class="text-danger">*</span></th>
                                     <th style="min-width:70px;">Pack</th>
-                                    <th style="min-width:110px;">Order Qty (strips/units) <span class="text-danger">*</span></th>
-                                    <th style="min-width:100px;">Free Qty (strips/units)
+                                    <th style="min-width:110px;">Order Qty (box/units) <span class="text-danger">*</span>
+                                    <i class="fa fa-info-circle text-muted" title="Enter the quantity in boxes (or units for unit packs) - the same level as the Rate. Value = Order Qty x Rate (special rate when set); free goods are not valued."></i></th>
+                                    <th style="min-width:100px;">Free Qty (box/units)
                                         <i class="fa fa-info-circle text-muted" title="Free Qty and Special Price are mutually exclusive — set one or the other."></i>
                                     </th>
                                     <th style="min-width:100px;">Rate (PTS)</th>
                                     <th style="min-width:110px;">Special Rate (PTS)
-                                        <i class="fa fa-info-circle text-muted" title="Free Qty and Special Price are mutually exclusive — set one or the other."></i>
+                                        <i class="fa fa-info-circle text-muted" title="Special price per box/unit - the same level as Order Qty. Free Qty and Special Price are mutually exclusive — set one or the other."></i>
                                     </th>
                                     <th style="min-width:90px;">Scheme %</th>
                                     <th style="min-width:120px;">Value (&#8377;)</th>
@@ -1106,28 +1107,20 @@
         editCalcRow(rid);
     }
 
-    function editConvFactor(packStr) {
-        if (!packStr) return 1;
-        packStr = String(packStr).trim().toUpperCase();
-        const m = packStr.match(/(\d+)\s*[xX]\s*(\d+)/);
-        if (m) return parseFloat(m[1]) || 1;
-        return 1;
-    }
-
     function editCalcRow(rid) {
         const qty = parseFloat($('#e-qty-' + rid).val()) || 0;
         const free = parseFloat($('#e-free-' + rid).val()) || 0;
         const rate = parseFloat($('#e-rate-' + rid).val()) || 0;
         const special = parseFloat($('#e-special-' + rid).val()) || 0;
-        const conv = editConvFactor($('#e-pack-' + rid).val());
         let pct = 0;
         if (special > 0 && rate > 0) pct = ((rate - special) / rate) * 100;
         else if (free > 0 && qty > 0) pct = (free / qty) * 100;
-        // Order Value = (order qty in strips/units ÷ strips-per-box) × rate-per-box (PTS).
-        // Free qty is the scheme incentive, not part of the order value; special rate
-        // (also a PTS/box figure) replaces PTS when a discount scheme is used.
+        // Order Value = order qty × rate. Qty is in box/units and PTS is the
+        // per-box/unit rate, so no pack conversion applies. Free qty is the scheme
+        // incentive, not part of the order value; the special rate replaces PTS
+        // when a discount scheme is used.
         const effectiveRate = special > 0 ? special : rate;
-        const value = (qty / conv) * effectiveRate;
+        const value = qty * effectiveRate;
         $('#e-pct-' + rid).val(pct.toFixed(2) + '%');
         $('#e-value-' + rid).val('₹ ' + formatCurrency(value));
         editCalcTotal();

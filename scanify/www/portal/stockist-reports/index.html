@@ -393,8 +393,8 @@
                     {% endfor %}
                 </select>
             </div>
-            <!-- Product Group Multi-Select (Reports 7, 8, 11, 13) -->
-            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,sec_vs_closing,monthly_org" style="min-width:220px;flex:1 1 220px;max-width:380px;">
+            <!-- Product Group Multi-Select (Reports 7, 8, 11, 13, 14) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,sec_vs_closing,monthly_org,target_report" style="min-width:220px;flex:1 1 220px;max-width:380px;">
                 <label class="sr-filter-label">Product Group <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-prodgroup" multiple>
                     {% for g in product_groups %}
@@ -402,8 +402,8 @@
                     {% endfor %}
                 </select>
             </div>
-            <!-- Product Category Multi-Select (Reports 7, 8, 11, 13) -->
-            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,sec_vs_closing,monthly_org" style="min-width:220px;flex:1 1 220px;max-width:380px;">
+            <!-- Product Category Multi-Select (Reports 7, 8, 11, 13, 14) -->
+            <div class="sr-filter-item filter-field" data-reports="sec_moving_trend,region_stockist_trend,sec_vs_closing,monthly_org,target_report" style="min-width:220px;flex:1 1 220px;max-width:380px;">
                 <label class="sr-filter-label">Product Category <span class="text-muted" style="font-weight:400;text-transform:none;">(optional)</span></label>
                 <select class="form-control form-control-sm sr-filter-select" id="f-prodcat" multiple>
                     {% for c in product_categories %}
@@ -1332,6 +1332,7 @@ function buildParams() {
         p.sales_mode = document.getElementById("f-sales-mode").value || "after_deduction";
         var tregs = $("#f-tgt-regions").val() || [];
         if (tregs.length) p.region_codes = JSON.stringify(tregs);
+        addProductFilters(p, false);   // Report 14: group + category only (sales side)
     } else if (currentReportType === "gynae_report") {
         var gynOrg = document.getElementById("f-gyn-org").checked;
         if (gynOrg) {
@@ -1491,6 +1492,12 @@ function renderReport(result) {
         subtitle = `Target vs Sales`;
         if (tperiod) subtitle += ` | ${tperiod}`;
         subtitle += ` | ${ttype} | Values in Rs. Lakhs`;
+        // Name the product narrowing explicitly — the target column is never filtered,
+        // only sales, so the reader must be able to see what the sales figure covers.
+        var tCats = $("#f-prodcat").val() || [], tGrps = $("#f-prodgroup").val() || [];
+        if (tCats.length) subtitle += ` | Category: ${tCats.join(", ")}`;
+        if (tGrps.length) subtitle += ` | Group: ${tGrps.join(", ")}`;
+        if (tCats.length || tGrps.length) subtitle += ` (sales only)`;
     }
 
     if (currentReportType === "gynae_report") {
@@ -2112,51 +2119,70 @@ function renderMonthlyOrg(result, thead, tbody) {
 }
 
 // ---------- Report 14: Target vs Sales (HQ-wise, grouped by Region) ----------
+// Each month shows Target | Sales | Ach% (= Sales / Target × 100), followed by a
+// Total group for the whole selected period.
 function renderTargetReport(result, thead, tbody) {
     var months = result.months || [];
     var regions = result.regions || [];
     var grand = (result.grand_total && result.grand_total.monthly) || [];
+    var grandTotal = (result.grand_total && result.grand_total.total) || null;
 
     var hRow1 = "<tr><th rowspan='2' style='vertical-align:middle;'>HQ</th>";
     var hRow2 = "<tr>";
+    var subHdr = "<th style='background:#334155;color:#fff;'>Target</th>"
+               + "<th style='background:#334155;color:#fff;'>Sales</th>"
+               + "<th style='background:#334155;color:#fff;'>Ach %</th>";
     months.forEach(function(m) {
-        hRow1 += "<th colspan='2' style='text-align:center;'>" + esc(m.label) + "</th>";
-        hRow2 += "<th style='background:#334155;color:#fff;'>Target</th>"
-              +  "<th style='background:#334155;color:#fff;'>Sales</th>";
+        hRow1 += "<th colspan='3' style='text-align:center;'>" + esc(m.label) + "</th>";
+        hRow2 += subHdr;
     });
-    hRow1 += "</tr>";
-    hRow2 += "</tr>";
+    hRow1 += "<th colspan='3' style='text-align:center;background:#1d4ed8;color:#fff;'>Total</th></tr>";
+    hRow2 += "<th style='background:#1d4ed8;color:#fff;'>Target</th>"
+          +  "<th style='background:#1d4ed8;color:#fff;'>Sales</th>"
+          +  "<th style='background:#1d4ed8;color:#fff;'>Ach %</th></tr>";
     thead.innerHTML = hRow1 + hRow2;
 
-    function pairCells(m, style) {
-        // colour Sales vs Target: green when sales >= target (and target>0), red when short
+    function cellGroup(m, style, extra) {
+        // colour Sales/Ach% vs Target: green when sales >= target (and target>0),
+        // red when short. Ach% is blank when there is no target for the month.
+        m = m || {};
         var sales = Number(m.sales) || 0, target = Number(m.target) || 0;
-        var salesColor = "";
-        if (target > 0) salesColor = (sales >= target) ? "color:#16a34a;" : "color:#dc2626;";
-        return "<td class='text-right' style='" + (style || "") + "'>" + fmtNZ(m.target) + "</td>"
-             + "<td class='text-right' style='" + (style || "") + salesColor + "'>" + fmtNZ(m.sales) + "</td>";
+        var color = "";
+        if (target > 0) color = (sales >= target) ? "color:#16a34a;" : "color:#dc2626;";
+        var st = (style || "") + (extra || "");
+        var ach = (m.ach === null || m.ach === undefined)
+            ? "<span class='text-muted'>–</span>"
+            : Number(m.ach).toFixed(1) + "%";
+        return "<td class='text-right' style='" + st + "'>" + fmtNZ(m.target) + "</td>"
+             + "<td class='text-right' style='" + st + color + "'>" + fmtNZ(m.sales) + "</td>"
+             + "<td class='text-right' style='" + st + color + "'>" + ach + "</td>";
     }
+
+    var totStyle = "background:#eff6ff;font-weight:800;";
 
     var html = "";
     regions.forEach(function(reg) {
         (reg.hqs || []).forEach(function(h) {
             var row = "<tr>" + td(esc(h.hq_name));
-            (h.monthly || []).forEach(function(m) { row += pairCells(m, ""); });
+            (h.monthly || []).forEach(function(m) { row += cellGroup(m, ""); });
+            row += cellGroup(h.total, "", totStyle);
             row += "</tr>";
             html += row;
         });
         var rt = "<tr class='region-total-row' style='background:#fde8e8;border-top:2px solid #dc2626;border-bottom:2px solid #dc2626;'>"
                + "<td style='font-weight:800;color:#dc2626;font-size:12px;'>" + esc(reg.region_name) + " Region Total</td>";
         ((reg.totals && reg.totals.monthly) || []).forEach(function(m) {
-            rt += pairCells(m, "font-weight:800;");
+            rt += cellGroup(m, "font-weight:800;");
         });
+        rt += cellGroup((reg.totals || {}).total, "font-weight:800;");
         rt += "</tr>";
         html += rt;
     });
 
     if (grand.length) {
         var gt = "<tr class='grand-total-row'><td>Grand Total</td>";
-        grand.forEach(function(m) { gt += pairCells(m, "font-weight:800;"); });
+        grand.forEach(function(m) { gt += cellGroup(m, "font-weight:800;"); });
+        gt += cellGroup(grandTotal, "font-weight:800;");
         gt += "</tr>";
         html += gt;
     }
@@ -2542,7 +2568,10 @@ async function downloadPDF() {
     var _wide = (currentReportType === "org_sales");
     // Report 13 (monthly_org) has 20 columns — needs a smaller font + tight padding to
     // fit the landscape page (numeric columns 8..17 right-aligned).
-    var _many = (currentReportType === "monthly_org");
+    // Report 14 (target_report) is similarly column-heavy: 3 columns
+    // (Target/Sales/Ach%) per month plus a Total group (~39 cols for 12 months),
+    // but keeps normal horizontal headers (unlike org_sales' rotated ones).
+    var _many = (currentReportType === "monthly_org" || currentReportType === "target_report");
     // Reports 7 & 10: bigger font for readability, but tighter row padding so the
     // table still fits in 2 pages (no spill to a 3rd). Column grid is unchanged.
     var _detailFontSize = _tight ? 8 : (_wide ? 5.5 : (_many ? 6 : 7));
@@ -2556,6 +2585,11 @@ async function downloadPDF() {
     if (_tight) {
         _detailColStyles = { 0: { halign: "center" }, 1: { halign: "center" } };
         for (var _ci = 2; _ci <= 18; _ci++) _detailColStyles[_ci] = { halign: "right" };
+    } else if (currentReportType === "target_report") {
+        // Report 14: col 0 = HQ (left); every Target/Sales/Ach% column right-aligned.
+        var _ncolT = (dHead[0] || []).reduce(function(s, c) { return s + (c.colSpan || 1); }, 0);
+        _detailColStyles = { 0: { halign: "left" } };
+        for (var _ct = 1; _ct < _ncolT; _ct++) _detailColStyles[_ct] = { halign: "right" };
     } else if (_many) {
         // Report 13: numeric columns (Sales Before..Ops Value) are indices 8..17.
         _detailColStyles = {};

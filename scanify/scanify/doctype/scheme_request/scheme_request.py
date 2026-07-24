@@ -1,7 +1,6 @@
 # scanify/scanify/doctype/scheme_request/scheme_request.py
 
 import frappe
-import re
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate, getdate, get_first_day, get_last_day
 from datetime import datetime
@@ -57,35 +56,22 @@ class SchemeRequest(Document):
         self.total_scheme_value = total
 
     def _compute_order_value(self, item):
-        """Order Value of a scheme line = (order qty in strips/units ÷ strips-per-box)
-        × rate-per-box (PTS). Quantities are entered in strips/units; PTS and the
-        optional special rate are per-box figures. Free qty is the scheme incentive and
-        is NOT part of the order value — it is tracked separately and handled at
-        deduction time. A special (discount) rate simply replaces PTS."""
+        """Order Value of a scheme line = order qty × rate.
+
+        Order qty is entered in box/units and PTS (and the optional special rate)
+        are per-box/unit figures, so the two are already at the same level and NO
+        pack conversion applies — this matches every one of the 30,091 historical
+        scheme lines the client migrated (sheet column: "prod_qty in box/ units").
+        Free qty is the scheme incentive and is NOT part of the order value: it is
+        tracked separately and handled at deduction time. A special (discount) rate
+        simply replaces PTS."""
         pts = flt(item.product_rate or 0)
         quantity = flt(item.quantity or 0)
         special_rate = flt(item.special_rate or 0)
 
-        pack = item.pack or ''
-        if not pack and item.product_code:
-            pack = frappe.db.get_value("Product Master", item.product_code, "pack") or ''
-        conversion_factor = self._get_conversion_factor(pack)
-
         effective_rate = special_rate if special_rate > 0 else pts
-        return (quantity / conversion_factor) * effective_rate
+        return quantity * effective_rate
 
-    @staticmethod
-    def _get_conversion_factor(pack_str):
-        if not pack_str:
-            return 1
-        pack_str = str(pack_str).strip().upper()
-        match = re.match(r'(\d+)\s*[xX]\s*(\d+)', pack_str)
-        if match:
-            return flt(match.group(1)) or 1
-        if any(ind in pack_str for ind in ['UNIT', 'BOX', 'ML', 'GM', 'MG', "'S"]):
-            return 1
-        return 1
-    
     # REMOVED: validate_attachments method - attachments are now optional
     
     def validate_monthly_doctor_limit(self):
@@ -185,7 +171,7 @@ class SchemeRequest(Document):
             
             item.scheme_percentage = scheme_pct
 
-            # Order Value = (order qty ÷ strips-per-box) × rate-per-box (see _compute_order_value)
+            # Order Value = order qty × rate (see _compute_order_value)
             item.product_value = self._compute_order_value(item)
 
 

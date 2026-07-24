@@ -438,15 +438,6 @@ function checkProductLimit(rowId, productCode) {
     }
 }
 
-function getConversionFactor(packStr) {
-    if (!packStr) return 1;
-    packStr = String(packStr).trim().toUpperCase();
-    var match = packStr.match(/(\d+)\s*[xX]\s*(\d+)/);
-    if (match) return parseFloat(match[1]) || 1;
-    if (/UNIT|BOX|ML|GM|MG|'S/.test(packStr)) return 1;
-    return 1;
-}
-
 // ── Mutual exclusion: Free Qty vs Special Price ──
 // A line item is either a free-goods scheme OR a special-price (discount) scheme, never both.
 function onFreeQtyInput(rowId) {
@@ -478,8 +469,6 @@ function calculateRow(rowId) {
     var freeQty = parseFloat($('#freeqty-' + rowId).val()) || 0;
     var rate = parseFloat($('#rate-' + rowId).val()) || 0;
     var specialRate = parseFloat($('#specialrate-' + rowId).val()) || 0;
-    var pack = $('#pack-' + rowId).val() || '';
-    var conversionFactor = getConversionFactor(pack);
 
     var schemePct = 0;
     if (specialRate > 0 && rate > 0) {
@@ -488,11 +477,12 @@ function calculateRow(rowId) {
         schemePct = (freeQty / qty) * 100;
     }
 
-    // Order Value = (order qty in strips/units ÷ strips-per-box) × rate-per-box (PTS).
-    // Free qty is the scheme incentive and is NOT part of the order value; the special
-    // rate (also a PTS/box figure) simply replaces PTS when a discount scheme is used.
+    // Order Value = order qty × rate. Qty is entered in box/units and PTS is the
+    // per-box/unit rate, so no pack conversion applies. Free qty is the scheme
+    // incentive and is NOT part of the order value; the special rate simply
+    // replaces PTS when a discount scheme is used.
     var effectiveRate = specialRate > 0 ? specialRate : rate;
-    var value = (qty / conversionFactor) * effectiveRate;
+    var value = qty * effectiveRate;
 
     $('#schemepct-' + rowId).val(schemePct.toFixed(2) + '%');
     $('#value-' + rowId).val('\u20B9 ' + formatCurrency(value));

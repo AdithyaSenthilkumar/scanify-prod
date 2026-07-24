@@ -3381,7 +3381,7 @@ def _render_scheme_email_html(rows):
     td = "padding:4px 6px;border:1px solid #333;font-size:11px;"
     tdc = td + "text-align:center;"
     headers = ["S.No", "Sch. No", "Region", "Team", "HQ", "Doctor Name", "Hospital/Chemist",
-               "Stockist", "Product Code", "Pack size", "Order Qty (Strips/Units)", "Free Qty",
+               "Stockist", "Product Code", "Pack size", "Order Qty (Box/Units)", "Free Qty",
                "Spl. Rate in PTS"]
     head = "".join(f'<th style="{th}">{h}</th>' for h in headers)
 
@@ -3668,8 +3668,15 @@ def send_scheme_emails(scheme_names, month=None, mail_type="Approved"):
             if not valid:
                 continue
             try:
+                # expose_recipients="header" is what makes this ONE mail addressed to
+                # everyone instead of a private copy per address. Without it Frappe
+                # writes "To: <!--recipient-->" and drops the CC header entirely, so
+                # each recipient (To and CC alike) gets a mail addressed only to
+                # themselves — the CFA can't see who else was on it and Reply All
+                # doesn't reach the team. With it, every copy carries the full
+                # To/CC lists exactly as shown in the page's Preview.
                 frappe.sendmail(recipients=g["to"], cc=g["cc"], subject=g["subject"],
-                                message=g["html"], now=True)
+                                message=g["html"], now=True, expose_recipients="header")
             except Exception as se:
                 errors.append(f"{g['subject']}: {se}")
                 frappe.log_error(frappe.get_traceback(), "Send Scheme Email Error")
@@ -6813,7 +6820,6 @@ def get_doctor_scheme_history(doctor_code=None, hq=None, division=None, period_m
             SELECT sr.name AS scheme, sr.application_date, sr.doctor_name,
                    COALESCE(pm.product_code, sri.product_code) AS product_code,
                    COALESCE(pm.product_name, sri.product_name, '') AS product_name,
-                   COALESCE(NULLIF(sri.pack, ''), pm.pack, '') AS pack,
                    IFNULL(sri.product_rate, 0)   AS pts,
                    IFNULL(sri.quantity, 0)       AS quantity,
                    IFNULL(sri.free_quantity, 0)  AS free_quantity,
@@ -6829,23 +6835,21 @@ def get_doctor_scheme_history(doctor_code=None, hq=None, division=None, period_m
 
         doctor_name = rows[0]["doctor_name"] if rows else (
             frappe.db.get_value("Doctor Master", doctor_code, "doctor_name") or "")
-        # Qty / Free are entered in strips-units; the sheet shows them box-converted
-        # (÷ strips-per-box, the first number of an "NxM" pack) — mirrors the scheme
-        # order-value maths (Value = box-qty × rate). Free goods are never valued.
+        # Qty / Free are entered in box/units and are shown exactly as entered — no
+        # pack conversion. They are already at the same level as the rate, which is
+        # why Value = Qty × rate holds. Free goods are never valued.
         total_value = 0.0
         total_free = 0.0
         requests = set()
         for r in rows:
-            conv = _scheme_pack_conversion(r.get("pack")) or 1
-            r["quantity"] = round(flt(r.get("quantity")) / conv, 2)
-            r["free_quantity"] = round(flt(r.get("free_quantity")) / conv, 2)
+            r["quantity"] = round(flt(r.get("quantity")), 2)
+            r["free_quantity"] = round(flt(r.get("free_quantity")), 2)
             total_value += flt(r.get("value"))
             total_free += flt(r["free_quantity"])
             requests.add(r.get("scheme"))
             ad = r.get("application_date")
             r["application_date"] = frappe.utils.getdate(ad).strftime("%d/%m/%Y") if ad else ""
             r.pop("doctor_name", None)
-            r.pop("pack", None)
         return {"success": True, "doctor_name": doctor_name, "rows": rows,
                 "totals": {"value": total_value, "free_qty": round(total_free, 2),
                            "lines": len(rows), "requests": len(requests)}}
@@ -7202,15 +7206,12 @@ def create_scheme_request_v2(data):
             elif free_qty > 0 and qty > 0:
                 scheme_pct = (free_qty / qty) * 100
 
-            # Order Value = (order qty in strips/units ÷ strips-per-box) × rate-per-box
-            # (PTS or special rate). Mirrors Scheme Request._compute_order_value, which
-            # recomputes this authoritatively on save. Free qty is not part of the value.
-            pack_match = re.match(r'(\d+)\s*[xX]\s*(\d+)', str(item.get("pack") or "").strip().upper())
-            conversion_factor = flt(pack_match.group(1)) if pack_match else 1
-            if not conversion_factor:
-                conversion_factor = 1
+            # Order Value = order qty × rate (PTS or special rate). Qty and rate are
+            # both at box/unit level, so no pack conversion applies. Mirrors
+            # Scheme Request._compute_order_value, which recomputes this
+            # authoritatively on save. Free qty is not part of the value.
             effective_rate = special_rate if special_rate > 0 else rate
-            product_value = (qty / conversion_factor) * effective_rate
+            product_value = qty * effective_rate
 
             doc.append("items", {
                 "product_code": item.get("product_code"),
@@ -12410,12 +12411,17 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         sales_type = kwargs.get("sales_type", "secondary")
         sales_mode = kwargs.get("sales_mode", "after_deduction")
         region_codes = kwargs.get("region_codes", "")
+        product_group = kwargs.get("product_group", "")
+        product_category = kwargs.get("product_category", "")
         ws.title = "Target vs Sales"
         result = get_target_vs_sales_report(division, from_month or None, to_month or None,
-                                            region_codes or None, sales_type, sales_mode)
+                                            region_codes or None, sales_type, sales_mode,
+                                            None, product_group or None,
+                                            product_category or None)
         months_seq = result.get("months", [])
         regions_out = result.get("regions", [])
         grand = result.get("grand_total", {}).get("monthly", [])
+        grand_total = result.get("grand_total", {}).get("total") or {}
 
         period_label = ""
         if months_seq:
@@ -12423,25 +12429,34 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         type_label = "Primary" if sales_type == "primary" else "Secondary"
         if sales_type != "primary":
             type_label += " (" + ("Before Deduction" if sales_mode == "before_deduction" else "After Deduction") + ")"
-        subtitle = "  |  ".join([p for p in ["Target vs Sales", period_label, type_label, "Values in Rs. Lakhs"] if p])
+        # The product filter narrows SALES only (targets are set per HQ, not per
+        # product) — say so in the header so the two columns are read correctly.
+        filt_bits = []
+        if product_category:
+            filt_bits.append("Category: " + ", ".join(_normalise_code_list(product_category)))
+        if product_group:
+            filt_bits.append("Group: " + ", ".join(_normalise_code_list(product_group)))
+        filt_label = ("  |  ".join(filt_bits) + " (sales only)") if filt_bits else ""
+        subtitle = "  |  ".join([p for p in ["Target vs Sales", period_label, type_label,
+                                             "Values in Rs. Lakhs", filt_label] if p])
         row = write_title_rows(ws, f"Target vs Sales – {division}", subtitle)
 
-        # Two-row header: HQ + per-month (Target, Sales)
+        # Two-row header: HQ + per-month (Target, Sales, Ach %) + period Total group
         hdr_row1 = row
         hdr_row2 = row + 1
         cell = ws.cell(row=hdr_row1, column=1, value="HQ")
         cell.font = header_font; cell.fill = header_fill; cell.alignment = header_align; cell.border = thin_border
         ws.merge_cells(start_row=hdr_row1, start_column=1, end_row=hdr_row2, end_column=1)
         col_cursor = 2
-        for ms in months_seq:
+        for ms in list(months_seq) + [{"label": "Total"}]:
             cell = ws.cell(row=hdr_row1, column=col_cursor, value=ms["label"])
             cell.font = header_font; cell.fill = header_fill; cell.alignment = header_align; cell.border = thin_border
             ws.merge_cells(start_row=hdr_row1, start_column=col_cursor,
-                           end_row=hdr_row1, end_column=col_cursor + 1)
-            for sub, lbl in enumerate(["Target", "Sales"]):
+                           end_row=hdr_row1, end_column=col_cursor + 2)
+            for sub, lbl in enumerate(["Target", "Sales", "Ach %"]):
                 c = ws.cell(row=hdr_row2, column=col_cursor + sub, value=lbl)
                 c.font = header_font; c.fill = header_fill; c.alignment = header_align; c.border = thin_border
-            col_cursor += 2
+            col_cursor += 3
         row = hdr_row2 + 1
 
         region_total_font = Font(bold=True, color="C00000", size=11)
@@ -12450,18 +12465,25 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
         def _z(v):
             return v if v else None
 
+        def _cells(cell_seq, tail):
+            """Target / Sales / Ach % triplets for each month, then the period total.
+            Ach % is written as a real percentage (0-1) so Excel can format it."""
+            out = []
+            for m in list(cell_seq) + [tail or {}]:
+                out.append(_z(m.get("target")))
+                out.append(_z(m.get("sales")))
+                ach = m.get("ach")
+                out.append(round(flt(ach) / 100.0, 4) if ach is not None else None)
+            return out
+
         for reg in regions_out:
             for h in reg.get("hqs", []):
-                vals = [h["hq_name"]]
-                for m in h["monthly"]:
-                    vals.append(_z(m.get("target")))
-                    vals.append(_z(m.get("sales")))
-                write_data_row(ws, row, vals)
+                write_data_row(ws, row, [h["hq_name"]] + _cells(h["monthly"], h.get("total")))
+                for c in range(4, 2 + 3 * (len(months_seq) + 1), 3):
+                    ws.cell(row=row, column=c).number_format = "0.0%"
                 row += 1
-            tvals = [f"{reg['region_name']} Region Total"]
-            for m in reg["totals"]["monthly"]:
-                tvals.append(_z(m.get("target")))
-                tvals.append(_z(m.get("sales")))
+            tvals = ([f"{reg['region_name']} Region Total"]
+                     + _cells(reg["totals"]["monthly"], (reg["totals"] or {}).get("total")))
             for c, v in enumerate(tvals, 1):
                 cell = ws.cell(row=row, column=c, value=v)
                 cell.font = region_total_font
@@ -12469,13 +12491,12 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                 cell.border = thin_border
                 if c > 1:
                     cell.alignment = Alignment(horizontal="right")
+                if c >= 4 and (c - 1) % 3 == 0:
+                    cell.number_format = "0.0%"
             row += 1
 
         if grand:
-            gvals = ["Grand Total"]
-            for m in grand:
-                gvals.append(_z(m.get("target")))
-                gvals.append(_z(m.get("sales")))
+            gvals = ["Grand Total"] + _cells(grand, grand_total)
             grand_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
             grand_font = Font(bold=True, color="FFFFFF", size=11)
             for c, v in enumerate(gvals, 1):
@@ -12485,6 +12506,8 @@ def export_stockist_report_excel(report_type, division=None, **kwargs):
                 cell.border = thin_border
                 if c > 1:
                     cell.alignment = Alignment(horizontal="right")
+                if c >= 4 and (c - 1) % 3 == 0:
+                    cell.number_format = "0.0%"
             row += 1
 
     elif report_type == "gynae_report":
@@ -12906,11 +12929,10 @@ def get_scheme_activity_track_report(division=None, from_date=None, to_date=None
     total_qty = total_free = total_value = total_discount = 0
     for i, r in enumerate(rows, 1):
         special_rate = flt(r.special_rate)
-        # Discount value = (order qty ÷ strips-per-box) × (PTS − special price), only
-        # when a special price is set. The ÷conv is essential: order value (product_value)
-        # is per-box, so without it the discount is inflated by the pack size for NxM packs.
-        _conv = _scheme_pack_conversion(r.pack)
-        discount_value = (flt(r.quantity) / _conv) * (flt(r.rate) - special_rate) if special_rate > 0 else 0
+        # Discount value = order qty × (PTS − special price), only when a special price
+        # is set. No pack conversion: qty and both rates are at box/unit level, which
+        # keeps order value + discount value = gross value at PTS.
+        discount_value = flt(r.quantity) * (flt(r.rate) - special_rate) if special_rate > 0 else 0
         data.append({
             "sno": i,
             "date": str(r.date) if r.date else "",
@@ -13050,12 +13072,11 @@ def get_scheme_periodic_report(division=None, from_date=None, to_date=None,
 
     where = " AND ".join(conditions)
 
-    # Discount value aggregate: (order qty ÷ strips-per-box) × (PTS − special price)
-    # where a special price is set. The ÷conv keeps discount per-box so it reconciles
-    # with SUM(product_value) below (order value is already per-box).
-    _conv_sql = _sql_pack_conversion("sri.pack")
+    # Discount value aggregate: order qty × (PTS − special price) where a special
+    # price is set. No pack conversion — qty and both rates are at box/unit level, so
+    # this reconciles with SUM(product_value) below (order value = qty × rate).
     disc_expr = ("SUM(CASE WHEN sri.special_rate > 0 "
-                 f"THEN (sri.quantity / {_conv_sql}) * (sri.product_rate - sri.special_rate) "
+                 "THEN sri.quantity * (sri.product_rate - sri.special_rate) "
                  "ELSE 0 END) AS discount_value")
 
     # Reporting Criteria → GROUP BY mapping
@@ -13241,10 +13262,9 @@ def get_pending_scheme_deduction_report(division=None, month=None,
     tot_free = tot_disc = tot_value = 0
     for i, r in enumerate(rows, 1):
         special_rate = flt(r.special_rate)
-        # (order qty ÷ strips-per-box) × (PTS − special); ÷conv keeps it per-box so it
-        # reconciles with the order value (product_value) below.
-        _conv = _scheme_pack_conversion(r.pack)
-        discount_value = (flt(r.quantity) / _conv) * (flt(r.product_rate) - special_rate) if special_rate > 0 else 0
+        # order qty × (PTS − special); no pack conversion, so it reconciles with the
+        # order value (product_value = qty × rate) below.
+        discount_value = flt(r.quantity) * (flt(r.product_rate) - special_rate) if special_rate > 0 else 0
         schemes_seen.add(r.scheme_name)
         data.append({
             "sno": i,
@@ -15812,12 +15832,22 @@ def get_secondary_vs_closing_value_report(division=None, from_month=None, to_mon
 @frappe.whitelist()
 def get_target_vs_sales_report(division=None, from_month=None, to_month=None,
                                region_codes=None, sales_type="secondary",
-                               sales_mode="after_deduction"):
-    """Report 14 – Target vs Sales (HQ-wise, monthly).
+                               sales_mode="after_deduction",
+                               product_codes=None, product_group=None,
+                               product_category=None):
+    """Report 14 – Target vs Sales (HQ-wise, monthly) with Achievement %.
 
     from_month / to_month: YYYY-MM. region_codes: optional multi-select.
     sales_type: 'secondary' (default) or 'primary'.
     sales_mode: 'after_deduction' | 'before_deduction' (secondary only).
+    product_codes / product_group / product_category: optional product narrowing,
+    e.g. Category = 'Main Products' to exclude Hospital and New products. The
+    filter applies to SALES only — HQ targets are set at HQ level, not per
+    product, so the target column is unaffected by it.
+
+    Each month cell carries {target, sales, ach} (Achievement % = sales / target
+    × 100, None when there is no target), and every row/total also carries a
+    period `total` cell of the same shape.
     """
     if not division:
         division = get_user_division()
@@ -15902,6 +15932,21 @@ def get_target_vs_sales_report(division=None, from_month=None, to_month=None,
     def to_lakhs(v):
         return round(flt(v) / LAKH, 2) if v else 0.0
 
+    # ── Optional product / group / category narrowing (intersection), sales only ──
+    # Secondary sales link products by Product Master PK; Primary Sales Data stores
+    # the product CODE in `pcode`, so resolve the PKs to codes for that branch.
+    _pf = _resolve_product_filter(division, product_codes, product_group, product_category)
+    sec_prod_clause, sec_prod_params = "", []
+    pri_prod_clause, pri_prod_params = "", []
+    if _pf is not None:
+        sec_prod_clause = " AND si.product_code IN (" + ", ".join(["%s"] * len(_pf)) + ")"
+        sec_prod_params = _pf
+        _codes = [r[0] for r in frappe.db.sql(
+            "SELECT product_code FROM `tabProduct Master` WHERE name IN ("
+            + ", ".join(["%s"] * len(_pf)) + ")", _pf) if r[0]] or ["__no_match__"]
+        pri_prod_clause = " AND psd.pcode IN (" + ", ".join(["%s"] * len(_codes)) + ")"
+        pri_prod_params = _codes
+
     # ── Sales value (₹) per HQ per (year, month) ──
     sales_idx = {}
     if sales_type == "primary":
@@ -15914,15 +15959,16 @@ def get_target_vs_sales_report(division=None, from_month=None, to_month=None,
         if stk_codes:
             sp_ph = ", ".join(["%s"] * len(stk_codes))
             pri_rows = frappe.db.sql(f"""
-                SELECT stockist_code,
-                       YEAR(invoicedate) AS y, MONTH(invoicedate) AS m,
-                       SUM(ptsvalue) AS val
-                  FROM `tabPrimary Sales Data`
-                 WHERE division = %s AND iscancelled = 0
-                   AND stockist_code IN ({sp_ph})
-                   AND invoicedate BETWEEN %s AND %s
-              GROUP BY stockist_code, YEAR(invoicedate), MONTH(invoicedate)
-            """, [division] + stk_codes + [from_date_d, to_date_d], as_dict=True)
+                SELECT psd.stockist_code AS stockist_code,
+                       YEAR(psd.invoicedate) AS y, MONTH(psd.invoicedate) AS m,
+                       SUM(psd.ptsvalue) AS val
+                  FROM `tabPrimary Sales Data` psd
+                 WHERE psd.division = %s AND psd.iscancelled = 0
+                   AND psd.stockist_code IN ({sp_ph})
+                   AND psd.invoicedate BETWEEN %s AND %s{pri_prod_clause}
+              GROUP BY psd.stockist_code, YEAR(psd.invoicedate), MONTH(psd.invoicedate)
+            """, [division] + stk_codes + [from_date_d, to_date_d] + pri_prod_params,
+                as_dict=True)
             for r in pri_rows:
                 hqc = stk_hq.get(r.stockist_code)
                 if hqc:
@@ -15944,9 +15990,10 @@ def get_target_vs_sales_report(division=None, from_month=None, to_month=None,
                 ON si.parent = ss.name AND si.parenttype = 'Stockist Statement'
              WHERE ss.division = %s AND ss.docstatus IN (0, 1)
                AND ss.hq IN ({hq_ph})
-               AND ss.statement_month BETWEEN %s AND %s
+               AND ss.statement_month BETWEEN %s AND %s{sec_prod_clause}
           GROUP BY ss.hq, YEAR(ss.statement_month), MONTH(ss.statement_month)
-        """, [division] + hq_codes + [from_date_d, to_date_d], as_dict=True)
+        """, [division] + hq_codes + [from_date_d, to_date_d] + sec_prod_params,
+            as_dict=True)
         for r in sec_rows:
             sales_idx[(r.hq, r.y, r.m)] = flt(r.val)
 
@@ -15991,6 +16038,17 @@ def get_target_vs_sales_report(division=None, from_month=None, to_month=None,
     regions_out = []
     grand_monthly = [{"target": 0.0, "sales": 0.0} for _ in months_seq]
 
+    def _ach(cell):
+        """Achievement % = Sales / Target × 100. None when there is no target
+        (a percentage of zero is meaningless — the UI renders it as '–')."""
+        t = flt(cell.get("target"))
+        cell["ach"] = round(flt(cell.get("sales")) / t * 100, 1) if t > 0 else None
+        return cell
+
+    def _period_total(cells):
+        return _ach({"target": round(sum(flt(c["target"]) for c in cells), 2),
+                     "sales": round(sum(flt(c["sales"]) for c in cells), 2)})
+
     for r in regions:
         region_hqs = hq_by_region.get(r.code, [])
         region_monthly = [{"target": 0.0, "sales": 0.0} for _ in months_seq]
@@ -16000,63 +16058,44 @@ def get_target_vs_sales_report(division=None, from_month=None, to_month=None,
             for mi, ms in enumerate(months_seq):
                 tv = _target_for(h.code, ms)
                 sv = to_lakhs(sales_idx.get((h.code, ms["year"], ms["month"]), 0))
-                row_monthly.append({"target": tv, "sales": sv})
+                row_monthly.append(_ach({"target": tv, "sales": sv}))
                 region_monthly[mi]["target"] = round(region_monthly[mi]["target"] + tv, 2)
                 region_monthly[mi]["sales"] = round(region_monthly[mi]["sales"] + sv, 2)
-            hqs_out.append({"hq_code": h.code, "hq_name": h.hq_name or h.code, "monthly": row_monthly})
+            hqs_out.append({"hq_code": h.code, "hq_name": h.hq_name or h.code,
+                            "monthly": row_monthly, "total": _period_total(row_monthly)})
 
         for mi in range(len(months_seq)):
             grand_monthly[mi]["target"] = round(grand_monthly[mi]["target"] + region_monthly[mi]["target"], 2)
             grand_monthly[mi]["sales"] = round(grand_monthly[mi]["sales"] + region_monthly[mi]["sales"], 2)
 
+        for c in region_monthly:
+            _ach(c)
         regions_out.append({
             "region_code": r.code,
             "region_name": region_names.get(r.code, r.code),
             "hqs": hqs_out,
-            "totals": {"monthly": region_monthly},
+            "totals": {"monthly": region_monthly, "total": _period_total(region_monthly)},
         })
+
+    for c in grand_monthly:
+        _ach(c)
 
     return {
         "success": True,
         "regions": regions_out,
         "months": months_seq,
-        "grand_total": {"monthly": grand_monthly},
+        "grand_total": {"monthly": grand_monthly, "total": _period_total(grand_monthly)},
         "from_month": from_month,
         "to_month": to_month,
         "sales_type": sales_type,
         "sales_mode": sales_mode,
+        "product_filtered": _pf is not None,
     }
 
 
 # ═══════════════════════════════════════════════════════════════
 # Shared helper – resolve product-attribute filters → product codes
 # ═══════════════════════════════════════════════════════════════
-
-def _scheme_pack_conversion(pack_str):
-    """Strips-per-box for a pack string = first number of an 'NxM' pack, else 1.
-
-    Mirrors SchemeRequest._get_conversion_factor so box-converted scheme quantities
-    (Qty/Free) reconcile with the stored order value (Value = box-qty × rate).
-    """
-    if not pack_str:
-        return 1
-    pack_str = str(pack_str).strip().upper()
-    match = re.match(r'(\d+)\s*[xX]\s*(\d+)', pack_str)
-    if match:
-        return flt(match.group(1)) or 1
-    return 1
-
-
-def _sql_pack_conversion(pack_col):
-    """SQL expression mirroring _scheme_pack_conversion(): strips-per-box = the first
-    number of an 'NxM' pack (e.g. 10x15 -> 10), else 1. Used inside aggregate report
-    SQL so discount value stays per-box and reconciles with the stored order value.
-    Guards against a 0 factor to avoid divide-by-zero."""
-    p = f"LOWER(TRIM({pack_col}))"
-    n = f"CAST(SUBSTRING_INDEX({p}, 'x', 1) AS DECIMAL(20,6))"
-    return (f"(CASE WHEN {p} REGEXP '^[0-9]+[[:space:]]*x[[:space:]]*[0-9]+' "
-            f"AND {n} > 0 THEN {n} ELSE 1 END)")
-
 
 def _resolve_product_filter(division, product_codes=None, product_group=None, product_category=None):
     """Return a list of Product Master codes matching the given filters.
